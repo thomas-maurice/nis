@@ -1,0 +1,23 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/thomas-maurice/nis/gen
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt:
+      - paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen
+    opt:
+      - paths=source_relative
+  - local: ["npx", "@bufbuild/protoc-gen-es"]
+    out: ui/src/gen
+    opt:
+      - target=ts
+  - local: ["npx", "@connectrpc/protoc-gen-connect-es"]
+    out: ui/src/gen
+    opt:
+      - target=ts

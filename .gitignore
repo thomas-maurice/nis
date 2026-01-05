@@ -1,0 +1,62 @@
+# Binaries
+.claude
+nis
+nisctl
+CLAUDE.md
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Build artifacts
+/bin
+/pkg
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+*.db
+*.db-shm
+*.db-wal
+/data/
+./data/
+
+# Logs
+*.log
+
+# Config
+config.yaml
+config.yml
+.env
+
+# nisctl config
+.config/nisctl/
+
+# UI build artifacts
+/ui/dist
+/ui/node_modules
+/internal/interfaces/http/ui/dist
+node_modules/
+dist/
+*.tsbuildinfo
+README.docker.md
+STATUS.md
+UI_IMPLEMENTATION.md
+test-nats.go
+IMPLEMENTATION.md
+PROGRESS.md
+CONTRIBUTING.md
+example/data

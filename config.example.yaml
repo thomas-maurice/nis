@@ -1,0 +1,91 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  driver: "sqlite"  # or "postgres"
+  # For SQLite:
+  path: "./nis.db"
+  # For PostgreSQL:
+  # host: "localhost"
+  # port: 5432
+  # user: "nis"
+  # password: "secret"
+  # dbname: "nis"
+  # sslmode: "disable"
+
+encryption:
+  # Encryption key rotation support
+  # You can define multiple encryption keys with IDs for seamless rotation
+
+  # The ID of the key to use for new encryptions
+  current_key_id: "key-2025-01"
+
+  # List of encryption keys (all keys are available for decryption)
+  # This allows you to rotate keys without losing access to old encrypted data
+  # Generate new keys with: openssl rand -base64 32
+  keys:
+    # Example: Old key (still needed to decrypt existing data)
+    # - id: "key-2024-12"
+    #   key: "OGJhMWNmOGE3YzlkNGYzZTJiNWE2ZDFjOGI0ZTlmM2E="
+
+    # Current key (used for new encryptions)
+    - id: "key-2025-01"
+      key: "REPLACE_WITH_GENERATED_KEY"  # 32-byte key, base64 encoded
+
+  # Note: You can also use a single encryption key via command-line flag:
+  # --encryption-key (exactly 32 bytes) or environment variable ENCRYPTION_KEY
+
+auth:
+  # ECDSA private key for signing API JWTs (PEM format)
+  # Generate with: openssl ecparam -genkey -name prime256v1 -noout -out api_signing_key.pem
+  signing_key_path: "./keys/api_signing_key.pem"
+  token_expiry: "24h"
+
+  # JWT secret for API authentication (minimum 32 bytes recommended)
+  # This can also be provided via --jwt-secret flag or AUTH_JWT_SECRET environment variable
+  jwt_secret: "REPLACE_WITH_SECURE_JWT_SECRET_MIN_32_BYTES"
+
+  # Casbin config paths
+  casbin_model_path: "./config/casbin_model.conf"
+  casbin_policy_path: "./config/casbin_policy.csv"
+
+# Default JetStream limits for new accounts
+jetstream_defaults:
+  max_memory: 1073741824      # 1GB
+  max_storage: 10737418240    # 10GB
+  max_streams: 10
+  max_consumers: 100
+
+# NATS connection settings (optional)
+nats:
+  url: "nats://localhost:4222"
+  # For authenticated connections:
+  # credentials_file: "/path/to/system.creds"
+  # Or provide credentials directly:
+  # username: "admin"
+  # password: "secret"
+
+# Logging configuration
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "text"  # text or json
+
+# Key Rotation Workflow:
+# 1. Generate a new encryption key: openssl rand -base64 32
+# 2. Add the new key to the 'keys' list with a unique ID
+# 3. Update 'current_key_id' to point to the new key ID
+# 4. Restart the service - new data will be encrypted with the new key
+# 5. Old data remains decryptable with old keys
+# 6. Optional: Re-encrypt old data using the key rotation API
+#
+# Example multi-key configuration:
+# encryption:
+#   current_key_id: "key-2025-02"
+#   keys:
+#     - id: "key-2024-12"
+#       key: "OGJhMWNmOGE3YzlkNGYzZTJiNWE2ZDFjOGI0ZTlmM2E="
+#     - id: "key-2025-01"
+#       key: "NGY3YTNkOWI4ZTZjMmExZDViNGM3Zjhh="
+#     - id: "key-2025-02"
+#       key: "ZTNhOGY0YjdjOWQxMjM0NTY3ODlhYmNk="

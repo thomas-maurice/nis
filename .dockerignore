@@ -1,0 +1,51 @@
+# Binaries
+nis
+nisctl
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Build artifacts
+/bin
+/pkg
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+
+# Data
+*.db
+*.db-shm
+*.db-wal
+/data
+
+# Logs
+*.log

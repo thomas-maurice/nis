@@ -1,0 +1,55 @@
+services:
+  nis:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: example-nis
+    ports:
+      - "8080:8080"
+    environment:
+      - LOG_LEVEL=info
+    command:
+      - "./nis"
+      - "serve"
+      - "--db-dsn=/data/nis.db"
+      - "--address=:8080"
+      - "--jwt-secret=example-jwt-secret-change-in-production-min-32-bytes"
+      - "--encryption-key=12345678901234567890123456789012"
+    volumes:
+      - ./data/nis:/data
+    networks:
+      - nis-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: example-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command:
+      - "-c"
+      - "/nats-config/nats-server.conf"
+    volumes:
+      - ./data/nats:/nats-config
+      - ./data/nats/resolver:/resolver
+      - ./data/nats/jetstream:/data/jetstream
+    networks:
+      - nis-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      nis:
+        condition: service_healthy
+
+networks:
+  nis-network:
+    driver: bridge
