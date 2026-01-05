@@ -63,6 +63,23 @@
                   <span v-else class="text-muted">Not set</span>
                 </dd>
 
+                <dt class="col-sm-4">Health Status:</dt>
+                <dd class="col-sm-8">
+                  <span v-if="cluster.lastHealthCheck">
+                    <span :class="cluster.healthy ? 'badge bg-success' : 'badge bg-danger'">
+                      {{ cluster.healthy ? 'Healthy' : 'Unhealthy' }}
+                    </span>
+                    <br>
+                    <small class="text-muted">Last check: {{ formatDate(cluster.lastHealthCheck) }}</small>
+                    <div v-if="!cluster.healthy && cluster.healthCheckError" class="text-danger small mt-1">
+                      {{ cluster.healthCheckError }}
+                    </div>
+                  </span>
+                  <span v-else class="badge bg-secondary">
+                    Unknown
+                  </span>
+                </dd>
+
                 <dt class="col-sm-4">Created:</dt>
                 <dd class="col-sm-8">{{ formatDate(cluster.createdAt) }}</dd>
               </dl>
@@ -93,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import apiClient from '@/utils/api'
 
@@ -104,6 +121,7 @@ const error = ref('')
 const syncing = ref(false)
 const syncSuccess = ref('')
 const syncError = ref('')
+let refreshInterval = null
 
 const loadCluster = async () => {
   loading.value = true
@@ -144,6 +162,17 @@ const formatDate = (dateStr) => {
 
 onMounted(() => {
   loadCluster()
+
+  // Auto-refresh cluster status every 30 seconds
+  refreshInterval = setInterval(() => {
+    loadCluster()
+  }, 30000)
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
 })
 </script>
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -282,12 +283,23 @@ func (s *OperatorService) SetSystemAccount(ctx context.Context, operatorID uuid.
 	operator.SystemAccountPubKey = systemAccountPubKey
 	operator.UpdatedAt = time.Now()
 
-	// Regenerate JWT with new system account
-	jwt, err := s.jwtService.GenerateOperatorJWT(ctx, operator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to regenerate operator JWT: %w", err)
+	// Check if the operator JWT already has the correct system account
+	// This happens when importing from NSC where the JWT is preserved
+	existingClaims, err := jwt.DecodeOperatorClaims(operator.JWT)
+	regenerateJWT := true
+	if err == nil && existingClaims.SystemAccount == systemAccountPubKey {
+		// JWT already has correct system account, don't regenerate
+		regenerateJWT = false
 	}
-	operator.JWT = jwt
+
+	// Regenerate JWT with new system account only if needed
+	if regenerateJWT {
+		newJWT, err := s.jwtService.GenerateOperatorJWT(ctx, operator)
+		if err != nil {
+			return nil, fmt.Errorf("failed to regenerate operator JWT: %w", err)
+		}
+		operator.JWT = newJWT
+	}
 
 	// Save changes
 	if err := s.repo.Update(ctx, operator); err != nil {

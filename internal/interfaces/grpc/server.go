@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"strings"
 
+	"connectrpc.com/connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/handlers"
+	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	httpInterface "github.com/thomas-maurice/nis/internal/interfaces/http"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
@@ -37,30 +39,35 @@ func NewServer(
 	clusterService *services.ClusterService,
 	authService *services.AuthService,
 	exportService *services.ExportService,
+	permService *services.PermissionService,
+	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
 	mux := http.NewServeMux()
 
-	// Register all service handlers
-	operatorHandler := handlers.NewOperatorHandler(operatorService)
-	mux.Handle(nisv1connect.NewOperatorServiceHandler(operatorHandler))
+	// Create interceptor option for all handlers
+	interceptorOption := connect.WithInterceptors(authInterceptor)
 
-	accountHandler := handlers.NewAccountHandler(accountService)
-	mux.Handle(nisv1connect.NewAccountServiceHandler(accountHandler))
+	// Register all service handlers with auth interceptor
+	operatorHandler := handlers.NewOperatorHandler(operatorService, permService)
+	mux.Handle(nisv1connect.NewOperatorServiceHandler(operatorHandler, interceptorOption))
 
-	userHandler := handlers.NewUserHandler(userService)
-	mux.Handle(nisv1connect.NewUserServiceHandler(userHandler))
+	accountHandler := handlers.NewAccountHandler(accountService, permService)
+	mux.Handle(nisv1connect.NewAccountServiceHandler(accountHandler, interceptorOption))
 
-	scopedKeyHandler := handlers.NewScopedSigningKeyHandler(scopedKeyService)
-	mux.Handle(nisv1connect.NewScopedSigningKeyServiceHandler(scopedKeyHandler))
+	userHandler := handlers.NewUserHandler(userService, permService)
+	mux.Handle(nisv1connect.NewUserServiceHandler(userHandler, interceptorOption))
 
-	clusterHandler := handlers.NewClusterHandler(clusterService)
-	mux.Handle(nisv1connect.NewClusterServiceHandler(clusterHandler))
+	scopedKeyHandler := handlers.NewScopedSigningKeyHandler(scopedKeyService, permService)
+	mux.Handle(nisv1connect.NewScopedSigningKeyServiceHandler(scopedKeyHandler, interceptorOption))
+
+	clusterHandler := handlers.NewClusterHandler(clusterService, permService)
+	mux.Handle(nisv1connect.NewClusterServiceHandler(clusterHandler, interceptorOption))
 
 	authHandler := handlers.NewAuthHandler(authService)
-	mux.Handle(nisv1connect.NewAuthServiceHandler(authHandler))
+	mux.Handle(nisv1connect.NewAuthServiceHandler(authHandler, interceptorOption))
 
-	exportHandler := handlers.NewExportHandler(exportService)
-	mux.Handle(nisv1connect.NewExportServiceHandler(exportHandler))
+	exportHandler := handlers.NewExportHandler(exportService, permService)
+	mux.Handle(nisv1connect.NewExportServiceHandler(exportHandler, interceptorOption))
 
 	// Serve UI if enabled
 	var handler http.Handler = mux

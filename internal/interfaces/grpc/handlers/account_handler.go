@@ -5,8 +5,10 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
+	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
@@ -14,12 +16,16 @@ import (
 // AccountHandler implements the AccountService gRPC service
 type AccountHandler struct {
 	service     *services.AccountService
+	permService *services.PermissionService
 	natsClient  interface{} // TODO: Will be replaced with NATS client for PushAccountJWT
 }
 
 // NewAccountHandler creates a new AccountHandler
-func NewAccountHandler(service *services.AccountService) nisv1connect.AccountServiceHandler {
-	return &AccountHandler{service: service}
+func NewAccountHandler(service *services.AccountService, permService *services.PermissionService) nisv1connect.AccountServiceHandler {
+	return &AccountHandler{
+		service:     service,
+		permService: permService,
+	}
 }
 
 // CreateAccount creates a new account
@@ -27,9 +33,20 @@ func (h *AccountHandler) CreateAccount(
 	ctx context.Context,
 	req *connect.Request[pb.CreateAccountRequest],
 ) (*connect.Response[pb.CreateAccountResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// Check permission to create account in this operator
+	if err := h.permService.CanCreateAccount(requestingUser, operatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	enabled, maxMem, maxStor, maxStr, maxCons :=
@@ -59,9 +76,20 @@ func (h *AccountHandler) GetAccount(
 	ctx context.Context,
 	req *connect.Request[pb.GetAccountRequest],
 ) (*connect.Response[pb.GetAccountResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// Check permission to read this account
+	if err := h.permService.CanReadAccount(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	account, err := h.service.GetAccount(ctx, id)
@@ -82,6 +110,12 @@ func (h *AccountHandler) GetAccountByName(
 	ctx context.Context,
 	req *connect.Request[pb.GetAccountByNameRequest],
 ) (*connect.Response[pb.GetAccountByNameResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -95,6 +129,11 @@ func (h *AccountHandler) GetAccountByName(
 		return nil, err
 	}
 
+	// Check permission to read this account
+	if err := h.permService.CanReadAccount(ctx, requestingUser, account.ID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
 	return connect.NewResponse(&pb.GetAccountByNameResponse{
 		Account: mappers.AccountToProto(account),
 	}), nil
@@ -105,30 +144,41 @@ func (h *AccountHandler) ListAccounts(
 	ctx context.Context,
 	req *connect.Request[pb.ListAccountsRequest],
 ) (*connect.Response[pb.ListAccountsResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	var accounts []*entities.Account
+	var err error
+
 	// If operator_id is empty, list all accounts across all operators
 	if req.Msg.OperatorId == "" {
-		accounts, err := h.service.ListAllAccounts(ctx, mappers.ProtoToListOptions(req.Msg.Options))
+		accounts, err = h.service.ListAllAccounts(ctx, mappers.ProtoToListOptions(req.Msg.Options))
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		operatorID, parseErr := mappers.ParseUUID(req.Msg.OperatorId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, parseErr)
+		}
 
-		return connect.NewResponse(&pb.ListAccountsResponse{
-			Accounts: mappers.AccountsToProto(accounts),
-		}), nil
+		accounts, err = h.service.ListAccountsByOperator(ctx, operatorID, mappers.ProtoToListOptions(req.Msg.Options))
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
+	// Filter accounts based on user permissions
+	filtered, err := h.permService.FilterAccounts(ctx, requestingUser, accounts)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	accounts, err := h.service.ListAccountsByOperator(ctx, operatorID, mappers.ProtoToListOptions(req.Msg.Options))
-	if err != nil {
-		return nil, err
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	return connect.NewResponse(&pb.ListAccountsResponse{
-		Accounts: mappers.AccountsToProto(accounts),
+		Accounts: mappers.AccountsToProto(filtered),
 	}), nil
 }
 

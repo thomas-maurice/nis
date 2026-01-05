@@ -16,13 +16,25 @@ func APIUserToProto(user *entities.APIUser) *pb.APIUser {
 	// The actual permission enforcement is done via Casbin
 	permissions := []string{string(user.Role)}
 
-	return &pb.APIUser{
+	pbUser := &pb.APIUser{
 		Id:          UUIDToString(user.ID),
 		Username:    user.Username,
 		Permissions: permissions,
 		CreatedAt:   timestamppb.New(user.CreatedAt),
 		UpdatedAt:   timestamppb.New(user.UpdatedAt),
 	}
+
+	// Add optional operator_id and account_id
+	if user.OperatorID != nil {
+		operatorID := UUIDToString(*user.OperatorID)
+		pbUser.OperatorId = &operatorID
+	}
+	if user.AccountID != nil {
+		accountID := UUIDToString(*user.AccountID)
+		pbUser.AccountId = &accountID
+	}
+
+	return pbUser
 }
 
 // ProtoToAPIUserRole converts protobuf permissions to APIUserRole

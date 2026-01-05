@@ -134,13 +134,21 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (*e
 
 // CreateAPIUserRequest contains data for creating an API user
 type CreateAPIUserRequest struct {
-	Username string
-	Password string
-	Role     entities.APIUserRole
+	Username   string
+	Password   string
+	Role       entities.APIUserRole
+	OperatorID *uuid.UUID // Required for operator-admin role
+	AccountID  *uuid.UUID // Required for account-admin role
 }
 
-// CreateAPIUser creates a new API user
-func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserRequest) (*entities.APIUser, error) {
+// CreateAPIUser creates a new API user (admin only)
+// Requires the requesting user to be passed in context for authorization
+func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
+	// Only admins can create API users
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, fmt.Errorf("permission denied: only admins can create API users")
+	}
+
 	if req.Username == "" {
 		return nil, fmt.Errorf("username is required")
 	}
@@ -149,6 +157,27 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 	}
 	if !req.Role.IsValid() {
 		return nil, fmt.Errorf("invalid role: %s", req.Role)
+	}
+
+	// Validate role-specific requirements
+	if req.Role == entities.RoleOperatorAdmin {
+		if req.OperatorID == nil {
+			return nil, fmt.Errorf("operator_id is required for operator-admin role")
+		}
+		if req.AccountID != nil {
+			return nil, fmt.Errorf("account_id must not be set for operator-admin role")
+		}
+	} else if req.Role == entities.RoleAccountAdmin {
+		if req.AccountID == nil {
+			return nil, fmt.Errorf("account_id is required for account-admin role")
+		}
+		if req.OperatorID != nil {
+			return nil, fmt.Errorf("operator_id must not be set for account-admin role")
+		}
+	} else if req.Role == entities.RoleAdmin {
+		if req.OperatorID != nil || req.AccountID != nil {
+			return nil, fmt.Errorf("operator_id and account_id must not be set for admin role")
+		}
 	}
 
 	// Check if username already exists
@@ -168,6 +197,8 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 		Username:     req.Username,
 		PasswordHash: string(passwordHash),
 		Role:         req.Role,
+		OperatorID:   req.OperatorID,
+		AccountID:    req.AccountID,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
@@ -180,18 +211,30 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 	return user, nil
 }
 
-// GetAPIUser retrieves an API user by ID
-func (s *AuthService) GetAPIUser(ctx context.Context, id uuid.UUID) (*entities.APIUser, error) {
+// GetAPIUser retrieves an API user by ID (admin only)
+func (s *AuthService) GetAPIUser(ctx context.Context, id uuid.UUID, requestingUser *entities.APIUser) (*entities.APIUser, error) {
+	// Only admins can get API users
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, fmt.Errorf("permission denied: only admins can view API users")
+	}
 	return s.apiUserRepo.GetByID(ctx, id)
 }
 
-// GetAPIUserByUsername retrieves an API user by username
-func (s *AuthService) GetAPIUserByUsername(ctx context.Context, username string) (*entities.APIUser, error) {
+// GetAPIUserByUsername retrieves an API user by username (admin only)
+func (s *AuthService) GetAPIUserByUsername(ctx context.Context, username string, requestingUser *entities.APIUser) (*entities.APIUser, error) {
+	// Only admins can get API users
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, fmt.Errorf("permission denied: only admins can view API users")
+	}
 	return s.apiUserRepo.GetByUsername(ctx, username)
 }
 
-// ListAPIUsers lists all API users
-func (s *AuthService) ListAPIUsers(ctx context.Context) ([]*entities.APIUser, error) {
+// ListAPIUsers lists all API users (admin only)
+func (s *AuthService) ListAPIUsers(ctx context.Context, requestingUser *entities.APIUser) ([]*entities.APIUser, error) {
+	// Only admins can list API users
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, fmt.Errorf("permission denied: only admins can view API users")
+	}
 	return s.apiUserRepo.List(ctx, repositories.ListOptions{})
 }
 
@@ -200,8 +243,13 @@ type UpdatePasswordRequest struct {
 	Password string
 }
 
-// UpdateAPIUserPassword updates an API user's password
-func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, req UpdatePasswordRequest) (*entities.APIUser, error) {
+// UpdateAPIUserPassword updates an API user's password (admin only)
+func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, req UpdatePasswordRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
+	// Only admins can update API user passwords
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, fmt.Errorf("permission denied: only admins can update API user passwords")
+	}
+
 	if req.Password == "" {
 		return nil, fmt.Errorf("password is required")
 	}
@@ -230,13 +278,41 @@ func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, r
 
 // UpdateRoleRequest contains data for updating a user's role
 type UpdateRoleRequest struct {
-	Role entities.APIUserRole
+	Role       entities.APIUserRole
+	OperatorID *uuid.UUID // Required for operator-admin role
+	AccountID  *uuid.UUID // Required for account-admin role
 }
 
-// UpdateAPIUserRole updates an API user's role
-func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req UpdateRoleRequest) (*entities.APIUser, error) {
+// UpdateAPIUserRole updates an API user's role (admin only)
+func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req UpdateRoleRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
+	// Only admins can update API user roles
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, fmt.Errorf("permission denied: only admins can update API user roles")
+	}
+
 	if !req.Role.IsValid() {
 		return nil, fmt.Errorf("invalid role: %s", req.Role)
+	}
+
+	// Validate role-specific requirements
+	if req.Role == entities.RoleOperatorAdmin {
+		if req.OperatorID == nil {
+			return nil, fmt.Errorf("operator_id is required for operator-admin role")
+		}
+		if req.AccountID != nil {
+			return nil, fmt.Errorf("account_id must not be set for operator-admin role")
+		}
+	} else if req.Role == entities.RoleAccountAdmin {
+		if req.AccountID == nil {
+			return nil, fmt.Errorf("account_id is required for account-admin role")
+		}
+		if req.OperatorID != nil {
+			return nil, fmt.Errorf("operator_id must not be set for account-admin role")
+		}
+	} else if req.Role == entities.RoleAdmin {
+		if req.OperatorID != nil || req.AccountID != nil {
+			return nil, fmt.Errorf("operator_id and account_id must not be set for admin role")
+		}
 	}
 
 	user, err := s.apiUserRepo.GetByID(ctx, id)
@@ -245,6 +321,8 @@ func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req U
 	}
 
 	user.Role = req.Role
+	user.OperatorID = req.OperatorID
+	user.AccountID = req.AccountID
 	user.UpdatedAt = time.Now()
 
 	err = s.apiUserRepo.Update(ctx, user)
@@ -255,8 +333,12 @@ func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req U
 	return user, nil
 }
 
-// DeleteAPIUser deletes an API user
-func (s *AuthService) DeleteAPIUser(ctx context.Context, id uuid.UUID) error {
+// DeleteAPIUser deletes an API user (admin only)
+func (s *AuthService) DeleteAPIUser(ctx context.Context, id uuid.UUID, requestingUser *entities.APIUser) error {
+	// Only admins can delete API users
+	if requestingUser.Role != entities.RoleAdmin {
+		return fmt.Errorf("permission denied: only admins can delete API users")
+	}
 	return s.apiUserRepo.Delete(ctx, id)
 }
 

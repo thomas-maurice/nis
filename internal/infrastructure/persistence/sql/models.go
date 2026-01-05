@@ -290,10 +290,12 @@ func ClusterModelFromEntity(e *entities.Cluster) *ClusterModel {
 
 // APIUserModel represents the GORM model for API users
 type APIUserModel struct {
-	ID           string `gorm:"primaryKey;type:text"`
-	Username     string `gorm:"type:text;uniqueIndex;not null"`
-	PasswordHash string `gorm:"type:text;not null"`
-	Role         string `gorm:"type:text;not null"`
+	ID           string  `gorm:"primaryKey;type:text"`
+	Username     string  `gorm:"type:text;uniqueIndex;not null"`
+	PasswordHash string  `gorm:"type:text;not null"`
+	Role         string  `gorm:"type:text;not null"`
+	OperatorID   *string `gorm:"type:text;index"`
+	AccountID    *string `gorm:"type:text;index"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -303,22 +305,50 @@ func (APIUserModel) TableName() string {
 }
 
 func (m *APIUserModel) ToEntity() *entities.APIUser {
+	var operatorID *uuid.UUID
+	if m.OperatorID != nil {
+		id := uuid.MustParse(*m.OperatorID)
+		operatorID = &id
+	}
+
+	var accountID *uuid.UUID
+	if m.AccountID != nil {
+		id := uuid.MustParse(*m.AccountID)
+		accountID = &id
+	}
+
 	return &entities.APIUser{
 		ID:           uuid.MustParse(m.ID),
 		Username:     m.Username,
 		PasswordHash: m.PasswordHash,
 		Role:         entities.APIUserRole(m.Role),
+		OperatorID:   operatorID,
+		AccountID:    accountID,
 		CreatedAt:    m.CreatedAt,
 		UpdatedAt:    m.UpdatedAt,
 	}
 }
 
 func APIUserModelFromEntity(e *entities.APIUser) *APIUserModel {
+	var operatorID *string
+	if e.OperatorID != nil {
+		id := e.OperatorID.String()
+		operatorID = &id
+	}
+
+	var accountID *string
+	if e.AccountID != nil {
+		id := e.AccountID.String()
+		accountID = &id
+	}
+
 	return &APIUserModel{
 		ID:           e.ID.String(),
 		Username:     e.Username,
 		PasswordHash: e.PasswordHash,
 		Role:         string(e.Role),
+		OperatorID:   operatorID,
+		AccountID:    accountID,
 		CreatedAt:    e.CreatedAt,
 		UpdatedAt:    e.UpdatedAt,
 	}

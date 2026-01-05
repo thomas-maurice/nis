@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// User represents a NATS user
+message User {
+  string id = 1;
+  string account_id = 2;
+  string name = 3;
+  string description = 4;
+  string public_key = 5;
+  string jwt = 6;
+  string scoped_signing_key_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// CreateUserRequest is the request to create a new user
+message CreateUserRequest {
+  string account_id = 1;
+  string name = 2;
+  string description = 3;
+  string scoped_signing_key_id = 4;
+}
+
+// CreateUserResponse is the response from creating a user
+message CreateUserResponse {
+  User user = 1;
+}
+
+// GetUserRequest is the request to get a user by ID
+message GetUserRequest {
+  string id = 1;
+}
+
+// GetUserResponse is the response from getting a user
+message GetUserResponse {
+  User user = 1;
+}
+
+// GetUserByNameRequest is the request to get a user by name
+message GetUserByNameRequest {
+  string account_id = 1;
+  string name = 2;
+}
+
+// GetUserByNameResponse is the response from getting a user by name
+message GetUserByNameResponse {
+  User user = 1;
+}
+
+// ListUsersRequest is the request to list users
+message ListUsersRequest {
+  string account_id = 1;
+  ListOptions options = 2;
+}
+
+// ListUsersResponse is the response from listing users
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+// UpdateUserRequest is the request to update a user
+message UpdateUserRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+
+// UpdateUserResponse is the response from updating a user
+message UpdateUserResponse {
+  User user = 1;
+}
+
+// DeleteUserRequest is the request to delete a user
+message DeleteUserRequest {
+  string id = 1;
+}
+
+// DeleteUserResponse is the response from deleting a user
+message DeleteUserResponse {}
+
+// GetUserCredentialsRequest is the request to get user credentials
+message GetUserCredentialsRequest {
+  string id = 1;
+}
+
+// GetUserCredentialsResponse is the response from getting user credentials
+message GetUserCredentialsResponse {
+  string credentials = 1;
+}
+
+// UserService manages NATS users
+service UserService {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc GetUserByName(GetUserByNameRequest) returns (GetUserByNameResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  rpc GetUserCredentials(GetUserCredentialsRequest) returns (GetUserCredentialsResponse);
+}

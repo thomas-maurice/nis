@@ -10,7 +10,7 @@
       <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>{{ operator.name }}</h1>
         <div>
-          <button class="btn btn-outline-success me-2" @click="showExportModal = true">
+          <button v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="btn btn-outline-success me-2" @click="showExportModal = true">
             <font-awesome-icon :icon="['fas', 'file-export']" class="me-2" />
             Export
           </button>
@@ -45,6 +45,31 @@
                   <ClickablePubKey v-if="operator.systemAccountPubKey" :pubkey="operator.systemAccountPubKey" />
                   <span v-else class="text-muted">Not set</span>
                 </dd>
+
+                <template v-if="authStore.isAdmin || authStore.isOperatorAdmin">
+                  <dt class="col-sm-4">NIS Admin User:</dt>
+                  <dd class="col-sm-8">
+                    <span v-if="hasAdminAccount" class="text-success">
+                      <font-awesome-icon :icon="['fas', 'check-circle']" class="me-1" />
+                      Configured
+                    </span>
+                    <span v-else-if="checkingAdminAccount" class="text-muted">
+                      <span class="spinner-border spinner-border-sm me-1"></span>
+                      Checking...
+                    </span>
+                    <div v-else>
+                      <span class="text-warning me-2">
+                        <font-awesome-icon :icon="['fas', 'exclamation-triangle']" class="me-1" />
+                        Not configured
+                      </span>
+                      <button class="btn btn-sm btn-primary" @click="createAdminAccount" :disabled="creatingAdminAccount">
+                        <span v-if="creatingAdminAccount" class="spinner-border spinner-border-sm me-1"></span>
+                        Create Admin User
+                      </button>
+                    </div>
+                    <div v-if="adminAccountError" class="text-danger small mt-1">{{ adminAccountError }}</div>
+                  </dd>
+                </template>
 
                 <dt class="col-sm-4">Created:</dt>
                 <dd class="col-sm-8">{{ formatDate(operator.createdAt) }}</dd>
@@ -144,13 +169,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
 import CodeBlock from '@/components/CodeBlock.vue'
 import ClickablePubKey from '@/components/ClickablePubKey.vue'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const operator = ref(null)
 const clusters = ref([])
 const loading = ref(false)
@@ -160,6 +187,11 @@ const showExportModal = ref(false)
 const exportIncludeSecrets = ref(true)
 const exporting = ref(false)
 const exportError = ref('')
+const hasAdminAccount = ref(false)
+const checkingAdminAccount = ref(false)
+const creatingAdminAccount = ref(false)
+const adminAccountError = ref('')
+let refreshInterval = null
 
 const loadOperator = async () => {
   loading.value = true
@@ -173,10 +205,108 @@ const loadOperator = async () => {
     await generateConfig()
     // Load clusters for this operator
     await loadClusters()
+    // Check for admin account
+    await checkAdminAccount()
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load operator'
   } finally {
     loading.value = false
+  }
+}
+
+const checkAdminAccount = async () => {
+  checkingAdminAccount.value = true
+  try {
+    // Find system account by matching public key
+    if (!operator.value.systemAccountPubKey) {
+      hasAdminAccount.value = false
+      return
+    }
+
+    const accountsResponse = await apiClient.post('/nis.v1.AccountService/ListAccounts', {
+      operatorId: operator.value.id
+    })
+    const accounts = accountsResponse.data.accounts || []
+    const sysAccount = accounts.find(account => account.publicKey === operator.value.systemAccountPubKey)
+
+    if (!sysAccount) {
+      hasAdminAccount.value = false
+      return
+    }
+
+    // Then check if system user exists in system account
+    const usersResponse = await apiClient.post('/nis.v1.UserService/ListUsers', {
+      accountId: sysAccount.id
+    })
+    const users = usersResponse.data.users || []
+    hasAdminAccount.value = users.some(user => user.name === 'system')
+  } catch (err) {
+    console.error('Failed to check system user:', err)
+    hasAdminAccount.value = false
+  } finally {
+    checkingAdminAccount.value = false
+  }
+}
+
+const createAdminAccount = async () => {
+  creatingAdminAccount.value = true
+  adminAccountError.value = ''
+  try {
+    // Find system account by matching public key
+    if (!operator.value.systemAccountPubKey) {
+      adminAccountError.value = 'No system account configured for this operator'
+      return
+    }
+
+    const accountsResponse = await apiClient.post('/nis.v1.AccountService/ListAccounts', {
+      operatorId: operator.value.id
+    })
+    const accounts = accountsResponse.data.accounts || []
+    const sysAccount = accounts.find(account => account.publicKey === operator.value.systemAccountPubKey)
+
+    if (!sysAccount) {
+      adminAccountError.value = 'System account not found'
+      return
+    }
+
+    // Check if system user already exists
+    const usersResponse = await apiClient.post('/nis.v1.UserService/ListUsers', {
+      accountId: sysAccount.id
+    })
+    const users = usersResponse.data.users || []
+    let systemUser = users.find(user => user.name === 'system')
+
+    // Create system user if it doesn't exist
+    if (!systemUser) {
+      const userResponse = await apiClient.post('/nis.v1.UserService/CreateUser', {
+        accountId: sysAccount.id,
+        name: 'system',
+        description: 'System user for operator management'
+      })
+      systemUser = userResponse.data.user
+    }
+
+    // Update all clusters to use this system user for credentials
+    if (clusters.value && clusters.value.length > 0) {
+      for (const cluster of clusters.value) {
+        try {
+          await apiClient.post('/nis.v1.ClusterService/UpdateClusterCredentials', {
+            id: cluster.id,
+            systemAccountCreds: systemUser.id
+          })
+        } catch (clusterErr) {
+          console.error(`Failed to update credentials for cluster ${cluster.name}:`, clusterErr)
+        }
+      }
+    }
+
+    hasAdminAccount.value = true
+    // Reload clusters to show updated health status
+    await loadClusters()
+  } catch (err) {
+    adminAccountError.value = err.response?.data?.message || 'Failed to create system user'
+  } finally {
+    creatingAdminAccount.value = false
   }
 }
 
@@ -258,8 +388,28 @@ const formatDate = (dateStr) => {
   return new Date(dateStr).toLocaleString()
 }
 
+const refreshData = async () => {
+  // Refresh clusters and admin account status without showing loading spinner
+  try {
+    await Promise.all([
+      loadClusters(),
+      checkAdminAccount()
+    ])
+  } catch (err) {
+    console.error('Failed to refresh data:', err)
+  }
+}
+
 onMounted(() => {
   loadOperator()
+  // Refresh every 5 seconds
+  refreshInterval = setInterval(refreshData, 5000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
 })
 </script>
 

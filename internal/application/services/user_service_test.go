@@ -79,6 +79,7 @@ func (s *UserServiceTestSuite) SetupSuite() {
 	s.accountService = NewAccountService(
 		s.accountRepo,
 		s.operatorRepo,
+		s.scopedKeyRepo,
 		jwtService,
 		s.encryptor,
 	)

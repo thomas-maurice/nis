@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -18,6 +19,7 @@ type AuthServiceTestSuite struct {
 	db          *gorm.DB
 	repo        repositories.APIUserRepository
 	authService *AuthService
+	adminUser   *entities.APIUser // Admin user for testing
 }
 
 func (s *AuthServiceTestSuite) SetupTest() {
@@ -34,6 +36,11 @@ func (s *AuthServiceTestSuite) SetupTest() {
 	s.db = db
 	s.repo = sql.NewAPIUserRepo(db)
 	s.authService = NewAuthService(s.repo, "test-secret-key-for-jwt-signing", 1*time.Hour)
+
+	// Create an admin user for tests
+	s.adminUser = &entities.APIUser{
+		Role: entities.RoleAdmin,
+	}
 }
 
 func (s *AuthServiceTestSuite) TearDownTest() {
@@ -54,7 +61,7 @@ func (s *AuthServiceTestSuite) TestCreateAPIUser() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 
 	s.NoError(err)
 	s.NotNil(user)
@@ -72,15 +79,15 @@ func (s *AuthServiceTestSuite) TestCreateAPIUser_DuplicateUsername() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	// Try to create second user with same username
 	_, err = s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
 		Username: "testuser",
 		Password: "differentpassword",
-		Role:     entities.RoleOperatorAdmin,
-	})
+		Role:     entities.RoleAdmin,
+	}, s.adminUser)
 	s.Error(err)
 	s.Equal(repositories.ErrAlreadyExists, err)
 }
@@ -93,7 +100,7 @@ func (s *AuthServiceTestSuite) TestLogin_Success() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	// Login with correct credentials
@@ -117,7 +124,7 @@ func (s *AuthServiceTestSuite) TestLogin_InvalidPassword() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	// Login with wrong password
@@ -151,7 +158,7 @@ func (s *AuthServiceTestSuite) TestValidateToken_Success() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	loginResp, err := s.authService.Login(ctx, LoginRequest{
@@ -190,7 +197,7 @@ func (s *AuthServiceTestSuite) TestValidateToken_ExpiredToken() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	loginResp, err := shortTTLService.Login(ctx, LoginRequest{
@@ -217,7 +224,7 @@ func (s *AuthServiceTestSuite) TestUpdateAPIUserPassword() {
 		Username: "testuser",
 		Password: "oldpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	oldPasswordHash := user.PasswordHash
@@ -225,7 +232,7 @@ func (s *AuthServiceTestSuite) TestUpdateAPIUserPassword() {
 	// Update password
 	updatedUser, err := s.authService.UpdateAPIUserPassword(ctx, user.ID, UpdatePasswordRequest{
 		Password: "newpassword",
-	})
+	}, s.adminUser)
 
 	s.NoError(err)
 	s.NotEqual(oldPasswordHash, updatedUser.PasswordHash)
@@ -249,19 +256,21 @@ func (s *AuthServiceTestSuite) TestUpdateAPIUserPassword() {
 func (s *AuthServiceTestSuite) TestUpdateAPIUserRole() {
 	ctx := context.Background()
 
-	// Create a user
+	// Create a user with account-admin role
+	testAccountID := uuid.New()
 	user, err := s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
-		Username: "testuser",
-		Password: "testpassword",
-		Role:     entities.RoleOperatorAdmin,
-	})
+		Username:  "testuser",
+		Password:  "testpassword",
+		Role:      entities.RoleAccountAdmin,
+		AccountID: &testAccountID,
+	}, s.adminUser)
 	s.NoError(err)
-	s.Equal(entities.RoleOperatorAdmin, user.Role)
+	s.Equal(entities.RoleAccountAdmin, user.Role)
 
 	// Update role to admin
 	updatedUser, err := s.authService.UpdateAPIUserRole(ctx, user.ID, UpdateRoleRequest{
 		Role: entities.RoleAdmin,
-	})
+	}, s.adminUser)
 
 	s.NoError(err)
 	s.Equal(entities.RoleAdmin, updatedUser.Role)
@@ -275,15 +284,15 @@ func (s *AuthServiceTestSuite) TestDeleteAPIUser() {
 		Username: "testuser",
 		Password: "testpassword",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
 	// Delete the user
-	err = s.authService.DeleteAPIUser(ctx, user.ID)
+	err = s.authService.DeleteAPIUser(ctx, user.ID, s.adminUser)
 	s.NoError(err)
 
 	// Try to get the deleted user
-	_, err = s.authService.GetAPIUser(ctx, user.ID)
+	_, err = s.authService.GetAPIUser(ctx, user.ID, s.adminUser)
 	s.Error(err)
 	s.Equal(repositories.ErrNotFound, err)
 }
@@ -296,18 +305,20 @@ func (s *AuthServiceTestSuite) TestListAPIUsers() {
 		Username: "user1",
 		Password: "password1",
 		Role:     entities.RoleAdmin,
-	})
+	}, s.adminUser)
 	s.NoError(err)
 
+	testAccountID := uuid.New()
 	_, err = s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
-		Username: "user2",
-		Password: "password2",
-		Role:     entities.RoleOperatorAdmin,
-	})
+		Username:  "user2",
+		Password:  "password2",
+		Role:      entities.RoleAccountAdmin,
+		AccountID: &testAccountID,
+	}, s.adminUser)
 	s.NoError(err)
 
 	// List all users
-	users, err := s.authService.ListAPIUsers(ctx)
+	users, err := s.authService.ListAPIUsers(ctx, s.adminUser)
 	s.NoError(err)
 	s.Len(users, 2)
 }

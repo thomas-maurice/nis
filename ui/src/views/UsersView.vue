@@ -269,7 +269,11 @@ const getOperatorName = (accountId) => {
 
 const isSystemUser = (user) => {
   const account = accounts.value.find(a => a.id === user.accountId)
-  return account && account.name === '$SYS' && user.name === 'system'
+  if (!account || user.name !== 'system') return false
+
+  // Check if this account is the system account for its operator
+  const operator = operators.value.find(o => o.id === account.operatorId)
+  return operator && operator.systemAccountPubKey === account.publicKey
 }
 
 const loadScopedKeys = async (accountId) => {

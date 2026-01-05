@@ -7,12 +7,15 @@
       :columns="columns"
       :loading="loading"
       :error="error"
+      :can-create="authStore.isAdmin"
+      :can-edit="authStore.isAdmin"
+      :can-delete="authStore.isAdmin"
       @create="showCreateModal"
       @edit="showEditModal"
       @delete="handleDelete"
       @select="handleSelect"
     >
-      <template #header-actions>
+      <template v-if="authStore.isAdmin" #header-actions>
         <button class="btn btn-outline-primary me-2" @click="showImportModal = true">
           <font-awesome-icon :icon="['fas', 'file-import']" class="me-2" />
           Import
@@ -192,12 +195,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
 import EntityList from '@/components/EntityList.vue'
 import EntityForm from '@/components/EntityForm.vue'
 import ClickablePubKey from '@/components/ClickablePubKey.vue'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const operators = ref([])
 const loading = ref(false)
 const error = ref('')

@@ -26,6 +26,8 @@ type APIUser struct {
 	Username     string
 	PasswordHash string // bcrypt hash
 	Role         APIUserRole
+	OperatorID   *uuid.UUID // Required for operator-admin role
+	AccountID    *uuid.UUID // Required for account-admin role
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

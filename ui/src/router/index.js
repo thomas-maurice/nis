@@ -69,6 +69,12 @@ const router = createRouter({
       name: 'signing-keys',
       component: () => import('@/views/SigningKeysView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/api-users',
+      name: 'api-users',
+      component: () => import('@/views/ApiUsersView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 })
@@ -77,10 +83,14 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   const requiresAuth = to.meta.requiresAuth !== false
+  const requiresAdmin = to.meta.requiresAdmin === true
 
   if (requiresAuth && !authStore.checkAuth()) {
     next({ name: 'login', query: { redirect: to.fullPath } })
   } else if (to.name === 'login' && authStore.checkAuth()) {
+    next({ name: 'home' })
+  } else if (requiresAdmin && !authStore.isAdmin) {
+    // Redirect non-admin users away from admin-only pages
     next({ name: 'home' })
   } else {
     next()

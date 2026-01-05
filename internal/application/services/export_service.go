@@ -614,9 +614,10 @@ func extractTar(reader io.Reader, destDir string) error {
 
 // ImportFromNSC imports an operator from an NSC archive
 // The archive should contain the NSC store structure:
-// keys/operators/<operatorName>/<operatorName>.jwt
-// keys/accounts/<accountName>/<accountName>.jwt
-// keys/accounts/<accountName>/users/<userName>.jwt
+// operator/operator.jwt
+// operator/accounts/{accountName}/{accountName}.jwt
+// operator/accounts/{accountName}/users/{userName}.jwt
+// nkeys/keys/{type}/{prefix}/{fullkey}.nk
 func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, operatorName string) (uuid.UUID, error) {
 	// Extract archive to temp directory
 	tempDir, err := s.extractArchive(archiveData)
@@ -627,24 +628,24 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 
 	// Find the NSC store directory (may be nested in the archive)
 	nscDir := tempDir
-	keysDir := filepath.Join(tempDir, "keys")
-	if _, err := os.Stat(keysDir); err != nil {
-		// Try to find keys directory in subdirectories
+	operatorDir := filepath.Join(tempDir, "operator")
+	if _, err := os.Stat(operatorDir); err != nil {
+		// Try to find operator directory in subdirectories
 		entries, err := os.ReadDir(tempDir)
 		if err == nil && len(entries) == 1 && entries[0].IsDir() {
 			// If there's only one directory, it might be the NSC store
-			potentialKeysDir := filepath.Join(tempDir, entries[0].Name(), "keys")
-			if _, err := os.Stat(potentialKeysDir); err == nil {
+			potentialOperatorDir := filepath.Join(tempDir, entries[0].Name(), "operator")
+			if _, err := os.Stat(potentialOperatorDir); err == nil {
 				nscDir = filepath.Join(tempDir, entries[0].Name())
 			}
 		}
 	}
 
-	// Read operator JWT
-	operatorJWTPath := filepath.Join(nscDir, "keys", operatorName, operatorName+".jwt")
+	// Read operator JWT - always at operator/operator.jwt
+	operatorJWTPath := filepath.Join(nscDir, "operator", "operator.jwt")
 	operatorJWTData, err := os.ReadFile(operatorJWTPath)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to read operator JWT: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to read operator JWT at %s: %w", operatorJWTPath, err)
 	}
 
 	// Parse operator JWT
@@ -653,11 +654,13 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 		return uuid.Nil, fmt.Errorf("failed to decode operator claims: %w", err)
 	}
 
-	// Read operator seed (nkey)
-	operatorSeedPath := filepath.Join(nscDir, "keys", operatorName, operatorName+".nk")
-	operatorSeedData, err := os.ReadFile(operatorSeedPath)
+	// Get operator public key from JWT
+	operatorPubKey := operatorClaims.Subject
+
+	// Find operator seed in nkeys/keys/O/{prefix}/{fullkey}.nk
+	operatorSeedData, err := s.findNKey(nscDir, operatorPubKey)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to read operator seed: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to find operator seed for %s: %w", operatorPubKey, err)
 	}
 
 	// Parse the seed
@@ -666,10 +669,13 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 		return uuid.Nil, fmt.Errorf("failed to parse operator seed: %w", err)
 	}
 
-	// Get the public key
-	operatorPubKey, err := operatorKeyPair.PublicKey()
+	// Verify public key matches
+	verifyPubKey, err := operatorKeyPair.PublicKey()
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("failed to get operator public key: %w", err)
+	}
+	if verifyPubKey != operatorPubKey {
+		return uuid.Nil, fmt.Errorf("operator public key mismatch: expected %s, got %s", operatorPubKey, verifyPubKey)
 	}
 
 	// Encrypt the seed for storage
@@ -684,14 +690,21 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 		description = strings.Join(operatorClaims.Tags, ", ")
 	}
 
-	// Create operator entity
+	// Use provided operator name if given, otherwise use name from JWT
+	finalOperatorName := operatorName
+	if finalOperatorName == "" {
+		finalOperatorName = operatorClaims.Name
+	}
+
+	// Create operator entity (without system account yet, will be set after SYS account is imported)
 	operatorID := uuid.New()
 	operator := &entities.Operator{
 		ID:            operatorID,
-		Name:          operatorClaims.Name,
+		Name:          finalOperatorName,
 		Description:   description,
 		EncryptedSeed: encryptedSeed,
 		PublicKey:     operatorPubKey,
+		JWT:           string(operatorJWTData), // Use original JWT from NSC
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
@@ -701,8 +714,16 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 		return uuid.Nil, fmt.Errorf("failed to create operator: %w", err)
 	}
 
-	// Find and import accounts
-	accountsDir := filepath.Join(nscDir, "keys", "accounts")
+	// TODO: Import operator scoped signing keys if present
+	// For now we preserve the original JWTs from NSC, so we don't need to
+	// import operator signing keys. In the future, if we want to create NEW
+	// accounts using these keys, we would need to store them.
+
+	// Track the SYS account public key for later
+	var sysAccountPubKey string
+
+	// Find and import accounts - in operator/accounts/
+	accountsDir := filepath.Join(nscDir, "operator", "accounts")
 	if _, err := os.Stat(accountsDir); err == nil {
 		accountEntries, err := os.ReadDir(accountsDir)
 		if err != nil {
@@ -715,53 +736,199 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 			}
 
 			accountName := accountEntry.Name()
-			if err := s.importNSCAccount(ctx, nscDir, operatorID, operatorKeyPair, accountName); err != nil {
+			accountPubKey, err := s.importNSCAccount(ctx, nscDir, operatorID, operatorKeyPair, accountName)
+			if err != nil {
 				return uuid.Nil, fmt.Errorf("failed to import account %s: %w", accountName, err)
 			}
+
+			// Track SYS or $SYS account
+			if accountName == "SYS" || accountName == "$SYS" {
+				sysAccountPubKey = accountPubKey
+			}
+		}
+	}
+
+	// Set system account if $SYS was found
+	if sysAccountPubKey != "" {
+		if _, err := s.operatorService.SetSystemAccount(ctx, operatorID, sysAccountPubKey); err != nil {
+			return uuid.Nil, fmt.Errorf("failed to set system account: %w", err)
+		}
+
+		// Create system user in $SYS account if it doesn't exist
+		if err := s.ensureSystemUser(ctx, operatorID); err != nil {
+			return uuid.Nil, fmt.Errorf("failed to ensure system user: %w", err)
 		}
 	}
 
 	return operatorID, nil
 }
 
-// importNSCAccount imports a single account from NSC
-func (s *ExportService) importNSCAccount(ctx context.Context, nscDir string, operatorID uuid.UUID, operatorKeyPair nkeys.KeyPair, accountName string) error {
-	// Read account JWT
-	accountJWTPath := filepath.Join(nscDir, "keys", "accounts", accountName, accountName+".jwt")
+// ensureSystemUser creates a system user in the system account if it doesn't exist
+func (s *ExportService) ensureSystemUser(ctx context.Context, operatorID uuid.UUID) error {
+	// Get the operator to find the system account public key
+	operator, err := s.operatorRepo.GetByID(ctx, operatorID)
+	if err != nil {
+		return fmt.Errorf("failed to get operator: %w", err)
+	}
+
+	if operator.SystemAccountPubKey == "" {
+		return fmt.Errorf("operator has no system account configured")
+	}
+
+	// Find the system account by matching public key
+	accounts, err := s.accountRepo.ListByOperator(ctx, operatorID, repositories.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list accounts: %w", err)
+	}
+
+	var sysAccount *entities.Account
+	for _, account := range accounts {
+		if account.PublicKey == operator.SystemAccountPubKey {
+			sysAccount = account
+			break
+		}
+	}
+
+	if sysAccount == nil {
+		return fmt.Errorf("system account not found")
+	}
+
+	// Check if system user already exists in system account
+	users, err := s.userRepo.ListByAccount(ctx, sysAccount.ID, repositories.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list users in system account: %w", err)
+	}
+
+	var systemUser *entities.User
+	// Look specifically for a user named "system"
+	for _, user := range users {
+		if user.Name == "system" {
+			systemUser = user
+			break
+		}
+	}
+
+	// Create system user if it doesn't exist
+	// This ensures consistency - we always use a user named "system" for cluster management
+	if systemUser == nil {
+		// Check if the account has scoped signing keys - if so, use the first one
+		// This is important for imported NSC operators that use scoped signing keys
+		var scopedKeyID *uuid.UUID
+		scopedKeys, err := s.scopedKeyRepo.ListByAccount(ctx, sysAccount.ID, repositories.ListOptions{Limit: 1})
+		if err == nil && len(scopedKeys) > 0 {
+			scopedKeyID = &scopedKeys[0].ID
+		}
+
+		userReq := CreateUserRequest{
+			AccountID:         sysAccount.ID,
+			Name:              "system",
+			Description:       "System user for operator management",
+			ScopedSigningKeyID: scopedKeyID,
+		}
+
+		systemUser, err = s.userService.CreateUser(ctx, userReq)
+		if err != nil {
+			return fmt.Errorf("failed to create system user: %w", err)
+		}
+	}
+
+	// Update all clusters for this operator to use the system user credentials
+	if err := s.updateClustersWithSystemUser(ctx, operatorID, systemUser.ID); err != nil {
+		// Log but don't fail - credentials can be set later
+		// This is not critical for the import to succeed
+		fmt.Printf("Warning: failed to update cluster credentials: %v\n", err)
+	}
+
+	return nil
+}
+
+// updateClustersWithSystemUser updates all clusters for an operator to use the system user
+func (s *ExportService) updateClustersWithSystemUser(ctx context.Context, operatorID, systemUserID uuid.UUID) error {
+	// Get all clusters for this operator
+	clusters, err := s.clusterRepo.ListByOperator(ctx, operatorID, repositories.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list clusters: %w", err)
+	}
+
+	// Update credentials for each cluster
+	for _, cluster := range clusters {
+		_, err := s.clusterService.UpdateClusterCredentials(ctx, cluster.ID, systemUserID)
+		if err != nil {
+			return fmt.Errorf("failed to update credentials for cluster %s: %w", cluster.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// findNKey locates an nkey file in the NSC store structure
+// NSC stores keys at: nkeys/keys/{type}/{prefix}/{publicKey}.nk
+// where type is O (operator), A (account), or U (user)
+// and prefix is the first 2 characters after the type prefix
+func (s *ExportService) findNKey(nscDir string, publicKey string) ([]byte, error) {
+	if len(publicKey) < 3 {
+		return nil, fmt.Errorf("invalid public key length: %s", publicKey)
+	}
+
+	// Extract type and prefix
+	keyType := string(publicKey[0])
+	prefix := publicKey[1:3]
+
+	// Construct path: nkeys/keys/{type}/{prefix}/{fullkey}.nk
+	keyPath := filepath.Join(nscDir, "nkeys", "keys", keyType, prefix, publicKey+".nk")
+
+	// Read the key file
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read nkey at %s: %w", keyPath, err)
+	}
+
+	return keyData, nil
+}
+
+// importNSCAccount imports a single account from NSC and returns the account public key
+func (s *ExportService) importNSCAccount(ctx context.Context, nscDir string, operatorID uuid.UUID, operatorKeyPair nkeys.KeyPair, accountName string) (string, error) {
+	// Read account JWT - in operator/accounts/{accountName}/{accountName}.jwt
+	accountJWTPath := filepath.Join(nscDir, "operator", "accounts", accountName, accountName+".jwt")
 	accountJWTData, err := os.ReadFile(accountJWTPath)
 	if err != nil {
-		return fmt.Errorf("failed to read account JWT: %w", err)
+		return "", fmt.Errorf("failed to read account JWT: %w", err)
 	}
 
 	// Parse account JWT
 	accountClaims, err := jwt.DecodeAccountClaims(string(accountJWTData))
 	if err != nil {
-		return fmt.Errorf("failed to decode account claims: %w", err)
+		return "", fmt.Errorf("failed to decode account claims: %w", err)
 	}
 
-	// Read account seed
-	accountSeedPath := filepath.Join(nscDir, "keys", "accounts", accountName, accountName+".nk")
-	accountSeedData, err := os.ReadFile(accountSeedPath)
+	// Get account public key from JWT
+	accountPubKey := accountClaims.Subject
+
+	// Find account seed in nkeys/keys/A/{prefix}/{fullkey}.nk
+	accountSeedData, err := s.findNKey(nscDir, accountPubKey)
 	if err != nil {
-		return fmt.Errorf("failed to read account seed: %w", err)
+		return "", fmt.Errorf("failed to find account seed for %s: %w", accountPubKey, err)
 	}
 
 	// Parse the seed
 	accountKeyPair, err := nkeys.FromSeed(accountSeedData)
 	if err != nil {
-		return fmt.Errorf("failed to parse account seed: %w", err)
+		return "", fmt.Errorf("failed to parse account seed: %w", err)
 	}
 
-	// Get the public key
-	accountPubKey, err := accountKeyPair.PublicKey()
+	// Verify public key matches
+	verifyPubKey, err := accountKeyPair.PublicKey()
 	if err != nil {
-		return fmt.Errorf("failed to get account public key: %w", err)
+		return "", fmt.Errorf("failed to get account public key: %w", err)
+	}
+	if verifyPubKey != accountPubKey {
+		return "", fmt.Errorf("account public key mismatch: expected %s, got %s", accountPubKey, verifyPubKey)
 	}
 
 	// Encrypt the seed
 	encryptedSeed, err := s.encryptor.Encrypt(ctx, accountSeedData)
 	if err != nil {
-		return fmt.Errorf("failed to encrypt account seed: %w", err)
+		return "", fmt.Errorf("failed to encrypt account seed: %w", err)
 	}
 
 	// Convert tags to description
@@ -788,17 +955,36 @@ func (s *ExportService) importNSCAccount(ctx context.Context, nscDir string, ope
 		UpdatedAt:             time.Now(),
 	}
 
+	// Use the original account JWT from NSC (don't re-sign it)
+	// This preserves the original signature and any scoped signing key relationships
+	account.JWT = string(accountJWTData)
+
 	// Save account
 	if err := s.accountRepo.Create(ctx, account); err != nil {
-		return fmt.Errorf("failed to create account: %w", err)
+		return "", fmt.Errorf("failed to create account: %w", err)
 	}
 
-	// Find and import users
-	usersDir := filepath.Join(nscDir, "keys", "accounts", accountName, "users")
+	// Get operator for user imports
+	operator, err := s.operatorRepo.GetByID(ctx, operatorID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get operator: %w", err)
+	}
+
+	// Import scoped signing keys from the account JWT
+	if len(accountClaims.SigningKeys) > 0 {
+		for signingKeyPubKey := range accountClaims.SigningKeys {
+			if err := s.importNSCScopedSigningKey(ctx, nscDir, accountID, signingKeyPubKey); err != nil {
+				return "", fmt.Errorf("failed to import scoped signing key %s: %w", signingKeyPubKey, err)
+			}
+		}
+	}
+
+	// Find and import users - in operator/accounts/{accountName}/users/
+	usersDir := filepath.Join(nscDir, "operator", "accounts", accountName, "users")
 	if _, err := os.Stat(usersDir); err == nil {
 		userEntries, err := os.ReadDir(usersDir)
 		if err != nil {
-			return fmt.Errorf("failed to read users directory: %w", err)
+			return "", fmt.Errorf("failed to read users directory: %w", err)
 		}
 
 		for _, userEntry := range userEntries {
@@ -807,10 +993,67 @@ func (s *ExportService) importNSCAccount(ctx context.Context, nscDir string, ope
 			}
 
 			userName := strings.TrimSuffix(userEntry.Name(), ".jwt")
-			if err := s.importNSCUser(ctx, nscDir, accountID, accountName, userName); err != nil {
-				return fmt.Errorf("failed to import user %s: %w", userName, err)
+			if err := s.importNSCUser(ctx, nscDir, accountID, accountName, userName, operator); err != nil {
+				return "", fmt.Errorf("failed to import user %s: %w", userName, err)
 			}
 		}
+	}
+
+	return accountPubKey, nil
+}
+
+// importNSCScopedSigningKey imports a scoped signing key from NSC
+func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, nscDir string, accountID uuid.UUID, signingKeyPubKey string) error {
+	// Find signing key seed in nkeys/keys/A/{prefix}/{fullkey}.nk
+	signingKeySeedData, err := s.findNKey(nscDir, signingKeyPubKey)
+	if err != nil {
+		return fmt.Errorf("failed to find scoped signing key seed for %s: %w", signingKeyPubKey, err)
+	}
+
+	// Parse the seed
+	signingKeyPair, err := nkeys.FromSeed(signingKeySeedData)
+	if err != nil {
+		return fmt.Errorf("failed to parse scoped signing key seed: %w", err)
+	}
+
+	// Verify public key matches
+	verifyPubKey, err := signingKeyPair.PublicKey()
+	if err != nil {
+		return fmt.Errorf("failed to get scoped signing key public key: %w", err)
+	}
+	if verifyPubKey != signingKeyPubKey {
+		return fmt.Errorf("scoped signing key public key mismatch: expected %s, got %s", signingKeyPubKey, verifyPubKey)
+	}
+
+	// Encrypt the seed
+	encryptedSeed, err := s.encryptor.Encrypt(ctx, signingKeySeedData)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt scoped signing key seed: %w", err)
+	}
+
+	// Create scoped signing key entity
+	// Note: NSC doesn't store permission templates for signing keys separately,
+	// they're only defined when used to sign user JWTs. We'll create the key
+	// with empty permissions - they'll be populated when users reference this key.
+	scopedKeyID := uuid.New()
+	scopedKey := &entities.ScopedSigningKey{
+		ID:            scopedKeyID,
+		AccountID:     accountID,
+		Name:          fmt.Sprintf("imported-key-%s", signingKeyPubKey[1:5]), // Use first few chars for name
+		Description:   "Scoped signing key imported from NSC",
+		EncryptedSeed: encryptedSeed,
+		PublicKey:     signingKeyPubKey,
+		PubAllow:      []string{},
+		PubDeny:       []string{},
+		SubAllow:      []string{},
+		SubDeny:       []string{},
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+
+	// Save scoped signing key
+	if err := s.scopedKeyRepo.Create(ctx, scopedKey); err != nil {
+		return fmt.Errorf("failed to create scoped signing key: %w", err)
 	}
 
 	return nil
@@ -820,9 +1063,9 @@ func (s *ExportService) importNSCAccount(ctx context.Context, nscDir string, ope
 // Note: NSC users store their permissions in the JWT, but NIS users get permissions
 // from scoped signing keys. We create the user without a scoped key and let the
 // user service generate the JWT with default permissions from the account.
-func (s *ExportService) importNSCUser(ctx context.Context, nscDir string, accountID uuid.UUID, accountName string, userName string) error {
-	// Read user JWT
-	userJWTPath := filepath.Join(nscDir, "keys", "accounts", accountName, "users", userName+".jwt")
+func (s *ExportService) importNSCUser(ctx context.Context, nscDir string, accountID uuid.UUID, accountName string, userName string, operator *entities.Operator) error {
+	// Read user JWT - in operator/accounts/{accountName}/users/{userName}.jwt
+	userJWTPath := filepath.Join(nscDir, "operator", "accounts", accountName, "users", userName+".jwt")
 	userJWTData, err := os.ReadFile(userJWTPath)
 	if err != nil {
 		return fmt.Errorf("failed to read user JWT: %w", err)
@@ -834,11 +1077,13 @@ func (s *ExportService) importNSCUser(ctx context.Context, nscDir string, accoun
 		return fmt.Errorf("failed to decode user claims: %w", err)
 	}
 
-	// Read user seed
-	userSeedPath := filepath.Join(nscDir, "keys", "accounts", accountName, "users", userName+".nk")
-	userSeedData, err := os.ReadFile(userSeedPath)
+	// Get user public key from JWT
+	userPubKey := userClaims.Subject
+
+	// Find user seed in nkeys/keys/U/{prefix}/{fullkey}.nk
+	userSeedData, err := s.findNKey(nscDir, userPubKey)
 	if err != nil {
-		return fmt.Errorf("failed to read user seed: %w", err)
+		return fmt.Errorf("failed to find user seed for %s: %w", userPubKey, err)
 	}
 
 	// Parse the seed
@@ -847,10 +1092,13 @@ func (s *ExportService) importNSCUser(ctx context.Context, nscDir string, accoun
 		return fmt.Errorf("failed to parse user seed: %w", err)
 	}
 
-	// Get the public key
-	userPubKey, err := userKeyPair.PublicKey()
+	// Verify public key matches
+	verifyPubKey, err := userKeyPair.PublicKey()
 	if err != nil {
 		return fmt.Errorf("failed to get user public key: %w", err)
+	}
+	if verifyPubKey != userPubKey {
+		return fmt.Errorf("user public key mismatch: expected %s, got %s", userPubKey, verifyPubKey)
 	}
 
 	// Encrypt the seed
@@ -942,6 +1190,10 @@ func (s *ExportService) importNSCUser(ctx context.Context, nscDir string, accoun
 		CreatedAt:          time.Now(),
 		UpdatedAt:          time.Now(),
 	}
+
+	// Use the original user JWT from NSC (don't re-sign it)
+	// This preserves the original signature and scoped signing key relationships
+	user.JWT = string(userJWTData)
 
 	// Save user
 	if err := s.userRepo.Create(ctx, user); err != nil {

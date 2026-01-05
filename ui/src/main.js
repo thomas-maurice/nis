@@ -26,7 +26,8 @@ import {
   faSync,
   faHome,
   faBars,
-  faChartLine
+  faChartLine,
+  faUserGear,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -44,7 +45,8 @@ library.add(
   faSync,
   faHome,
   faBars,
-  faChartLine
+  faChartLine,
+  faUserGear
 )
 
 const app = createApp(App)

@@ -119,15 +119,15 @@
 
         <div class="mb-3">
           <label for="serverUrls" class="form-label">Server URLs <span class="text-danger">*</span></label>
-          <textarea
+          <input
             id="serverUrls"
             v-model="serverUrlsText"
+            type="text"
             class="form-control"
-            rows="3"
-            placeholder="nats://localhost:4222&#10;nats://localhost:4223"
+            placeholder="nats://localhost:4222;nats://localhost:4223"
             required
-          ></textarea>
-          <div class="form-text">One URL per line</div>
+          />
+          <div class="form-text">Separate multiple URLs with semicolons</div>
         </div>
       </template>
     </EntityForm>
@@ -135,7 +135,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import apiClient from '@/utils/api'
 import EntityList from '@/components/EntityList.vue'
@@ -154,6 +154,7 @@ const formError = ref('')
 const syncingClusters = ref({})
 const syncSuccess = ref('')
 const syncError = ref('')
+let refreshInterval = null
 
 const columns = [
   { key: 'name', label: 'Name' },
@@ -165,10 +166,10 @@ const columns = [
 
 const serverUrlsText = computed({
   get() {
-    return formData.value.serverUrls?.join('\n') || ''
+    return formData.value.serverUrls?.join(';') || ''
   },
   set(value) {
-    formData.value.serverUrls = value.split('\n').filter(url => url.trim() !== '')
+    formData.value.serverUrls = value.split(';').map(url => url.trim()).filter(url => url !== '')
   }
 })
 
@@ -285,5 +286,16 @@ const formatDate = (dateStr) => {
 onMounted(() => {
   loadClusters()
   loadOperators()
+
+  // Auto-refresh cluster status every 30 seconds
+  refreshInterval = setInterval(() => {
+    loadClusters()
+  }, 30000)
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
 })
 </script>

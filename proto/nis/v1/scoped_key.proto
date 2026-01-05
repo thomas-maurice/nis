@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// ScopedSigningKey represents a scoped signing key for account-level user signing
+message ScopedSigningKey {
+  string id = 1;
+  string account_id = 2;
+  string name = 3;
+  string description = 4;
+  string public_key = 5;
+  UserPermissions permissions = 6;
+  ResponsePermission response_permission = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// CreateScopedSigningKeyRequest is the request to create a new scoped signing key
+message CreateScopedSigningKeyRequest {
+  string account_id = 1;
+  string name = 2;
+  string description = 3;
+  UserPermissions permissions = 4;
+  ResponsePermission response_permission = 5;
+}
+
+// CreateScopedSigningKeyResponse is the response from creating a scoped signing key
+message CreateScopedSigningKeyResponse {
+  ScopedSigningKey key = 1;
+}
+
+// GetScopedSigningKeyRequest is the request to get a scoped signing key by ID
+message GetScopedSigningKeyRequest {
+  string id = 1;
+}
+
+// GetScopedSigningKeyResponse is the response from getting a scoped signing key
+message GetScopedSigningKeyResponse {
+  ScopedSigningKey key = 1;
+}
+
+// GetScopedSigningKeyByNameRequest is the request to get a scoped signing key by name
+message GetScopedSigningKeyByNameRequest {
+  string account_id = 1;
+  string name = 2;
+}
+
+// GetScopedSigningKeyByNameResponse is the response from getting a scoped signing key by name
+message GetScopedSigningKeyByNameResponse {
+  ScopedSigningKey key = 1;
+}
+
+// ListScopedSigningKeysRequest is the request to list scoped signing keys
+message ListScopedSigningKeysRequest {
+  string account_id = 1;
+  ListOptions options = 2;
+}
+
+// ListScopedSigningKeysResponse is the response from listing scoped signing keys
+message ListScopedSigningKeysResponse {
+  repeated ScopedSigningKey keys = 1;
+}
+
+// UpdateScopedSigningKeyRequest is the request to update a scoped signing key
+message UpdateScopedSigningKeyRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+
+// UpdateScopedSigningKeyResponse is the response from updating a scoped signing key
+message UpdateScopedSigningKeyResponse {
+  ScopedSigningKey key = 1;
+}
+
+// UpdatePermissionsRequest is the request to update scoped signing key permissions
+message UpdatePermissionsRequest {
+  string id = 1;
+  UserPermissions permissions = 2;
+  ResponsePermission response_permission = 3;
+}
+
+// UpdatePermissionsResponse is the response from updating permissions
+message UpdatePermissionsResponse {
+  ScopedSigningKey key = 1;
+}
+
+// DeleteScopedSigningKeyRequest is the request to delete a scoped signing key
+message DeleteScopedSigningKeyRequest {
+  string id = 1;
+}
+
+// DeleteScopedSigningKeyResponse is the response from deleting a scoped signing key
+message DeleteScopedSigningKeyResponse {}
+
+// ScopedSigningKeyService manages scoped signing keys
+service ScopedSigningKeyService {
+  rpc CreateScopedSigningKey(CreateScopedSigningKeyRequest) returns (CreateScopedSigningKeyResponse);
+  rpc GetScopedSigningKey(GetScopedSigningKeyRequest) returns (GetScopedSigningKeyResponse);
+  rpc GetScopedSigningKeyByName(GetScopedSigningKeyByNameRequest) returns (GetScopedSigningKeyByNameResponse);
+  rpc ListScopedSigningKeys(ListScopedSigningKeysRequest) returns (ListScopedSigningKeysResponse);
+  rpc UpdateScopedSigningKey(UpdateScopedSigningKeyRequest) returns (UpdateScopedSigningKeyResponse);
+  rpc UpdatePermissions(UpdatePermissionsRequest) returns (UpdatePermissionsResponse);
+  rpc DeleteScopedSigningKey(DeleteScopedSigningKeyRequest) returns (DeleteScopedSigningKeyResponse);
+}

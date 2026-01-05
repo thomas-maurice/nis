@@ -43,6 +43,24 @@ func NewDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Enable foreign key constraints for SQLite on all connections
+	if cfg.Driver == "sqlite" {
+		// Set on the current connection
+		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+			return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+		}
+
+		// Get the underlying SQL DB to configure the connection pool
+		sqlDB, err := db.DB()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get underlying SQL DB: %w", err)
+		}
+
+		// Set max open connections to 1 for SQLite to avoid concurrency issues
+		// and ensure foreign keys are always enabled
+		sqlDB.SetMaxOpenConns(1)
+	}
+
 	return db, nil
 }
 

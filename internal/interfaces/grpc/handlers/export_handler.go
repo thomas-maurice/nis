@@ -7,19 +7,25 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
+	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // ExportHandler implements the ExportService gRPC service
 type ExportHandler struct {
-	service *services.ExportService
+	service     *services.ExportService
+	permService *services.PermissionService
 }
 
 // NewExportHandler creates a new ExportHandler
-func NewExportHandler(service *services.ExportService) nisv1connect.ExportServiceHandler {
-	return &ExportHandler{service: service}
+func NewExportHandler(service *services.ExportService, permService *services.PermissionService) nisv1connect.ExportServiceHandler {
+	return &ExportHandler{
+		service:     service,
+		permService: permService,
+	}
 }
 
 // ExportOperator exports an operator and all its data
@@ -27,9 +33,20 @@ func (h *ExportHandler) ExportOperator(
 	ctx context.Context,
 	req *connect.Request[pb.ExportOperatorRequest],
 ) (*connect.Response[pb.ExportOperatorResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// Check permission to read this operator
+	if err := h.permService.CanReadOperator(ctx, requestingUser, operatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	data, err := h.service.ExportOperatorJSON(ctx, operatorID, req.Msg.IncludeSecrets)
@@ -47,6 +64,17 @@ func (h *ExportHandler) ImportOperator(
 	ctx context.Context,
 	req *connect.Request[pb.ImportOperatorRequest],
 ) (*connect.Response[pb.ImportOperatorResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	// Importing operators requires admin privileges
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only admins can import operators"))
+	}
+
 	// Parse the data to get the operator name before importing
 	var exported services.ExportedOperator
 	if err := json.Unmarshal(req.Msg.Data, &exported); err != nil {
@@ -70,6 +98,17 @@ func (h *ExportHandler) ImportFromNSC(
 	ctx context.Context,
 	req *connect.Request[pb.ImportFromNSCRequest],
 ) (*connect.Response[pb.ImportFromNSCResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	// Importing from NSC requires admin privileges
+	if requestingUser.Role != entities.RoleAdmin {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only admins can import from NSC"))
+	}
+
 	operatorID, err := h.service.ImportFromNSC(ctx, req.Msg.Data, req.Msg.OperatorName)
 	if err != nil {
 		return nil, err

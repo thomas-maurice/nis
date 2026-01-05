@@ -21,6 +21,10 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Debug: List what was copied
+RUN ls -la /build
+RUN ls -la /build/cmd || echo "cmd directory not found"
+
 # Copy UI build from ui-builder stage
 COPY --from=ui-builder /ui/dist ./internal/interfaces/http/ui/dist
 

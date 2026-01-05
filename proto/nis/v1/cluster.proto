@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Cluster represents a NATS cluster configuration
+message Cluster {
+  string id = 1;
+  string operator_id = 2;
+  string name = 3;
+  string description = 4;
+  repeated string server_urls = 5;
+  string system_account_pub_key = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  bool healthy = 9;
+  google.protobuf.Timestamp last_health_check = 10;
+  string health_check_error = 11;
+}
+
+// CreateClusterRequest is the request to create a new cluster
+message CreateClusterRequest {
+  string operator_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string server_urls = 4;
+  string system_account_pub_key = 5;
+  string system_account_creds = 6;
+}
+
+// CreateClusterResponse is the response from creating a cluster
+message CreateClusterResponse {
+  Cluster cluster = 1;
+}
+
+// GetClusterRequest is the request to get a cluster by ID
+message GetClusterRequest {
+  string id = 1;
+}
+
+// GetClusterResponse is the response from getting a cluster
+message GetClusterResponse {
+  Cluster cluster = 1;
+}
+
+// GetClusterByNameRequest is the request to get a cluster by name
+message GetClusterByNameRequest {
+  string operator_id = 1;
+  string name = 2;
+}
+
+// GetClusterByNameResponse is the response from getting a cluster by name
+message GetClusterByNameResponse {
+  Cluster cluster = 1;
+}
+
+// ListClustersRequest is the request to list clusters
+message ListClustersRequest {
+  string operator_id = 1;
+  ListOptions options = 2;
+}
+
+// ListClustersResponse is the response from listing clusters
+message ListClustersResponse {
+  repeated Cluster clusters = 1;
+}
+
+// UpdateClusterRequest is the request to update a cluster
+message UpdateClusterRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  repeated string server_urls = 4;
+}
+
+// UpdateClusterResponse is the response from updating a cluster
+message UpdateClusterResponse {
+  Cluster cluster = 1;
+}
+
+// UpdateClusterCredentialsRequest is the request to update cluster credentials
+message UpdateClusterCredentialsRequest {
+  string id = 1;
+  string system_account_creds = 2;
+}
+
+// UpdateClusterCredentialsResponse is the response from updating cluster credentials
+message UpdateClusterCredentialsResponse {
+  Cluster cluster = 1;
+}
+
+// DeleteClusterRequest is the request to delete a cluster
+message DeleteClusterRequest {
+  string id = 1;
+}
+
+// DeleteClusterResponse is the response from deleting a cluster
+message DeleteClusterResponse {}
+
+// GetClusterCredentialsRequest is the request to get cluster credentials
+message GetClusterCredentialsRequest {
+  string id = 1;
+}
+
+// GetClusterCredentialsResponse is the response from getting cluster credentials
+message GetClusterCredentialsResponse {
+  string credentials = 1;
+}
+
+// GenerateServerConfigRequest is the request to generate a server config
+message GenerateServerConfigRequest {
+  string id = 1;
+  int32 port = 2;
+  int32 http_port = 3;
+}
+
+// GenerateServerConfigResponse is the response from generating a server config
+message GenerateServerConfigResponse {
+  string config = 1;
+}
+
+// SyncClusterRequest is the request to sync accounts to a cluster
+message SyncClusterRequest {
+  string id = 1;
+}
+
+// SyncClusterResponse is the response from syncing accounts
+message SyncClusterResponse {
+  int32 account_count = 1;
+  repeated string accounts = 2;
+}
+
+// ClusterService manages NATS clusters
+service ClusterService {
+  rpc CreateCluster(CreateClusterRequest) returns (CreateClusterResponse);
+  rpc GetCluster(GetClusterRequest) returns (GetClusterResponse);
+  rpc GetClusterByName(GetClusterByNameRequest) returns (GetClusterByNameResponse);
+  rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
+  rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
+  rpc UpdateClusterCredentials(UpdateClusterCredentialsRequest) returns (UpdateClusterCredentialsResponse);
+  rpc DeleteCluster(DeleteClusterRequest) returns (DeleteClusterResponse);
+  rpc GetClusterCredentials(GetClusterCredentialsRequest) returns (GetClusterCredentialsResponse);
+  rpc GenerateServerConfig(GenerateServerConfigRequest) returns (GenerateServerConfigResponse);
+  // SyncCluster pushes all account JWTs to the NATS cluster resolver
+  rpc SyncCluster(SyncClusterRequest) returns (SyncClusterResponse);
+}

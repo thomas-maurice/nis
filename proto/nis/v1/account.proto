@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Account represents a NATS account
+message Account {
+  string id = 1;
+  string operator_id = 2;
+  string name = 3;
+  string description = 4;
+  string public_key = 5;
+  string jwt = 6;
+  JetStreamLimits jetstream_limits = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// CreateAccountRequest is the request to create a new account
+message CreateAccountRequest {
+  string operator_id = 1;
+  string name = 2;
+  string description = 3;
+  JetStreamLimits jetstream_limits = 4;
+}
+
+// CreateAccountResponse is the response from creating an account
+message CreateAccountResponse {
+  Account account = 1;
+}
+
+// GetAccountRequest is the request to get an account by ID
+message GetAccountRequest {
+  string id = 1;
+}
+
+// GetAccountResponse is the response from getting an account
+message GetAccountResponse {
+  Account account = 1;
+}
+
+// GetAccountByNameRequest is the request to get an account by name
+message GetAccountByNameRequest {
+  string operator_id = 1;
+  string name = 2;
+}
+
+// GetAccountByNameResponse is the response from getting an account by name
+message GetAccountByNameResponse {
+  Account account = 1;
+}
+
+// ListAccountsRequest is the request to list accounts
+message ListAccountsRequest {
+  string operator_id = 1;
+  ListOptions options = 2;
+}
+
+// ListAccountsResponse is the response from listing accounts
+message ListAccountsResponse {
+  repeated Account accounts = 1;
+}
+
+// UpdateAccountRequest is the request to update an account
+message UpdateAccountRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+
+// UpdateAccountResponse is the response from updating an account
+message UpdateAccountResponse {
+  Account account = 1;
+}
+
+// UpdateJetStreamLimitsRequest is the request to update JetStream limits
+message UpdateJetStreamLimitsRequest {
+  string id = 1;
+  JetStreamLimits limits = 2;
+}
+
+// UpdateJetStreamLimitsResponse is the response from updating JetStream limits
+message UpdateJetStreamLimitsResponse {
+  Account account = 1;
+}
+
+// DeleteAccountRequest is the request to delete an account
+message DeleteAccountRequest {
+  string id = 1;
+}
+
+// DeleteAccountResponse is the response from deleting an account
+message DeleteAccountResponse {}
+
+// PushAccountJWTRequest is the request to push account JWT to NATS resolver
+message PushAccountJWTRequest {
+  string id = 1;
+}
+
+// PushAccountJWTResponse is the response from pushing account JWT
+message PushAccountJWTResponse {}
+
+// AccountService manages NATS accounts
+service AccountService {
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+  rpc GetAccountByName(GetAccountByNameRequest) returns (GetAccountByNameResponse);
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc UpdateAccount(UpdateAccountRequest) returns (UpdateAccountResponse);
+  rpc UpdateJetStreamLimits(UpdateJetStreamLimitsRequest) returns (UpdateJetStreamLimitsResponse);
+  rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
+  rpc PushAccountJWT(PushAccountJWTRequest) returns (PushAccountJWTResponse);
+}

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ExportOperatorRequest is the request to export an operator
+message ExportOperatorRequest {
+  string operator_id = 1;
+  bool include_secrets = 2; // Whether to include encrypted seeds
+}
+
+// ExportOperatorResponse is the response containing the exported operator data
+message ExportOperatorResponse {
+  bytes data = 1; // JSON-encoded export data
+}
+
+// ImportOperatorRequest is the request to import an operator
+message ImportOperatorRequest {
+  bytes data = 1; // JSON-encoded export data
+  bool regenerate_ids = 2; // Whether to regenerate UUIDs (for copying)
+}
+
+// ImportOperatorResponse is the response from importing an operator
+message ImportOperatorResponse {
+  string operator_id = 1; // ID of the imported operator
+}
+
+// ImportFromNSCRequest is the request to import an operator from NSC archive
+message ImportFromNSCRequest {
+  bytes data = 1; // Compressed archive (.zip, .tar.gz, .tar.bz2) of NSC store
+  string operator_name = 2; // Name of the operator in NSC
+}
+
+// ImportFromNSCResponse is the response from importing from NSC
+message ImportFromNSCResponse {
+  string operator_id = 1; // ID of the imported operator
+}
+
+// ExportService manages operator export and import
+service ExportService {
+  rpc ExportOperator(ExportOperatorRequest) returns (ExportOperatorResponse);
+  rpc ImportOperator(ImportOperatorRequest) returns (ImportOperatorResponse);
+  rpc ImportFromNSC(ImportFromNSCRequest) returns (ImportFromNSCResponse);
+}

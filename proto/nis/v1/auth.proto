@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "google/protobuf/timestamp.proto";
+
+// APIUser represents an API user for authentication
+message APIUser {
+  string id = 1;
+  string username = 2;
+  repeated string permissions = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  optional string operator_id = 6; // Required for operator-admin role
+  optional string account_id = 7;  // Required for account-admin role
+}
+
+// LoginRequest is the request to authenticate and obtain a token
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+// LoginResponse is the response from a successful login
+message LoginResponse {
+  string token = 1;
+  APIUser user = 2;
+}
+
+// ValidateTokenRequest is the request to validate a token
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+// ValidateTokenResponse is the response from token validation
+message ValidateTokenResponse {
+  bool valid = 1;
+  APIUser user = 2;
+}
+
+// CreateAPIUserRequest is the request to create a new API user
+message CreateAPIUserRequest {
+  string username = 1;
+  string password = 2;
+  repeated string permissions = 3;
+  optional string operator_id = 4; // Required for operator-admin role
+  optional string account_id = 5;  // Required for account-admin role
+}
+
+// CreateAPIUserResponse is the response from creating an API user
+message CreateAPIUserResponse {
+  APIUser user = 1;
+}
+
+// GetAPIUserRequest is the request to get an API user by ID
+message GetAPIUserRequest {
+  string id = 1;
+}
+
+// GetAPIUserResponse is the response from getting an API user
+message GetAPIUserResponse {
+  APIUser user = 1;
+}
+
+// GetAPIUserByUsernameRequest is the request to get an API user by username
+message GetAPIUserByUsernameRequest {
+  string username = 1;
+}
+
+// GetAPIUserByUsernameResponse is the response from getting an API user by username
+message GetAPIUserByUsernameResponse {
+  APIUser user = 1;
+}
+
+// ListAPIUsersRequest is the request to list API users
+message ListAPIUsersRequest {}
+
+// ListAPIUsersResponse is the response from listing API users
+message ListAPIUsersResponse {
+  repeated APIUser users = 1;
+}
+
+// UpdateAPIUserPasswordRequest is the request to update an API user's password
+message UpdateAPIUserPasswordRequest {
+  string id = 1;
+  string password = 2;
+}
+
+// UpdateAPIUserPasswordResponse is the response from updating an API user's password
+message UpdateAPIUserPasswordResponse {
+  APIUser user = 1;
+}
+
+// UpdateAPIUserPermissionsRequest is the request to update an API user's permissions
+message UpdateAPIUserPermissionsRequest {
+  string id = 1;
+  repeated string permissions = 2;
+  optional string operator_id = 3; // Required for operator-admin role
+  optional string account_id = 4;  // Required for account-admin role
+}
+
+// UpdateAPIUserPermissionsResponse is the response from updating an API user's permissions
+message UpdateAPIUserPermissionsResponse {
+  APIUser user = 1;
+}
+
+// DeleteAPIUserRequest is the request to delete an API user
+message DeleteAPIUserRequest {
+  string id = 1;
+}
+
+// DeleteAPIUserResponse is the response from deleting an API user
+message DeleteAPIUserResponse {}
+
+// AuthService manages authentication and authorization
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc CreateAPIUser(CreateAPIUserRequest) returns (CreateAPIUserResponse);
+  rpc GetAPIUser(GetAPIUserRequest) returns (GetAPIUserResponse);
+  rpc GetAPIUserByUsername(GetAPIUserByUsernameRequest) returns (GetAPIUserByUsernameResponse);
+  rpc ListAPIUsers(ListAPIUsersRequest) returns (ListAPIUsersResponse);
+  rpc UpdateAPIUserPassword(UpdateAPIUserPasswordRequest) returns (UpdateAPIUserPasswordResponse);
+  rpc UpdateAPIUserPermissions(UpdateAPIUserPermissionsRequest) returns (UpdateAPIUserPermissionsResponse);
+  rpc DeleteAPIUser(DeleteAPIUserRequest) returns (DeleteAPIUserResponse);
+}

@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Operator represents a NATS operator
+message Operator {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string public_key = 4;
+  string jwt = 5;
+  string system_account_pub_key = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// CreateOperatorRequest is the request to create a new operator
+message CreateOperatorRequest {
+  string name = 1;
+  string description = 2;
+  string system_account_pub_key = 3;
+}
+
+// CreateOperatorResponse is the response from creating an operator
+message CreateOperatorResponse {
+  Operator operator = 1;
+}
+
+// GetOperatorRequest is the request to get an operator by ID
+message GetOperatorRequest {
+  string id = 1;
+}
+
+// GetOperatorResponse is the response from getting an operator
+message GetOperatorResponse {
+  Operator operator = 1;
+}
+
+// GetOperatorByNameRequest is the request to get an operator by name
+message GetOperatorByNameRequest {
+  string name = 1;
+}
+
+// GetOperatorByNameResponse is the response from getting an operator by name
+message GetOperatorByNameResponse {
+  Operator operator = 1;
+}
+
+// ListOperatorsRequest is the request to list operators
+message ListOperatorsRequest {
+  ListOptions options = 1;
+}
+
+// ListOperatorsResponse is the response from listing operators
+message ListOperatorsResponse {
+  repeated Operator operators = 1;
+}
+
+// UpdateOperatorRequest is the request to update an operator
+message UpdateOperatorRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+
+// UpdateOperatorResponse is the response from updating an operator
+message UpdateOperatorResponse {
+  Operator operator = 1;
+}
+
+// SetSystemAccountRequest is the request to set the system account
+message SetSystemAccountRequest {
+  string id = 1;
+  string system_account_pub_key = 2;
+}
+
+// SetSystemAccountResponse is the response from setting the system account
+message SetSystemAccountResponse {
+  Operator operator = 1;
+}
+
+// DeleteOperatorRequest is the request to delete an operator
+message DeleteOperatorRequest {
+  string id = 1;
+}
+
+// DeleteOperatorResponse is the response from deleting an operator
+message DeleteOperatorResponse {}
+
+// GenerateIncludeRequest is the request to generate NATS server configuration
+message GenerateIncludeRequest {
+  string id = 1;
+}
+
+// GenerateIncludeResponse is the response containing the generated configuration
+message GenerateIncludeResponse {
+  string config = 1;
+}
+
+// OperatorService manages NATS operators
+service OperatorService {
+  rpc CreateOperator(CreateOperatorRequest) returns (CreateOperatorResponse);
+  rpc GetOperator(GetOperatorRequest) returns (GetOperatorResponse);
+  rpc GetOperatorByName(GetOperatorByNameRequest) returns (GetOperatorByNameResponse);
+  rpc ListOperators(ListOperatorsRequest) returns (ListOperatorsResponse);
+  rpc UpdateOperator(UpdateOperatorRequest) returns (UpdateOperatorResponse);
+  rpc SetSystemAccount(SetSystemAccountRequest) returns (SetSystemAccountResponse);
+  rpc DeleteOperator(DeleteOperatorRequest) returns (DeleteOperatorResponse);
+  // GenerateInclude generates NATS server configuration for the operator
+  rpc GenerateInclude(GenerateIncludeRequest) returns (GenerateIncludeResponse);
+}

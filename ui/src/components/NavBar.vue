@@ -23,7 +23,7 @@
               Dashboard
             </router-link>
           </li>
-          <li class="nav-item">
+          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
             <router-link class="nav-link" to="/operators">
               <font-awesome-icon :icon="['fas', 'server']" class="me-1" />
               Operators
@@ -41,16 +41,22 @@
               Users
             </router-link>
           </li>
-          <li class="nav-item">
+          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
             <router-link class="nav-link" to="/signing-keys">
               <font-awesome-icon :icon="['fas', 'key']" class="me-1" />
               Signing Keys
             </router-link>
           </li>
-          <li class="nav-item">
+          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
             <router-link class="nav-link" to="/clusters">
               <font-awesome-icon :icon="['fas', 'network-wired']" class="me-1" />
               Clusters
+            </router-link>
+          </li>
+          <li v-if="authStore.isAdmin" class="nav-item">
+            <router-link class="nav-link" to="/api-users">
+              <font-awesome-icon :icon="['fas', 'user-shield']" class="me-1" />
+              API Users
             </router-link>
           </li>
         </ul>

@@ -99,7 +99,7 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 		ServerURLs:          req.ServerURLs,
 		OperatorID:          req.OperatorID,
 		SystemAccountPubKey: sysAccount.PublicKey,
-		EncryptedCreds:      "", // No automatic credentials
+		EncryptedCreds:      "", // Will be set below if system user exists
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
@@ -107,6 +107,29 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 	// Save to repository
 	if err := s.repo.Create(ctx, cluster); err != nil {
 		return nil, fmt.Errorf("failed to create cluster: %w", err)
+	}
+
+	// Try to automatically set credentials using system user if it exists
+	users, err := s.userRepo.ListByAccount(ctx, sysAccount.ID, repositories.ListOptions{})
+	if err == nil && len(users) > 0 {
+		// Look for user named "system"
+		var systemUser *entities.User
+		for i := range users {
+			if users[i].Name == "system" {
+				systemUser = users[i]
+				break
+			}
+		}
+
+		if systemUser != nil {
+			// Set cluster credentials
+			_, err := s.UpdateClusterCredentials(ctx, cluster.ID, systemUser.ID)
+			if err != nil {
+				// Log but don't fail cluster creation if credentials can't be set
+				// Credentials can be set manually later
+				fmt.Printf("Warning: failed to set automatic cluster credentials: %v\n", err)
+			}
+		}
 	}
 
 	return cluster, nil
@@ -341,12 +364,6 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 	}
 	creds := string(credsBytes)
 
-	// Get operator for signing
-	operator, err := s.operatorRepo.GetByID(ctx, cluster.OperatorID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get operator: %w", err)
-	}
-
 	// Get all accounts for this operator
 	accounts, err := s.accountRepo.ListByOperator(ctx, cluster.OperatorID, repositories.ListOptions{
 		Limit:  1000, // TODO: Handle pagination if needed
@@ -360,54 +377,6 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 		return []string{}, nil
 	}
 
-	// Re-sign all accounts and their users
-	for _, account := range accounts {
-		// Re-sign account JWT
-		newAccountJWT, err := s.jwtService.GenerateAccountJWT(ctx, account, operator)
-		if err != nil {
-			return nil, fmt.Errorf("failed to re-sign account %s: %w", account.Name, err)
-		}
-		account.JWT = newAccountJWT
-
-		// Update account in database
-		if err := s.accountRepo.Update(ctx, account); err != nil {
-			return nil, fmt.Errorf("failed to update account %s: %w", account.Name, err)
-		}
-
-		// Get all users for this account and re-sign them
-		users, err := s.userRepo.ListByAccount(ctx, account.ID, repositories.ListOptions{
-			Limit:  1000, // TODO: Handle pagination if needed
-			Offset: 0,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to list users for account %s: %w", account.Name, err)
-		}
-
-		// Re-sign each user
-		for _, user := range users {
-			// Determine if user has a scoped signing key
-			var scopedKey *entities.ScopedSigningKey
-			if user.ScopedSigningKeyID != nil {
-				scopedKey, err = s.scopedKeyRepo.GetByID(ctx, *user.ScopedSigningKeyID)
-				if err != nil {
-					return nil, fmt.Errorf("failed to get scoped key for user %s: %w", user.Name, err)
-				}
-			}
-
-			// Re-sign user JWT
-			newUserJWT, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to re-sign user %s: %w", user.Name, err)
-			}
-			user.JWT = newUserJWT
-
-			// Update user in database
-			if err := s.userRepo.Update(ctx, user); err != nil {
-				return nil, fmt.Errorf("failed to update user %s: %w", user.Name, err)
-			}
-		}
-	}
-
 	// Connect to NATS using cluster credentials
 	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds)
 	if err != nil {
@@ -415,7 +384,7 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 	}
 	defer natsClient.Close()
 
-	// Push each account JWT to the resolver (now with freshly re-signed JWTs)
+	// Push each account JWT to the resolver (using existing JWTs from database)
 	accountNames := make([]string, 0, len(accounts))
 	for _, account := range accounts {
 		if account.JWT == "" {

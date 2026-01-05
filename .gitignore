@@ -1,7 +1,8 @@
 # Binaries
 .claude
-nis
-nisctl
+*.creds
+/nis
+/nisctl
 CLAUDE.md
 *.exe
 *.dll

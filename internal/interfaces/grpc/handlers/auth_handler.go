@@ -4,9 +4,11 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
+	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
@@ -64,18 +66,45 @@ func (h *AuthHandler) CreateAPIUser(
 	ctx context.Context,
 	req *connect.Request[pb.CreateAPIUserRequest],
 ) (*connect.Response[pb.CreateAPIUserResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	role := mappers.ProtoToAPIUserRole(req.Msg.Permissions)
 
+	// Parse optional operator_id and account_id
+	var operatorID *uuid.UUID
+	if req.Msg.OperatorId != nil {
+		id, err := mappers.ParseUUID(*req.Msg.OperatorId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		operatorID = &id
+	}
+
+	var accountID *uuid.UUID
+	if req.Msg.AccountId != nil {
+		id, err := mappers.ParseUUID(*req.Msg.AccountId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		accountID = &id
+	}
+
 	user, err := h.service.CreateAPIUser(ctx, services.CreateAPIUserRequest{
-		Username: req.Msg.Username,
-		Password: req.Msg.Password,
-		Role:     role,
-	})
+		Username:   req.Msg.Username,
+		Password:   req.Msg.Password,
+		Role:       role,
+		OperatorID: operatorID,
+		AccountID:  accountID,
+	}, requestingUser)
 	if err != nil {
 		if err == repositories.ErrAlreadyExists {
 			return nil, connect.NewError(connect.CodeAlreadyExists, err)
 		}
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.CreateAPIUserResponse{
@@ -88,17 +117,23 @@ func (h *AuthHandler) GetAPIUser(
 	ctx context.Context,
 	req *connect.Request[pb.GetAPIUserRequest],
 ) (*connect.Response[pb.GetAPIUserResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	user, err := h.service.GetAPIUser(ctx, id)
+	user, err := h.service.GetAPIUser(ctx, id, requestingUser)
 	if err != nil {
 		if err == repositories.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.GetAPIUserResponse{
@@ -111,12 +146,18 @@ func (h *AuthHandler) GetAPIUserByUsername(
 	ctx context.Context,
 	req *connect.Request[pb.GetAPIUserByUsernameRequest],
 ) (*connect.Response[pb.GetAPIUserByUsernameResponse], error) {
-	user, err := h.service.GetAPIUserByUsername(ctx, req.Msg.Username)
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	user, err := h.service.GetAPIUserByUsername(ctx, req.Msg.Username, requestingUser)
 	if err != nil {
 		if err == repositories.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.GetAPIUserByUsernameResponse{
@@ -129,9 +170,15 @@ func (h *AuthHandler) ListAPIUsers(
 	ctx context.Context,
 	req *connect.Request[pb.ListAPIUsersRequest],
 ) (*connect.Response[pb.ListAPIUsersResponse], error) {
-	users, err := h.service.ListAPIUsers(ctx)
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	users, err := h.service.ListAPIUsers(ctx, requestingUser)
 	if err != nil {
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.ListAPIUsersResponse{
@@ -144,6 +191,12 @@ func (h *AuthHandler) UpdateAPIUserPassword(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateAPIUserPasswordRequest],
 ) (*connect.Response[pb.UpdateAPIUserPasswordResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -151,12 +204,12 @@ func (h *AuthHandler) UpdateAPIUserPassword(
 
 	user, err := h.service.UpdateAPIUserPassword(ctx, id, services.UpdatePasswordRequest{
 		Password: req.Msg.Password,
-	})
+	}, requestingUser)
 	if err != nil {
 		if err == repositories.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.UpdateAPIUserPasswordResponse{
@@ -169,6 +222,12 @@ func (h *AuthHandler) UpdateAPIUserPermissions(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateAPIUserPermissionsRequest],
 ) (*connect.Response[pb.UpdateAPIUserPermissionsResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -176,14 +235,35 @@ func (h *AuthHandler) UpdateAPIUserPermissions(
 
 	role := mappers.ProtoToAPIUserRole(req.Msg.Permissions)
 
+	// Parse optional operator_id and account_id
+	var operatorID *uuid.UUID
+	if req.Msg.OperatorId != nil {
+		id, err := mappers.ParseUUID(*req.Msg.OperatorId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		operatorID = &id
+	}
+
+	var accountID *uuid.UUID
+	if req.Msg.AccountId != nil {
+		id, err := mappers.ParseUUID(*req.Msg.AccountId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		accountID = &id
+	}
+
 	user, err := h.service.UpdateAPIUserRole(ctx, id, services.UpdateRoleRequest{
-		Role: role,
-	})
+		Role:       role,
+		OperatorID: operatorID,
+		AccountID:  accountID,
+	}, requestingUser)
 	if err != nil {
 		if err == repositories.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.UpdateAPIUserPermissionsResponse{
@@ -196,17 +276,23 @@ func (h *AuthHandler) DeleteAPIUser(
 	ctx context.Context,
 	req *connect.Request[pb.DeleteAPIUserRequest],
 ) (*connect.Response[pb.DeleteAPIUserResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	err = h.service.DeleteAPIUser(ctx, id)
+	err = h.service.DeleteAPIUser(ctx, id, requestingUser)
 	if err != nil {
 		if err == repositories.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		return nil, err
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.DeleteAPIUserResponse{}), nil

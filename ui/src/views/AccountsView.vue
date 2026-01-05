@@ -23,6 +23,9 @@
       :columns="columns"
       :loading="loading"
       :error="error"
+      :can-create="authStore.isAdmin || authStore.isOperatorAdmin"
+      :can-edit="authStore.isAdmin || authStore.isOperatorAdmin"
+      :can-delete="authStore.isAdmin || authStore.isOperatorAdmin"
       @create="showCreateModal"
       @edit="showEditModal"
       @delete="handleDelete"
@@ -183,12 +186,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
 import EntityList from '@/components/EntityList.vue'
 import EntityForm from '@/components/EntityForm.vue'
 import ClickablePubKey from '@/components/ClickablePubKey.vue'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const accounts = ref([])
 const operators = ref([])
 const loading = ref(false)

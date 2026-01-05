@@ -160,6 +160,14 @@ func extractResourceAndAction(procedure string) (string, string) {
 	serviceName := serviceParts[len(serviceParts)-1]
 	resource := strings.ToLower(strings.TrimSuffix(serviceName, "Service"))
 
+	// Special case mappings for resource names
+	if resource == "auth" && strings.Contains(strings.ToLower(method), "apiuser") {
+		resource = "api_user"
+	}
+	if resource == "scopedsigningkey" {
+		resource = "scoped_key"
+	}
+
 	// Extract action from method name
 	// Example: "CreateOperator" -> "create"
 	action := extractAction(method)

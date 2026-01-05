@@ -1,4 +1,4 @@
-.PHONY: generate build build-ui build-server build-cli build-all test lint clean migrate-up migrate-down run run-dev install-cli install-ui generate-key help
+.PHONY: generate build build-ui build-server build-cli build-all test lint clean migrate-up migrate-down run run-dev install-cli install-ui generate-key docker-build docker-run docker-stop docker-logs help
 
 # Generate protobuf code
 generate:
@@ -83,6 +83,44 @@ install-cli:
 generate-key:
 	@openssl rand -base64 32
 
+# Docker targets
+# Default Docker image settings (can be overridden with environment variables)
+DOCKER_IMAGE ?= nats-identity-service
+DOCKER_TAG ?= latest
+DOCKER_CONTAINER_NAME ?= nis
+
+# Build Docker image
+docker-build:
+	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "Docker image built successfully!"
+
+# Run Docker container
+docker-run:
+	@echo "Starting Docker container $(DOCKER_CONTAINER_NAME)..."
+	docker run -d \
+		--name $(DOCKER_CONTAINER_NAME) \
+		-p 8080:8080 \
+		-v $(PWD)/data:/data \
+		-e JWT_SECRET="development-secret-key-32-bytes-long!!" \
+		-e ENCRYPTION_KEY="01234567890123456789012345678901" \
+		-e ENCRYPTION_KEY_ID="default" \
+		$(DOCKER_IMAGE):$(DOCKER_TAG) \
+		./nis serve --address :8080 --jwt-secret "$${JWT_SECRET}" --encryption-key "$${ENCRYPTION_KEY}" --encryption-key-id "$${ENCRYPTION_KEY_ID}"
+	@echo "Container started! Access at http://localhost:8080"
+	@echo "View logs with: make docker-logs"
+
+# Stop and remove Docker container
+docker-stop:
+	@echo "Stopping Docker container $(DOCKER_CONTAINER_NAME)..."
+	docker stop $(DOCKER_CONTAINER_NAME) || true
+	docker rm $(DOCKER_CONTAINER_NAME) || true
+	@echo "Container stopped and removed!"
+
+# Show Docker container logs
+docker-logs:
+	docker logs -f $(DOCKER_CONTAINER_NAME)
+
 # Help target
 help:
 	@echo "NIS Makefile targets:"
@@ -102,4 +140,8 @@ help:
 	@echo "  make run-dev      - Show development mode instructions"
 	@echo "  make install-cli  - Install nisctl to GOPATH/bin"
 	@echo "  make generate-key - Generate encryption key"
+	@echo "  make docker-build - Build Docker image"
+	@echo "  make docker-run   - Run Docker container"
+	@echo "  make docker-stop  - Stop and remove Docker container"
+	@echo "  make docker-logs  - Show Docker container logs"
 	@echo "  make help         - Show this help message"
