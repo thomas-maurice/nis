@@ -14,16 +14,35 @@ NIS manages the complete lifecycle of NATS JWT authentication:
 
 ## Quick Start
 
-```bash
-# Docker (2-minute setup)
-cd example && ./setup.sh
-open http://localhost:8080  # Login: admin/admin123
+### Docker Compose (PostgreSQL)
 
-# Or binary
+```bash
+# Start all services (NIS + PostgreSQL + NATS)
+docker-compose up -d
+
+# Access UI at http://localhost:8080
+# Default credentials: Create admin user first
+docker-compose exec nis ./nis user create admin --password admin123 --role admin
+
+# Stop all services
+docker-compose down
+```
+
+### Binary
+
+```bash
 ./nis serve --jwt-secret "min-32-bytes" --encryption-key "exactly-32-bytes"
 ./nisctl operator create my-operator
 ./nisctl account create my-account --operator my-operator
 ./nisctl user create my-user --operator my-operator --account my-account
+```
+
+### Example Setup (Demo)
+
+```bash
+# Quick demo with example scripts
+cd example && ./setup.sh
+open http://localhost:8080  # Login: admin/admin123
 ```
 
 ## How It Works

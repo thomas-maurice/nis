@@ -67,6 +67,7 @@ func (h *ClusterHandler) CreateCluster(
 		ServerURLs:          req.Msg.ServerUrls,
 		SystemAccountPubKey: req.Msg.SystemAccountPubKey,
 		SystemAccountUserID: systemAccountUserID,
+		SkipVerifyTLS:       req.Msg.SkipVerifyTls,
 	})
 	if err != nil {
 		return nil, err
@@ -221,11 +222,16 @@ func (h *ClusterHandler) UpdateCluster(
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	cluster, err := h.service.UpdateCluster(ctx, id, services.UpdateClusterRequest{
+	updateReq := services.UpdateClusterRequest{
 		Name:        mappers.StringPtr(req.Msg.GetName()),
 		Description: mappers.StringPtr(req.Msg.GetDescription()),
 		ServerURLs:  req.Msg.ServerUrls,
-	})
+	}
+	if req.Msg.SkipVerifyTls != nil {
+		updateReq.SkipVerifyTLS = req.Msg.SkipVerifyTls
+	}
+
+	cluster, err := h.service.UpdateCluster(ctx, id, updateReq)
 	if err != nil {
 		if err == repositories.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, err)

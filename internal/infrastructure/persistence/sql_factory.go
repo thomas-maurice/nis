@@ -50,7 +50,19 @@ func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
 
 	switch f.config.Driver {
 	case "sqlite":
-		gormDB, err = gorm.Open(sqlite.Open(f.config.DSN), &gorm.Config{})
+		// Enable foreign keys for SQLite
+		dsn := f.config.DSN
+		if dsn != ":memory:" && dsn != "" {
+			// Add foreign keys parameter if not already present
+			if len(dsn) > 0 && dsn[len(dsn)-1] != '?' {
+				dsn += "?_foreign_keys=on"
+			}
+		}
+		gormDB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		if err == nil {
+			// Also set PRAGMA for extra safety
+			gormDB.Exec("PRAGMA foreign_keys = ON")
+		}
 	case "postgres", "postgresql":
 		gormDB, err = gorm.Open(postgres.Open(f.config.DSN), &gorm.Config{})
 	default:

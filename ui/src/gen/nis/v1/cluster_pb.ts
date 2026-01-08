@@ -68,6 +68,11 @@ export class Cluster extends Message<Cluster> {
    */
   healthCheckError = "";
 
+  /**
+   * @generated from field: bool skip_verify_tls = 12;
+   */
+  skipVerifyTls = false;
+
   constructor(data?: PartialMessage<Cluster>) {
     super();
     proto3.util.initPartial(data, this);
@@ -87,6 +92,7 @@ export class Cluster extends Message<Cluster> {
     { no: 9, name: "healthy", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 10, name: "last_health_check", kind: "message", T: Timestamp },
     { no: 11, name: "health_check_error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 12, name: "skip_verify_tls", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Cluster {
@@ -142,6 +148,11 @@ export class CreateClusterRequest extends Message<CreateClusterRequest> {
    */
   systemAccountCreds = "";
 
+  /**
+   * @generated from field: bool skip_verify_tls = 7;
+   */
+  skipVerifyTls = false;
+
   constructor(data?: PartialMessage<CreateClusterRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -156,6 +167,7 @@ export class CreateClusterRequest extends Message<CreateClusterRequest> {
     { no: 4, name: "server_urls", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 5, name: "system_account_pub_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "system_account_creds", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "skip_verify_tls", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateClusterRequest {
@@ -486,6 +498,11 @@ export class UpdateClusterRequest extends Message<UpdateClusterRequest> {
    */
   serverUrls: string[] = [];
 
+  /**
+   * @generated from field: optional bool skip_verify_tls = 5;
+   */
+  skipVerifyTls?: boolean;
+
   constructor(data?: PartialMessage<UpdateClusterRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -498,6 +515,7 @@ export class UpdateClusterRequest extends Message<UpdateClusterRequest> {
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 3, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 4, name: "server_urls", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 5, name: "skip_verify_tls", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateClusterRequest {

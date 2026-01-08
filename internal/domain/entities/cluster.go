@@ -15,6 +15,7 @@ type Cluster struct {
 	OperatorID           uuid.UUID
 	SystemAccountPubKey  string // Public key of the system account
 	EncryptedCreds       string // Encrypted system account credentials for pushing JWTs
+	SkipVerifyTLS        bool    // Skip TLS certificate verification
 	Healthy              bool    // Health status of the cluster
 	LastHealthCheck      *time.Time // Last time health check was performed
 	HealthCheckError     string  // Last health check error message (if any)

@@ -53,6 +53,7 @@ type CreateClusterRequest struct {
 	OperatorID          uuid.UUID
 	SystemAccountPubKey string   // Optional
 	SystemAccountUserID *uuid.UUID // Optional - if provided, generates encrypted creds
+	SkipVerifyTLS       bool
 }
 
 // CreateCluster creates a new cluster configuration and automatically creates a SYS user for management
@@ -100,6 +101,7 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 		OperatorID:          req.OperatorID,
 		SystemAccountPubKey: sysAccount.PublicKey,
 		EncryptedCreds:      "", // Will be set below if system user exists
+		SkipVerifyTLS:       req.SkipVerifyTLS,
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
@@ -220,6 +222,7 @@ type UpdateClusterRequest struct {
 	Description         *string
 	ServerURLs          []string
 	SystemAccountPubKey *string
+	SkipVerifyTLS       *bool
 }
 
 // UpdateCluster updates a cluster's configuration
@@ -257,6 +260,11 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 
 	if req.SystemAccountPubKey != nil && *req.SystemAccountPubKey != cluster.SystemAccountPubKey {
 		cluster.SystemAccountPubKey = *req.SystemAccountPubKey
+		updated = true
+	}
+
+	if req.SkipVerifyTLS != nil && *req.SkipVerifyTLS != cluster.SkipVerifyTLS {
+		cluster.SkipVerifyTLS = *req.SkipVerifyTLS
 		updated = true
 	}
 
@@ -378,7 +386,7 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 	}
 
 	// Connect to NATS using cluster credentials
-	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds)
+	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
 	}
@@ -403,10 +411,10 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 }
 
 // connectToCluster creates a NATS client connection using credentials
-func (s *ClusterService) connectToCluster(serverURLs []string, creds string) (*nats.Client, error) {
+func (s *ClusterService) connectToCluster(serverURLs []string, creds string, skipVerifyTLS bool) (*nats.Client, error) {
 	// Use the NATS client from infrastructure package
 	// It now supports credentials from content directly
-	return nats.NewClientFromCreds(serverURLs, creds)
+	return nats.NewClientFromCreds(serverURLs, creds, skipVerifyTLS)
 }
 
 // CheckClusterHealth checks if a cluster is reachable and updates its health status
@@ -427,7 +435,7 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 			healthErr = fmt.Sprintf("failed to decrypt credentials: %v", err)
 		} else {
 			creds := string(credsBytes)
-			natsClient, err := s.connectToCluster(cluster.ServerURLs, creds)
+			natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
 			if err != nil {
 				healthErr = fmt.Sprintf("failed to connect: %v", err)
 			} else {

@@ -36,6 +36,7 @@ type Cluster struct {
 	Healthy             bool                   `protobuf:"varint,9,opt,name=healthy,proto3" json:"healthy,omitempty"`
 	LastHealthCheck     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=last_health_check,json=lastHealthCheck,proto3" json:"last_health_check,omitempty"`
 	HealthCheckError    string                 `protobuf:"bytes,11,opt,name=health_check_error,json=healthCheckError,proto3" json:"health_check_error,omitempty"`
+	SkipVerifyTls       bool                   `protobuf:"varint,12,opt,name=skip_verify_tls,json=skipVerifyTls,proto3" json:"skip_verify_tls,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -147,6 +148,13 @@ func (x *Cluster) GetHealthCheckError() string {
 	return ""
 }
 
+func (x *Cluster) GetSkipVerifyTls() bool {
+	if x != nil {
+		return x.SkipVerifyTls
+	}
+	return false
+}
+
 // CreateClusterRequest is the request to create a new cluster
 type CreateClusterRequest struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
@@ -156,6 +164,7 @@ type CreateClusterRequest struct {
 	ServerUrls          []string               `protobuf:"bytes,4,rep,name=server_urls,json=serverUrls,proto3" json:"server_urls,omitempty"`
 	SystemAccountPubKey string                 `protobuf:"bytes,5,opt,name=system_account_pub_key,json=systemAccountPubKey,proto3" json:"system_account_pub_key,omitempty"`
 	SystemAccountCreds  string                 `protobuf:"bytes,6,opt,name=system_account_creds,json=systemAccountCreds,proto3" json:"system_account_creds,omitempty"`
+	SkipVerifyTls       bool                   `protobuf:"varint,7,opt,name=skip_verify_tls,json=skipVerifyTls,proto3" json:"skip_verify_tls,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -230,6 +239,13 @@ func (x *CreateClusterRequest) GetSystemAccountCreds() string {
 		return x.SystemAccountCreds
 	}
 	return ""
+}
+
+func (x *CreateClusterRequest) GetSkipVerifyTls() bool {
+	if x != nil {
+		return x.SkipVerifyTls
+	}
+	return false
 }
 
 // CreateClusterResponse is the response from creating a cluster
@@ -570,6 +586,7 @@ type UpdateClusterRequest struct {
 	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	Description   *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
 	ServerUrls    []string               `protobuf:"bytes,4,rep,name=server_urls,json=serverUrls,proto3" json:"server_urls,omitempty"`
+	SkipVerifyTls *bool                  `protobuf:"varint,5,opt,name=skip_verify_tls,json=skipVerifyTls,proto3,oneof" json:"skip_verify_tls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -630,6 +647,13 @@ func (x *UpdateClusterRequest) GetServerUrls() []string {
 		return x.ServerUrls
 	}
 	return nil
+}
+
+func (x *UpdateClusterRequest) GetSkipVerifyTls() bool {
+	if x != nil && x.SkipVerifyTls != nil {
+		return *x.SkipVerifyTls
+	}
+	return false
 }
 
 // UpdateClusterResponse is the response from updating a cluster
@@ -1155,7 +1179,7 @@ var File_nis_v1_cluster_proto protoreflect.FileDescriptor
 
 const file_nis_v1_cluster_proto_rawDesc = "" +
 	"\n" +
-	"\x14nis/v1/cluster.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcc\x03\n" +
+	"\x14nis/v1/cluster.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf4\x03\n" +
 	"\aCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\voperator_id\x18\x02 \x01(\tR\n" +
@@ -1172,7 +1196,8 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"\ahealthy\x18\t \x01(\bR\ahealthy\x12F\n" +
 	"\x11last_health_check\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\x0flastHealthCheck\x12,\n" +
-	"\x12health_check_error\x18\v \x01(\tR\x10healthCheckError\"\xf5\x01\n" +
+	"\x12health_check_error\x18\v \x01(\tR\x10healthCheckError\x12&\n" +
+	"\x0fskip_verify_tls\x18\f \x01(\bR\rskipVerifyTls\"\x9d\x02\n" +
 	"\x14CreateClusterRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\x12\x12\n" +
@@ -1181,7 +1206,8 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"\vserver_urls\x18\x04 \x03(\tR\n" +
 	"serverUrls\x123\n" +
 	"\x16system_account_pub_key\x18\x05 \x01(\tR\x13systemAccountPubKey\x120\n" +
-	"\x14system_account_creds\x18\x06 \x01(\tR\x12systemAccountCreds\"B\n" +
+	"\x14system_account_creds\x18\x06 \x01(\tR\x12systemAccountCreds\x12&\n" +
+	"\x0fskip_verify_tls\x18\a \x01(\bR\rskipVerifyTls\"B\n" +
 	"\x15CreateClusterResponse\x12)\n" +
 	"\acluster\x18\x01 \x01(\v2\x0f.nis.v1.ClusterR\acluster\"#\n" +
 	"\x11GetClusterRequest\x12\x0e\n" +
@@ -1199,15 +1225,17 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"operatorId\x12-\n" +
 	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"C\n" +
 	"\x14ListClustersResponse\x12+\n" +
-	"\bclusters\x18\x01 \x03(\v2\x0f.nis.v1.ClusterR\bclusters\"\xa0\x01\n" +
+	"\bclusters\x18\x01 \x03(\v2\x0f.nis.v1.ClusterR\bclusters\"\xe1\x01\n" +
 	"\x14UpdateClusterRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
 	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01\x12\x1f\n" +
 	"\vserver_urls\x18\x04 \x03(\tR\n" +
-	"serverUrlsB\a\n" +
+	"serverUrls\x12+\n" +
+	"\x0fskip_verify_tls\x18\x05 \x01(\bH\x02R\rskipVerifyTls\x88\x01\x01B\a\n" +
 	"\x05_nameB\x0e\n" +
-	"\f_description\"B\n" +
+	"\f_descriptionB\x12\n" +
+	"\x10_skip_verify_tls\"B\n" +
 	"\x15UpdateClusterResponse\x12)\n" +
 	"\acluster\x18\x01 \x01(\v2\x0f.nis.v1.ClusterR\acluster\"c\n" +
 	"\x1fUpdateClusterCredentialsRequest\x12\x0e\n" +

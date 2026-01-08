@@ -243,6 +243,7 @@ type ClusterModel struct {
 	OperatorID          string   `gorm:"type:text;not null;index:idx_clusters_operator_id"`
 	SystemAccountPubKey string   `gorm:"type:text"`
 	EncryptedCreds      string   `gorm:"type:text"`
+	SkipVerifyTLS       bool     `gorm:"type:boolean;not null;default:false"`
 	Healthy             bool     `gorm:"type:boolean;not null;default:false"`
 	LastHealthCheck     *time.Time `gorm:"type:datetime"`
 	HealthCheckError    string   `gorm:"type:text;not null;default:''"`
@@ -263,6 +264,7 @@ func (m *ClusterModel) ToEntity() *entities.Cluster {
 		OperatorID:          uuid.MustParse(m.OperatorID),
 		SystemAccountPubKey: m.SystemAccountPubKey,
 		EncryptedCreds:      m.EncryptedCreds,
+		SkipVerifyTLS:       m.SkipVerifyTLS,
 		Healthy:             m.Healthy,
 		LastHealthCheck:     m.LastHealthCheck,
 		HealthCheckError:    m.HealthCheckError,
@@ -280,6 +282,7 @@ func ClusterModelFromEntity(e *entities.Cluster) *ClusterModel {
 		OperatorID:          e.OperatorID.String(),
 		SystemAccountPubKey: e.SystemAccountPubKey,
 		EncryptedCreds:      e.EncryptedCreds,
+		SkipVerifyTLS:       e.SkipVerifyTLS,
 		Healthy:             e.Healthy,
 		LastHealthCheck:     e.LastHealthCheck,
 		HealthCheckError:    e.HealthCheckError,

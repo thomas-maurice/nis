@@ -33,7 +33,7 @@ CREATE TABLE accounts (
     UNIQUE(operator_id, name)
 );
 
--- Scoped signing keys table (role column removed)
+-- Scoped signing keys table
 CREATE TABLE scoped_signing_keys (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL,
@@ -70,7 +70,7 @@ CREATE TABLE users (
     UNIQUE(account_id, name)
 );
 
--- Clusters table (with health fields)
+-- Clusters table
 CREATE TABLE clusters (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -79,6 +79,7 @@ CREATE TABLE clusters (
     operator_id TEXT NOT NULL,
     system_account_pub_key TEXT,
     encrypted_creds TEXT,
+    skip_verify_tls BOOLEAN NOT NULL DEFAULT false,
     healthy BOOLEAN NOT NULL DEFAULT false,
     last_health_check DATETIME,
     health_check_error TEXT NOT NULL DEFAULT '',
@@ -93,8 +94,12 @@ CREATE TABLE api_users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL,  -- admin, operator-admin, account-admin
+    operator_id TEXT,
+    account_id TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (operator_id) REFERENCES operators(id) ON DELETE CASCADE,
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
 
 -- Indexes
@@ -103,12 +108,14 @@ CREATE INDEX idx_users_account_id ON users(account_id);
 CREATE INDEX idx_users_scoped_signing_key_id ON users(scoped_signing_key_id);
 CREATE INDEX idx_scoped_signing_keys_account_id ON scoped_signing_keys(account_id);
 CREATE INDEX idx_clusters_operator_id ON clusters(operator_id);
+CREATE INDEX idx_api_users_operator_id ON api_users(operator_id);
+CREATE INDEX idx_api_users_account_id ON api_users(account_id);
 
 -- +goose Down
 
+DROP TABLE IF EXISTS api_users;
 DROP TABLE IF EXISTS clusters;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS scoped_signing_keys;
 DROP TABLE IF EXISTS accounts;
 DROP TABLE IF EXISTS operators;
-DROP TABLE IF EXISTS api_users;

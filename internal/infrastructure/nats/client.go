@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -57,7 +58,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 }
 
 // NewClientFromCreds creates a NATS client using credentials content directly
-func NewClientFromCreds(serverURLs []string, credsContent string) (*Client, error) {
+func NewClientFromCreds(serverURLs []string, credsContent string, skipVerifyTLS bool) (*Client, error) {
 	if len(serverURLs) == 0 {
 		return nil, fmt.Errorf("at least one server URL is required")
 	}
@@ -67,6 +68,11 @@ func NewClientFromCreds(serverURLs []string, credsContent string) (*Client, erro
 		nats.Name("NATS Identity Service"),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2 * time.Second),
+	}
+
+	// Skip TLS verification if requested
+	if skipVerifyTLS {
+		opts = append(opts, nats.Secure(&tls.Config{InsecureSkipVerify: true}))
 	}
 
 	// Add credentials from content

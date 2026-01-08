@@ -29,6 +29,7 @@ func ClusterToProto(cluster *entities.Cluster) *pb.Cluster {
 		Healthy:              cluster.Healthy,
 		LastHealthCheck:      lastHealthCheck,
 		HealthCheckError:     cluster.HealthCheckError,
+		SkipVerifyTls:        cluster.SkipVerifyTLS,
 	}
 }
 

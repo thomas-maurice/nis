@@ -129,6 +129,21 @@
           />
           <div class="form-text">Separate multiple URLs with semicolons</div>
         </div>
+
+        <div class="mb-3">
+          <div class="form-check">
+            <input
+              id="skipVerifyTls"
+              v-model="formData.skipVerifyTls"
+              type="checkbox"
+              class="form-check-input"
+            />
+            <label for="skipVerifyTls" class="form-check-label">
+              Skip TLS Certificate Verification
+            </label>
+            <div class="form-text">Warning: Only use this for testing with self-signed certificates</div>
+          </div>
+        </div>
       </template>
     </EntityForm>
   </div>
@@ -201,7 +216,8 @@ const showCreateModal = () => {
     name: '',
     description: '',
     operatorId: '',
-    serverUrls: []
+    serverUrls: [],
+    skipVerifyTls: false
   }
   showModal.value = true
   formError.value = ''

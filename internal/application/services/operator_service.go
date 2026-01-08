@@ -283,7 +283,7 @@ func (s *OperatorService) SetSystemAccount(ctx context.Context, operatorID uuid.
 	return operator, nil
 }
 
-// DeleteOperator deletes an operator and all associated data (cascades)
+// DeleteOperator deletes an operator and all associated data (manual cascade)
 func (s *OperatorService) DeleteOperator(ctx context.Context, id uuid.UUID) error {
 	// Check if operator exists
 	_, err := s.repo.GetByID(ctx, id)
@@ -291,7 +291,34 @@ func (s *OperatorService) DeleteOperator(ctx context.Context, id uuid.UUID) erro
 		return err
 	}
 
-	// Delete operator (cascades to accounts, users, etc.)
+	// Get all accounts for this operator
+	accounts, err := s.accountRepo.ListByOperator(ctx, id, repositories.ListOptions{Limit: 10000})
+	if err != nil {
+		return fmt.Errorf("failed to list accounts for deletion: %w", err)
+	}
+
+	// Delete all accounts (and their associated users/signing keys)
+	for _, account := range accounts {
+		// Get all users for this account
+		users, err := s.userRepo.ListByAccount(ctx, account.ID, repositories.ListOptions{Limit: 10000})
+		if err != nil {
+			return fmt.Errorf("failed to list users for account %s: %w", account.ID, err)
+		}
+
+		// Delete all users
+		for _, user := range users {
+			if err := s.userRepo.Delete(ctx, user.ID); err != nil {
+				return fmt.Errorf("failed to delete user %s: %w", user.ID, err)
+			}
+		}
+
+		// Delete account (this should also cascade to signing keys if FK works, but we're being explicit)
+		if err := s.accountRepo.Delete(ctx, account.ID); err != nil {
+			return fmt.Errorf("failed to delete account %s: %w", account.ID, err)
+		}
+	}
+
+	// Finally delete the operator
 	return s.repo.Delete(ctx, id)
 }
 
