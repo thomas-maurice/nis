@@ -7,15 +7,15 @@
       :columns="columns"
       :loading="loading"
       :error="error"
-      :can-create="authStore.isAdmin"
+      :can-create="authStore.isAdmin && !authStore.isOperatorAdmin"
       :can-edit="authStore.isAdmin"
-      :can-delete="authStore.isAdmin"
+      :can-delete="authStore.isAdmin && !authStore.isOperatorAdmin"
       @create="showCreateModal"
       @edit="showEditModal"
       @delete="handleDelete"
       @select="handleSelect"
     >
-      <template v-if="authStore.isAdmin" #header-actions>
+      <template v-if="authStore.isAdmin && !authStore.isOperatorAdmin" #header-actions>
         <button class="btn btn-outline-primary me-2" @click="showImportModal = true">
           <font-awesome-icon :icon="['fas', 'file-import']" class="me-2" />
           Import

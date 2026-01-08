@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
@@ -28,13 +29,21 @@ func (h *AuthHandler) Login(
 	ctx context.Context,
 	req *connect.Request[pb.LoginRequest],
 ) (*connect.Response[pb.LoginResponse], error) {
+	// Get logger from context (enriched with request metadata from middleware)
+	logger := logging.LogFromContext(ctx)
+
+	logger.Info("Login attempt", "username", req.Msg.Username)
+
 	resp, err := h.service.Login(ctx, services.LoginRequest{
 		Username: req.Msg.Username,
 		Password: req.Msg.Password,
 	})
 	if err != nil {
+		logger.Warn("Login failed", "username", req.Msg.Username, "error", err)
 		return nil, connect.NewError(connect.CodeUnauthenticated, err)
 	}
+
+	logger.Info("Login successful", "username", req.Msg.Username, "user_id", resp.User.ID)
 
 	return connect.NewResponse(&pb.LoginResponse{
 		Token: resp.Token,

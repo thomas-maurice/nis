@@ -10,6 +10,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/handlers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	httpInterface "github.com/thomas-maurice/nis/internal/interfaces/http"
@@ -90,6 +91,9 @@ func NewServer(
 			fmt.Printf("Warning: Failed to load UI filesystem: %v\n", err)
 		}
 	}
+
+	// Wrap handler with request logging middleware
+	handler = logging.RequestLoggingMiddleware(handler)
 
 	// Create HTTP/2 server with h2c (HTTP/2 without TLS) support
 	// This allows both HTTP/1.1 and HTTP/2 connections

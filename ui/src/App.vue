@@ -4,7 +4,7 @@
     <main class="flex-grow-1">
       <router-view />
     </main>
-    <footer v-if="authStore.checkAuth()" class="bg-light py-3 mt-auto">
+    <footer v-if="authStore.checkAuth()" class="py-3 mt-auto">
       <div class="container text-center text-muted">
         <small>NATS Identity Service &copy; 2026</small>
       </div>
@@ -65,5 +65,11 @@ code {
   padding: 2px 6px;
   border-radius: 3px;
   font-size: 90%;
+}
+
+/* Footer styling for light mode */
+footer {
+  background-color: #f8f9fa;
+  border-top: 1px solid #dee2e6;
 }
 </style>
