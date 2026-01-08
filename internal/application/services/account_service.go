@@ -113,14 +113,17 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 		return nil, fmt.Errorf("failed to create account: %w", err)
 	}
 
-	// Create a default scoped signing key with unlimited permissions
+	// Create a default scoped signing key with unlimited permissions (mandatory)
 	defaultKey, err := s.createDefaultScopedSigningKey(ctx, account.ID)
 	if err != nil {
-		// Log the error but don't fail account creation
-		fmt.Printf("Warning: failed to create default scoped signing key for account %s: %v\n", account.Name, err)
-	} else {
-		fmt.Printf("Created default scoped signing key '%s' for account '%s'\n", defaultKey.Name, account.Name)
+		// Rollback account creation if signing key creation fails
+		if deleteErr := s.repo.Delete(ctx, account.ID); deleteErr != nil {
+			fmt.Printf("Error: failed to rollback account creation after signing key failure: %v\n", deleteErr)
+		}
+		return nil, fmt.Errorf("failed to create default scoped signing key for account: %w", err)
 	}
+
+	fmt.Printf("Created account '%s' with default scoped signing key '%s'\n", account.Name, defaultKey.Name)
 
 	return account, nil
 }

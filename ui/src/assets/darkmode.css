@@ -269,6 +269,16 @@
     color: #e4e6eb;
   }
 
+  /* CodeBlock component - override scoped styles */
+  .code-block pre {
+    background-color: #1f2229 !important;
+    border-color: #3a3f47 !important;
+  }
+
+  .code-block code {
+    color: #e4e6eb !important;
+  }
+
   /* Links */
   a {
     color: #4a8fe7;

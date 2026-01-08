@@ -116,18 +116,21 @@ func runServe(cmd *cobra.Command, args []string) error {
 	jwtService := services.NewJWTService(encryptor)
 
 	// Initialize business services using repository factory
-	operatorService := services.NewOperatorService(
-		repoFactory.OperatorRepository(),
-		repoFactory.AccountRepository(),
-		repoFactory.UserRepository(),
-		jwtService,
-		encryptor,
-	)
-
+	// Note: accountService must be created before operatorService because
+	// operator creation uses accountService to create the $SYS account
 	accountService := services.NewAccountService(
 		repoFactory.AccountRepository(),
 		repoFactory.OperatorRepository(),
 		repoFactory.ScopedSigningKeyRepository(),
+		jwtService,
+		encryptor,
+	)
+
+	operatorService := services.NewOperatorService(
+		repoFactory.OperatorRepository(),
+		repoFactory.AccountRepository(),
+		repoFactory.UserRepository(),
+		accountService,
 		jwtService,
 		encryptor,
 	)

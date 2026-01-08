@@ -68,18 +68,20 @@ func (s *UserServiceTestSuite) SetupSuite() {
 	// Create services
 	jwtService := NewJWTService(s.encryptor)
 
-	s.operatorService = NewOperatorService(
-		s.operatorRepo,
-		s.accountRepo,
-		s.userRepo,
-		jwtService,
-		s.encryptor,
-	)
-
+	// Create accountService first (required by operatorService)
 	s.accountService = NewAccountService(
 		s.accountRepo,
 		s.operatorRepo,
 		s.scopedKeyRepo,
+		jwtService,
+		s.encryptor,
+	)
+
+	s.operatorService = NewOperatorService(
+		s.operatorRepo,
+		s.accountRepo,
+		s.userRepo,
+		s.accountService,
 		jwtService,
 		s.encryptor,
 	)

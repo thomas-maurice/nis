@@ -15,11 +15,12 @@ import (
 
 // OperatorService provides business logic for operator management
 type OperatorService struct {
-	repo        repositories.OperatorRepository
-	accountRepo repositories.AccountRepository
-	userRepo    repositories.UserRepository
-	jwtService  *JWTService
-	encryptor   encryption.Encryptor
+	repo           repositories.OperatorRepository
+	accountRepo    repositories.AccountRepository
+	userRepo       repositories.UserRepository
+	accountService *AccountService
+	jwtService     *JWTService
+	encryptor      encryption.Encryptor
 }
 
 // NewOperatorService creates a new operator service
@@ -27,15 +28,17 @@ func NewOperatorService(
 	repo repositories.OperatorRepository,
 	accountRepo repositories.AccountRepository,
 	userRepo repositories.UserRepository,
+	accountService *AccountService,
 	jwtService *JWTService,
 	encryptor encryption.Encryptor,
 ) *OperatorService {
 	return &OperatorService{
-		repo:        repo,
-		accountRepo: accountRepo,
-		userRepo:    userRepo,
-		jwtService:  jwtService,
-		encryptor:   encryptor,
+		repo:           repo,
+		accountRepo:    accountRepo,
+		userRepo:       userRepo,
+		accountService: accountService,
+		jwtService:     jwtService,
+		encryptor:      encryptor,
 	}
 }
 
@@ -99,42 +102,13 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 		return nil, fmt.Errorf("failed to create operator: %w", err)
 	}
 
-	// Create $SYS account with unlimited JetStream
-	sysAccountSeed, sysAccountPubKey, err := GenerateNKey(nkeys.PrefixByteAccount)
+	// Create $SYS account using AccountService (ensures signing key is created)
+	sysAccount, err := s.accountService.CreateAccount(ctx, CreateAccountRequest{
+		OperatorID:  operator.ID,
+		Name:        "$SYS",
+		Description: "System account for operator management and syncing",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate $SYS account keys: %w", err)
-	}
-
-	encryptedSysAccountSeed, err := s.encryptor.Encrypt(ctx, sysAccountSeed)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt $SYS account seed: %w", err)
-	}
-
-	sysAccount := &entities.Account{
-		ID:                    uuid.New(),
-		OperatorID:            operator.ID,
-		Name:                  "$SYS",
-		Description:           "System account for operator management and syncing",
-		EncryptedSeed:         encryptedSysAccountSeed,
-		PublicKey:             sysAccountPubKey,
-		JetStreamEnabled:      false,
-		JetStreamMaxMemory:    0,
-		JetStreamMaxStorage:   0,
-		JetStreamMaxStreams:   0,
-		JetStreamMaxConsumers: 0,
-		CreatedAt:             time.Now(),
-		UpdatedAt:             time.Now(),
-	}
-
-	// Generate $SYS account JWT
-	sysAccountJWT, err := s.jwtService.GenerateAccountJWT(ctx, sysAccount, operator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate $SYS account JWT: %w", err)
-	}
-	sysAccount.JWT = sysAccountJWT
-
-	// Save $SYS account
-	if err := s.accountRepo.Create(ctx, sysAccount); err != nil {
 		return nil, fmt.Errorf("failed to create $SYS account: %w", err)
 	}
 
@@ -174,7 +148,7 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 	}
 
 	// Update operator with system account public key and regenerate JWT
-	operator.SystemAccountPubKey = sysAccountPubKey
+	operator.SystemAccountPubKey = sysAccount.PublicKey
 	operator.UpdatedAt = time.Now()
 
 	jwt, err = s.jwtService.GenerateOperatorJWT(ctx, operator)

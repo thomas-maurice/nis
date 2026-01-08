@@ -20,14 +20,16 @@ import (
 
 type OperatorServiceTestSuite struct {
 	suite.Suite
-	ctx             context.Context
-	db              *gorm.DB
-	encryptor       encryption.Encryptor
-	jwtService      *JWTService
-	operatorRepo    repositories.OperatorRepository
-	accountRepo     repositories.AccountRepository
-	userRepo        repositories.UserRepository
-	operatorService *OperatorService
+	ctx                   context.Context
+	db                    *gorm.DB
+	encryptor             encryption.Encryptor
+	jwtService            *JWTService
+	operatorRepo          repositories.OperatorRepository
+	accountRepo           repositories.AccountRepository
+	userRepo              repositories.UserRepository
+	scopedSigningKeyRepo  repositories.ScopedSigningKeyRepository
+	accountService        *AccountService
+	operatorService       *OperatorService
 }
 
 func (s *OperatorServiceTestSuite) SetupSuite() {
@@ -64,7 +66,11 @@ func (s *OperatorServiceTestSuite) SetupSuite() {
 	s.operatorRepo = sql.NewOperatorRepo(s.db)
 	s.accountRepo = sql.NewAccountRepo(s.db)
 	s.userRepo = sql.NewUserRepo(s.db)
-	s.operatorService = NewOperatorService(s.operatorRepo, s.accountRepo, s.userRepo, s.jwtService, s.encryptor)
+	s.scopedSigningKeyRepo = sql.NewScopedSigningKeyRepo(s.db)
+
+	// Create accountService first (required by operatorService)
+	s.accountService = NewAccountService(s.accountRepo, s.operatorRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
+	s.operatorService = NewOperatorService(s.operatorRepo, s.accountRepo, s.userRepo, s.accountService, s.jwtService, s.encryptor)
 }
 
 func (s *OperatorServiceTestSuite) TearDownSuite() {

@@ -73,12 +73,22 @@ func (s *PermissionService) CanReadOperator(ctx context.Context, apiUser *entiti
 	}
 }
 
-// CanUpdateOperator checks if user can update an operator (admin only)
+// CanUpdateOperator checks if user can update an operator
+// Admins can update any operator, operator admins can update their own operator
 func (s *PermissionService) CanUpdateOperator(apiUser *entities.APIUser, operatorID uuid.UUID) error {
-	if apiUser.Role != entities.RoleAdmin {
-		return fmt.Errorf("%w: only admins can update operators", ErrPermissionDenied)
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		// Admin can update all operators
+		return nil
+	case entities.RoleOperatorAdmin:
+		// Operator admin can only update their own operator
+		if apiUser.OperatorID == nil || *apiUser.OperatorID != operatorID {
+			return fmt.Errorf("%w: operator admin can only update their own operator", ErrPermissionDenied)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: only admins and operator admins can update operators", ErrPermissionDenied)
 	}
-	return nil
 }
 
 // CanDeleteOperator checks if user can delete an operator (admin only)
