@@ -1,25 +1,4 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: nis-postgres
-    environment:
-      POSTGRES_USER: nis
-      POSTGRES_PASSWORD: nis_password
-      POSTGRES_DB: nis
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - nis-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nis"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   nis:
     build:
       context: .
@@ -27,22 +6,14 @@ services:
     container_name: nis-server
     ports:
       - "8080:8080"
-    command:
-      - "./nis"
-      - "serve"
-      - "--db-driver=postgres"
-      - "--db-dsn=host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable"
-      - "--address=:8080"
-      - "--jwt-secret=change-this-to-a-secure-random-secret-at-least-32-bytes-long"
-      - "--encryption-key=12345678901234567890123456789012"
-      - "--auto-migrate=true"
     environment:
-      - LOG_LEVEL=debug
-    networks:
-      - nis-network
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - AUTH_JWT_SECRET=change-this-to-a-secure-random-secret-at-least-32-bytes-long
+      - ENCRYPTION_KEY=12345678901234567890123456789012
+      - DATABASE_AUTO_MIGRATE=true
+      - DATABASE_DSN=/data/nis.db
+    command: ["./nis", "serve", "--address", ":8080"]
+    volumes:
+      - nis_data:/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
       interval: 10s
@@ -50,6 +21,28 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+  nis-setup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nis-setup
+    environment:
+      - DATABASE_DSN=/data/nis.db
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for NIS server..."
+        sleep 10
+        echo "Creating admin user..."
+        ./nis user create admin --password admin123 --role admin || echo "Admin already exists"
+    volumes:
+      - nis_data:/data
+    depends_on:
+      nis:
+        condition: service_healthy
+    restart: "no"
 
   nats:
     image: nats:2.10-alpine
@@ -60,14 +53,8 @@ services:
     command: ["-js", "-m", "8222"]
     volumes:
       - nats_data:/data
-    networks:
-      - nis-network
     restart: unless-stopped
 
-networks:
-  nis-network:
-    driver: bridge
-
 volumes:
-  postgres_data:
+  nis_data:
   nats_data:

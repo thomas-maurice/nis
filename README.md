@@ -21,8 +21,7 @@ NIS manages the complete lifecycle of NATS JWT authentication:
 docker-compose up -d
 
 # Access UI at http://localhost:8080
-# Default credentials: Create admin user first
-docker-compose exec nis ./nis user create admin --password admin123 --role admin
+# Login: admin/admin123 (created automatically)
 
 # Stop all services
 docker-compose down

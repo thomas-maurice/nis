@@ -81,7 +81,7 @@ CREATE TABLE clusters (
     encrypted_creds TEXT,
     skip_verify_tls BOOLEAN NOT NULL DEFAULT false,
     healthy BOOLEAN NOT NULL DEFAULT false,
-    last_health_check DATETIME,
+    last_health_check TIMESTAMP,
     health_check_error TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

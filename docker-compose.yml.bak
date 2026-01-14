@@ -20,18 +20,28 @@ services:
 
   nis:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: nis-server
     ports:
       - "8080:8080"
+    command:
+      - "./nis"
+      - "serve"
+      - "--db-driver"
+      - "postgres"
+      - "--db-dsn"
+      - "host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable"
+      - "--address"
+      - ":8080"
+      - "--jwt-secret"
+      - "change-this-to-a-secure-random-secret-at-least-32-bytes-long"
+      - "--encryption-key"
+      - "12345678901234567890123456789012"
+      - "--auto-migrate"
+      - "true"
     environment:
-      - DATABASE_DRIVER=postgres
-      - DATABASE_DSN=host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable
-      - AUTH_JWT_SECRET=change-this-to-a-secure-random-secret-at-least-32-bytes-long
-      - ENCRYPTION_KEY=12345678901234567890123456789012
-      - DATABASE_AUTO_MIGRATE=true
-    command: ["./nis", "serve", "--address", ":8080"]
+      - LOG_LEVEL=debug
     networks:
       - nis-network
     depends_on:
@@ -45,22 +55,28 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Admin user setup (runs once to create admin/admin123)
   nis-setup:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: nis-setup
-    environment:
-      - DATABASE_DRIVER=postgres
-      - DATABASE_DSN=host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable
     command:
-      - sh
-      - -c
+      - "sh"
+      - "-c"
       - |
-        echo "Waiting for NIS server migrations..."
+        echo "Waiting for NIS server to complete migrations..."
         sleep 10
+
+        # Create admin user (will fail gracefully if already exists)
         echo "Creating admin user..."
-        ./nis user create admin --password admin123 --role admin || echo "Admin user already exists"
+        if ./nis user create admin --password admin123 --role admin --db-driver postgres --db-dsn "host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable" 2>&1 | grep -q "already exists\|created successfully"; then
+          echo "✓ Admin user ready (admin/admin123)"
+          exit 0
+        else
+          echo "✗ Failed to create admin user"
+          exit 1
+        fi
     networks:
       - nis-network
     depends_on:
@@ -74,19 +90,12 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222"
-    command: ["-js", "-m", "8222", "-c", "/config/nats-server.conf"]
+    command: ["-js", "-m", "8222"]
     volumes:
-      - ./data/nats:/config
-      - ./data/nats/resolver:/resolver
-      - ./data/nats/jetstream:/data/jetstream
+      - nats_data:/data
     networks:
       - nis-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 networks:
   nis-network:
@@ -94,3 +103,4 @@ networks:
 
 volumes:
   postgres_data:
+  nats_data:

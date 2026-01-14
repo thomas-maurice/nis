@@ -92,12 +92,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer repoFactory.Close()
 
 	// Run migrations if enabled
+	migrationsDone := false
 	if autoMigrate {
 		fmt.Println("Running database migrations...")
 		if err := repoFactory.Migrate(ctx); err != nil {
 			return fmt.Errorf("failed to run migrations: %w", err)
 		}
 		fmt.Println("Migrations completed successfully")
+		migrationsDone = true
+	} else {
+		// Assume migrations are done if auto-migrate is disabled
+		migrationsDone = true
 	}
 
 	// Initialize encryption service
@@ -192,8 +197,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Initialize gRPC server with auth middleware
 	server := grpcServer.NewServer(
 		grpcServer.ServerConfig{
-			Address:  address,
-			EnableUI: enableUI,
+			Address:        address,
+			EnableUI:       enableUI,
+			MigrationsDone: migrationsDone,
 		},
 		operatorService,
 		accountService,

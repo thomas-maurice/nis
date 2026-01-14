@@ -19,8 +19,9 @@ import (
 
 // ServerConfig contains configuration for the gRPC server
 type ServerConfig struct {
-	Address  string
-	EnableUI bool
+	Address        string
+	EnableUI       bool
+	MigrationsDone bool
 }
 
 // Server wraps the HTTP server for gRPC/ConnectRPC
@@ -69,6 +70,17 @@ func NewServer(
 
 	exportHandler := handlers.NewExportHandler(exportService, permService)
 	mux.Handle(nisv1connect.NewExportServiceHandler(exportHandler, interceptorOption))
+
+	// Add health check endpoint
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if config.MigrationsDone {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("migrations pending"))
+		}
+	})
 
 	// Serve UI if enabled
 	var handler http.Handler = mux
