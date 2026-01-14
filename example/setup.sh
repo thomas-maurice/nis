@@ -8,23 +8,32 @@ echo ""
 echo "Creating data directories..."
 mkdir -p ./data/nis ./data/nats/resolver ./data/nats/jetstream
 
+# Create initial NATS config (will be overwritten after operator creation)
+cat > ./data/nats/nats-server.conf << 'EOF'
+port: 4222
+http_port: 8222
+jetstream {
+  store_dir: /data/jetstream
+}
+EOF
+
 # Start NIS
 echo "Starting NIS server..."
 docker-compose up -d nis
 sleep 10
 
-# Create admin user
+# Create admin user (may already exist from nis-setup container)
 echo "Creating admin user..."
-docker exec example-nis ./nis user create admin --password admin123 --role admin
+docker exec nis-server ./nis user create admin --password admin123 --role admin 2>/dev/null || echo "Admin user already exists"
 
 # Login with nisctl to get token
 echo "Logging in with nisctl..."
-TOKEN=$(docker exec example-nis ./nisctl login http://localhost:8080 --username admin --password admin123 --output json | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+TOKEN=$(docker exec nis-server ./nisctl login http://localhost:8080 --username admin --password admin123 --output json | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 
 # Configure nisctl alias
 echo "Setting up nisctl alias..."
 nisctl() {
-  docker exec example-nis ./nisctl --server http://localhost:8080 --token "$TOKEN" "$@"
+  docker exec nis-server ./nisctl --server http://localhost:8080 --token "$TOKEN" "$@"
 }
 
 # Create operator
@@ -35,9 +44,16 @@ nisctl operator create demo-operator --description "Demo NATS operator"
 echo "Generating NATS configuration..."
 nisctl operator generate-include demo-operator > ./data/nats/nats-server.conf
 
-# Start NATS
+# Start NATS and restart to load JWT auth config
 echo "Starting NATS server with JWT auth..."
 docker-compose up -d nats
+sleep 3
+docker-compose restart nats
+sleep 5
+
+# Restart NIS so it can resolve the nats hostname
+echo "Restarting NIS server to refresh DNS..."
+docker-compose restart nis
 sleep 5
 
 # Create cluster
@@ -85,9 +101,23 @@ echo "Login:     admin / admin123"
 echo "NATS:      nats://localhost:4222"
 echo "Creds:     ./app-user.creds"
 echo ""
-echo "Test connection:"
-echo "  nats --creds=./app-user.creds --server=nats://localhost:4222 rtt"
+echo "Test connection with Go:"
+cat << 'GOTEST'
+  go run -mod=mod - <<'EOF'
+  package main
+  import (
+    "fmt"
+    "github.com/nats-io/nats.go"
+  )
+  func main() {
+    nc, err := nats.Connect("nats://localhost:4222", nats.UserCredentials("./app-user.creds"))
+    if err != nil { panic(err) }
+    defer nc.Close()
+    fmt.Println("Connected to NATS!")
+  }
+  EOF
+GOTEST
 echo ""
 echo "Use nisctl via docker exec:"
-echo "  docker exec example-nis ./nisctl operator list"
+echo "  docker exec nis-server ./nisctl operator list"
 echo ""

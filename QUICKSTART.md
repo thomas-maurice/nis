@@ -244,7 +244,9 @@ Create a user and test authentication:
   > /tmp/app-user.creds
 
 # Test connection with NATS CLI (install if needed: brew install nats-io/nats-tools/nats)
-nats --creds=/tmp/app-user.creds --server=nats://localhost:4222 pub test.hello "Hello from NIS!"
+nats context save nis --server=nats://localhost:4222 --creds=/tmp/app-user.creds
+nats context select nis
+nats pub test.hello "Hello from NIS!"
 ```
 
 **Or test with Go:**
