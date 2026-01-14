@@ -1,0 +1,7 @@
+[nis_servers]
+# Add your NIS server hosts here
+# nis1.example.com
+# nis2.example.com ansible_host=192.168.1.10
+
+# For local testing with Docker
+localhost ansible_connection=local

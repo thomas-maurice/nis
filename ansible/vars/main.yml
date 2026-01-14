@@ -1,0 +1,5 @@
+---
+# Variables that are computed or rarely changed
+
+# Database connection string (computed from other vars)
+nis_db_dsn: "host={{ nis_db_host }} user={{ nis_db_user }} password={{ nis_db_password }} dbname={{ nis_db_name }} port={{ nis_db_port }} sslmode={{ nis_db_sslmode }}"

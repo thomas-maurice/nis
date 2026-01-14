@@ -1,0 +1,19 @@
+---
+# Example playbook for deploying NIS
+# Usage: ansible-playbook -i inventory playbook.yml
+
+- name: Deploy NATS Identity Service
+  hosts: nis_servers
+  become: true
+
+  vars:
+    # Override defaults here or use --extra-vars
+    nis_db_password: "secure-database-password"
+    nis_jwt_secret: "your-jwt-secret-at-least-32-bytes-long"
+    nis_encryption_key: "your-32-byte-encryption-key!!!"
+    nis_admin_password: "secure-admin-password"
+
+  tasks:
+    - name: Include NIS role
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}"

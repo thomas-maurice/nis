@@ -1,0 +1,7 @@
+---
+- name: Restart NATS
+  community.docker.docker_container:
+    name: "{{ nis_nats_container_name }}"
+    state: started
+    restart: true
+  when: nis_nats_enabled

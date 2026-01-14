@@ -1,0 +1,118 @@
+---
+- name: Create NIS directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ nis_data_dir }}"
+    - "{{ nis_postgres_data_dir }}"
+    - "{{ nis_nats_data_dir }}"
+    - "{{ nis_nats_data_dir }}/resolver"
+    - "{{ nis_nats_data_dir }}/jetstream"
+
+- name: Create Docker network
+  community.docker.docker_network:
+    name: "{{ nis_docker_network }}"
+    state: present
+  when: nis_docker_network | length > 0 and nis_docker_network != "bridge"
+
+- name: Deploy initial NATS configuration
+  ansible.builtin.template:
+    src: nats-server.conf.j2
+    dest: "{{ nis_nats_data_dir }}/nats-server.conf"
+    mode: "0644"
+  when: nis_nats_enabled
+  notify: Restart NATS
+
+- name: Start PostgreSQL container
+  community.docker.docker_container:
+    name: "{{ nis_postgres_container_name }}"
+    image: "{{ nis_postgres_image }}:{{ nis_postgres_image_tag }}"
+    state: started
+    restart_policy: "{{ nis_restart_policy }}"
+    networks: "{{ [{'name': nis_docker_network}] if nis_docker_network | length > 0 and nis_docker_network != 'bridge' else omit }}"
+    env:
+      POSTGRES_USER: "{{ nis_db_user }}"
+      POSTGRES_PASSWORD: "{{ nis_db_password }}"
+      POSTGRES_DB: "{{ nis_db_name }}"
+    volumes:
+      - "{{ nis_postgres_data_dir }}:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ nis_db_user }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+- name: Wait for PostgreSQL to be healthy
+  community.docker.docker_container_info:
+    name: "{{ nis_postgres_container_name }}"
+  register: postgres_info
+  until: postgres_info.container.State.Health.Status == "healthy"
+  retries: 30
+  delay: 2
+
+- name: Start NIS server container
+  community.docker.docker_container:
+    name: "{{ nis_container_name }}"
+    image: "{{ nis_image }}:{{ nis_image_tag }}"
+    state: started
+    restart_policy: "{{ nis_restart_policy }}"
+    networks: "{{ [{'name': nis_docker_network}] if nis_docker_network | length > 0 and nis_docker_network != 'bridge' else omit }}"
+    links: "{{ [nis_postgres_container_name + ':' + nis_db_host] if nis_docker_network | length == 0 or nis_docker_network == 'bridge' else omit }}"
+    ports:
+      - "{{ nis_port }}:8080"
+    env:
+      DATABASE_DRIVER: "{{ nis_db_driver }}"
+      DATABASE_DSN: "host={{ nis_db_host }} user={{ nis_db_user }} password={{ nis_db_password }} dbname={{ nis_db_name }} port={{ nis_db_port }} sslmode={{ nis_db_sslmode }}"
+      AUTH_JWT_SECRET: "{{ nis_jwt_secret }}"
+      ENCRYPTION_KEY: "{{ nis_encryption_key }}"
+      DATABASE_AUTO_MIGRATE: "{{ nis_auto_migrate | string | lower }}"
+    volumes:
+      - "{{ nis_data_dir }}:/data"
+    command: ["./nis", "serve", "--address", ":8080"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+- name: Wait for NIS server to be healthy
+  community.docker.docker_container_info:
+    name: "{{ nis_container_name }}"
+  register: nis_info
+  until: nis_info.container.State.Health.Status == "healthy"
+  retries: 30
+  delay: 2
+
+- name: Create admin user
+  community.docker.docker_container_exec:
+    container: "{{ nis_container_name }}"
+    command: "./nis user create {{ nis_admin_user }} --password {{ nis_admin_password }} --role admin"
+  register: admin_result
+  failed_when: false
+  changed_when: "'created successfully' in admin_result.stdout"
+  when: nis_create_admin_user
+
+- name: Start NATS server container
+  community.docker.docker_container:
+    name: "{{ nis_nats_container_name }}"
+    image: "{{ nis_nats_image }}:{{ nis_nats_image_tag }}"
+    state: started
+    restart_policy: "{{ nis_restart_policy }}"
+    networks: "{{ [{'name': nis_docker_network}] if nis_docker_network | length > 0 and nis_docker_network != 'bridge' else omit }}"
+    ports:
+      - "{{ nis_nats_client_port }}:4222"
+      - "{{ nis_nats_monitoring_port }}:8222"
+    volumes:
+      - "{{ nis_nats_data_dir }}:/config"
+      - "{{ nis_nats_data_dir }}/resolver:/resolver"
+      - "{{ nis_nats_data_dir }}/jetstream:/data/jetstream"
+    command: ["-js", "-m", "8222", "-c", "/config/nats-server.conf"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  when: nis_nats_enabled

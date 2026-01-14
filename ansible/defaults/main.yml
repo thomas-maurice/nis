@@ -1,0 +1,57 @@
+---
+# NIS Server Configuration
+nis_image: "mauricethomas/nis"
+nis_image_tag: "latest"
+nis_container_name: "nis-server"
+nis_port: 8080
+nis_data_dir: "/opt/nis/data"
+
+# Database Configuration
+nis_db_driver: "postgres"
+nis_db_host: "nis-postgres"
+nis_db_port: 5432
+nis_db_name: "nis"
+nis_db_user: "nis"
+nis_db_password: "changeme"
+nis_db_sslmode: "disable"
+
+# PostgreSQL Container
+nis_postgres_image: "postgres"
+nis_postgres_image_tag: "16-alpine"
+nis_postgres_container_name: "nis-postgres"
+nis_postgres_data_dir: "/opt/nis/postgres"
+
+# NATS Server Configuration
+nis_nats_enabled: true
+nis_nats_image: "nats"
+nis_nats_image_tag: "2.10-alpine"
+nis_nats_container_name: "nis-nats"
+nis_nats_client_port: 4222
+nis_nats_monitoring_port: 8222
+nis_nats_data_dir: "/opt/nis/nats"
+
+# Security Configuration
+# JWT secret for API authentication - minimum 32 bytes, any length above that is fine
+nis_jwt_secret: "change-this-to-a-secure-random-secret-at-least-32-bytes-long"
+
+# Encryption key for encrypting private keys in the database (ChaCha20-Poly1305)
+# MUST be exactly 32 bytes (256 bits). Generate with: openssl rand -hex 16 | tr -d '\n'
+# Or: head -c 32 /dev/urandom | base64 | head -c 32
+nis_encryption_key: "12345678901234567890123456789012"
+
+# Admin User Configuration
+nis_admin_user: "admin"
+nis_admin_password: "admin123"
+nis_create_admin_user: true
+
+# Docker Network
+# Set to empty string "" or "bridge" to use Docker's default bridge network
+# Note: Using default bridge requires linking containers or using IP addresses
+# A custom network (e.g., "nis-network") enables DNS resolution between containers
+nis_docker_network: ""
+
+# Auto-migrate database on startup
+nis_auto_migrate: true
+
+# Restart policy
+nis_restart_policy: "unless-stopped"
