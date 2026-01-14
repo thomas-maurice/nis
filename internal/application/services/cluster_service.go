@@ -352,9 +352,26 @@ func (s *ClusterService) DeleteCluster(ctx context.Context, id uuid.UUID) error 
 	return s.repo.Delete(ctx, id)
 }
 
+// SyncResult contains the result of a sync operation
+type SyncResult struct {
+	Accounts        []string
+	AccountsAdded   int
+	AccountsRemoved int
+	AccountsUpdated int
+	RemovedAccounts []string
+	Errors          []SyncError
+}
+
+// SyncError represents an error encountered during sync
+type SyncError struct {
+	AccountPublicKey string
+	AccountName      string
+	Error            string
+}
+
 // SyncCluster pushes all account JWTs for the operator to the NATS cluster resolver
-// It re-signs all accounts and users before pushing them to ensure fresh JWTs
-func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]string, error) {
+// If prune is true, it also removes accounts from the resolver that are not in the database
+func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bool) (*SyncResult, error) {
 	// Get cluster
 	cluster, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -381,9 +398,129 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 		return nil, fmt.Errorf("failed to list accounts: %w", err)
 	}
 
-	if len(accounts) == 0 {
-		return []string{}, nil
+	// Connect to NATS using cluster credentials
+	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
 	}
+	defer natsClient.Close()
+
+	result := &SyncResult{
+		Accounts:        make([]string, 0),
+		RemovedAccounts: make([]string, 0),
+		Errors:          make([]SyncError, 0),
+	}
+
+	// Build a map of database accounts by public key
+	dbAccountsByPubKey := make(map[string]*entities.Account)
+	for _, account := range accounts {
+		dbAccountsByPubKey[account.PublicKey] = account
+	}
+
+	// Get list of accounts currently on the resolver
+	var resolverAccounts []string
+	if prune {
+		resolverAccounts, err = natsClient.ListAccountsFromResolver(ctx)
+		if err != nil {
+			// Log error but continue with sync - pruning just won't happen
+			result.Errors = append(result.Errors, SyncError{
+				Error: fmt.Sprintf("failed to list resolver accounts: %v", err),
+			})
+		}
+	}
+
+	// Push each account JWT to the resolver
+	for _, account := range accounts {
+		if account.JWT == "" {
+			// Skip accounts without JWTs (shouldn't happen, but be defensive)
+			continue
+		}
+
+		if err := natsClient.PushAccountJWT(ctx, account); err != nil {
+			result.Errors = append(result.Errors, SyncError{
+				AccountPublicKey: account.PublicKey,
+				AccountName:      account.Name,
+				Error:            fmt.Sprintf("failed to push JWT: %v", err),
+			})
+			continue
+		}
+
+		result.Accounts = append(result.Accounts, account.Name)
+		result.AccountsUpdated++
+	}
+
+	// Prune stale accounts from resolver if requested
+	if prune && len(resolverAccounts) > 0 {
+		// Collect stale accounts to delete
+		var staleAccounts []string
+		for _, resolverPubKey := range resolverAccounts {
+			// Skip if account exists in database
+			if _, exists := dbAccountsByPubKey[resolverPubKey]; exists {
+				continue
+			}
+
+			// Skip system account - never delete it
+			if resolverPubKey == cluster.SystemAccountPubKey {
+				continue
+			}
+
+			staleAccounts = append(staleAccounts, resolverPubKey)
+		}
+
+		// Delete stale accounts if any
+		if len(staleAccounts) > 0 {
+			// Get the operator to sign the delete claim
+			operator, err := s.operatorRepo.GetByID(ctx, cluster.OperatorID)
+			if err != nil {
+				result.Errors = append(result.Errors, SyncError{
+					Error: fmt.Sprintf("failed to get operator for delete claim: %v", err),
+				})
+			} else {
+				// Generate operator-signed delete claim JWT
+				deleteClaimJWT, err := s.jwtService.GenerateDeleteClaimJWT(ctx, operator, staleAccounts)
+				if err != nil {
+					result.Errors = append(result.Errors, SyncError{
+						Error: fmt.Sprintf("failed to generate delete claim JWT: %v", err),
+					})
+				} else {
+					// Delete the stale accounts
+					if err := natsClient.DeleteAccountJWT(ctx, deleteClaimJWT); err != nil {
+						result.Errors = append(result.Errors, SyncError{
+							Error: fmt.Sprintf("failed to delete stale accounts: %v", err),
+						})
+					} else {
+						// Mark all stale accounts as removed
+						for _, pubKey := range staleAccounts {
+							result.RemovedAccounts = append(result.RemovedAccounts, pubKey)
+							result.AccountsRemoved++
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// ListResolverAccounts lists all account public keys currently on the NATS resolver
+func (s *ClusterService) ListResolverAccounts(ctx context.Context, clusterID uuid.UUID) ([]string, error) {
+	// Get cluster
+	cluster, err := s.repo.GetByID(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster: %w", err)
+	}
+
+	if cluster.EncryptedCreds == "" {
+		return nil, fmt.Errorf("cluster has no system account credentials configured")
+	}
+
+	// Decrypt credentials
+	credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt credentials: %w", err)
+	}
+	creds := string(credsBytes)
 
 	// Connect to NATS using cluster credentials
 	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
@@ -392,22 +529,55 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID) ([]strin
 	}
 	defer natsClient.Close()
 
-	// Push each account JWT to the resolver (using existing JWTs from database)
-	accountNames := make([]string, 0, len(accounts))
-	for _, account := range accounts {
-		if account.JWT == "" {
-			// Skip accounts without JWTs (shouldn't happen, but be defensive)
-			continue
-		}
+	// List accounts from resolver
+	return natsClient.ListAccountsFromResolver(ctx)
+}
 
-		if err := natsClient.PushAccountJWT(ctx, account); err != nil {
-			return nil, fmt.Errorf("failed to push JWT for account %s: %w", account.Name, err)
-		}
-
-		accountNames = append(accountNames, account.Name)
+// DeleteResolverAccount removes an account from the NATS resolver
+func (s *ClusterService) DeleteResolverAccount(ctx context.Context, clusterID uuid.UUID, publicKey string) error {
+	// Get cluster
+	cluster, err := s.repo.GetByID(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
-	return accountNames, nil
+	if cluster.EncryptedCreds == "" {
+		return fmt.Errorf("cluster has no system account credentials configured")
+	}
+
+	// Safety check: don't allow deleting the system account
+	if publicKey == cluster.SystemAccountPubKey {
+		return fmt.Errorf("cannot delete system account from resolver")
+	}
+
+	// Decrypt credentials
+	credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt credentials: %w", err)
+	}
+	creds := string(credsBytes)
+
+	// Connect to NATS using cluster credentials
+	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
+	if err != nil {
+		return fmt.Errorf("failed to connect to NATS cluster: %w", err)
+	}
+	defer natsClient.Close()
+
+	// Get the operator to sign the delete claim
+	operator, err := s.operatorRepo.GetByID(ctx, cluster.OperatorID)
+	if err != nil {
+		return fmt.Errorf("failed to get operator: %w", err)
+	}
+
+	// Generate operator-signed delete claim JWT
+	deleteClaimJWT, err := s.jwtService.GenerateDeleteClaimJWT(ctx, operator, []string{publicKey})
+	if err != nil {
+		return fmt.Errorf("failed to generate delete claim JWT: %w", err)
+	}
+
+	// Delete account from resolver
+	return natsClient.DeleteAccountJWT(ctx, deleteClaimJWT)
 }
 
 // connectToCluster creates a NATS client connection using credentials

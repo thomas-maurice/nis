@@ -418,13 +418,106 @@ func (h *ClusterHandler) SyncCluster(
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	accountNames, err := h.service.SyncCluster(ctx, id)
+	result, err := h.service.SyncCluster(ctx, id, req.Msg.Prune)
 	if err != nil {
 		return nil, err
 	}
 
+	// Map sync errors to proto
+	var syncErrors []*pb.SyncError
+	for _, e := range result.Errors {
+		syncErrors = append(syncErrors, &pb.SyncError{
+			AccountPublicKey: e.AccountPublicKey,
+			AccountName:      e.AccountName,
+			Error:            e.Error,
+		})
+	}
+
 	return connect.NewResponse(&pb.SyncClusterResponse{
-		AccountCount: int32(len(accountNames)),
-		Accounts:     accountNames,
+		AccountCount:    int32(len(result.Accounts)),
+		Accounts:        result.Accounts,
+		AccountsAdded:   int32(result.AccountsAdded),
+		AccountsRemoved: int32(result.AccountsRemoved),
+		AccountsUpdated: int32(result.AccountsUpdated),
+		RemovedAccounts: result.RemovedAccounts,
+		Errors:          syncErrors,
 	}), nil
+}
+
+// ListResolverAccounts lists all account public keys on the NATS resolver
+func (h *ClusterHandler) ListResolverAccounts(
+	ctx context.Context,
+	req *connect.Request[pb.ListResolverAccountsRequest],
+) (*connect.Response[pb.ListResolverAccountsResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	clusterID, err := mappers.ParseUUID(req.Msg.ClusterId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// First get the cluster to check which operator it belongs to
+	cluster, err := h.service.GetCluster(ctx, clusterID)
+	if err != nil {
+		if err == repositories.ErrNotFound {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, err
+	}
+
+	// Check permission to read the operator that owns this cluster
+	if err := h.permService.CanReadOperator(ctx, requestingUser, cluster.OperatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	publicKeys, err := h.service.ListResolverAccounts(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.ListResolverAccountsResponse{
+		PublicKeys: publicKeys,
+	}), nil
+}
+
+// DeleteResolverAccount removes an account from the NATS resolver
+func (h *ClusterHandler) DeleteResolverAccount(
+	ctx context.Context,
+	req *connect.Request[pb.DeleteResolverAccountRequest],
+) (*connect.Response[pb.DeleteResolverAccountResponse], error) {
+	// Get requesting user from context
+	requestingUser, ok := middleware.GetUserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	clusterID, err := mappers.ParseUUID(req.Msg.ClusterId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// First get the cluster to check which operator it belongs to
+	cluster, err := h.service.GetCluster(ctx, clusterID)
+	if err != nil {
+		if err == repositories.ErrNotFound {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, err
+	}
+
+	// Check permission to update the operator that owns this cluster (delete requires update permission)
+	if err := h.permService.CanUpdateOperator(requestingUser, cluster.OperatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	err = h.service.DeleteResolverAccount(ctx, clusterID, req.Msg.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.DeleteResolverAccountResponse{}), nil
 }

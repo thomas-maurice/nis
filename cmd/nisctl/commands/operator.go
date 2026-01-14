@@ -365,7 +365,7 @@ operator: %s
 resolver: {
     type: full
     dir: '/resolver'
-    allow_delete: false
+    allow_delete: true
     interval: "2m"
 }
 

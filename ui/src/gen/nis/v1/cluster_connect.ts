@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateClusterRequest, CreateClusterResponse, DeleteClusterRequest, DeleteClusterResponse, GenerateServerConfigRequest, GenerateServerConfigResponse, GetClusterByNameRequest, GetClusterByNameResponse, GetClusterCredentialsRequest, GetClusterCredentialsResponse, GetClusterRequest, GetClusterResponse, ListClustersRequest, ListClustersResponse, SyncClusterRequest, SyncClusterResponse, UpdateClusterCredentialsRequest, UpdateClusterCredentialsResponse, UpdateClusterRequest, UpdateClusterResponse } from "./cluster_pb.js";
+import { CreateClusterRequest, CreateClusterResponse, DeleteClusterRequest, DeleteClusterResponse, DeleteResolverAccountRequest, DeleteResolverAccountResponse, GenerateServerConfigRequest, GenerateServerConfigResponse, GetClusterByNameRequest, GetClusterByNameResponse, GetClusterCredentialsRequest, GetClusterCredentialsResponse, GetClusterRequest, GetClusterResponse, ListClustersRequest, ListClustersResponse, ListResolverAccountsRequest, ListResolverAccountsResponse, SyncClusterRequest, SyncClusterResponse, UpdateClusterCredentialsRequest, UpdateClusterCredentialsResponse, UpdateClusterRequest, UpdateClusterResponse } from "./cluster_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -97,6 +97,7 @@ export const ClusterService = {
     },
     /**
      * SyncCluster pushes all account JWTs to the NATS cluster resolver
+     * If prune=true, removes accounts from resolver that are not in the database
      *
      * @generated from rpc nis.v1.ClusterService.SyncCluster
      */
@@ -104,6 +105,28 @@ export const ClusterService = {
       name: "SyncCluster",
       I: SyncClusterRequest,
       O: SyncClusterResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ListResolverAccounts lists all account public keys on the NATS resolver
+     *
+     * @generated from rpc nis.v1.ClusterService.ListResolverAccounts
+     */
+    listResolverAccounts: {
+      name: "ListResolverAccounts",
+      I: ListResolverAccountsRequest,
+      O: ListResolverAccountsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DeleteResolverAccount removes an account from the NATS resolver
+     *
+     * @generated from rpc nis.v1.ClusterService.DeleteResolverAccount
+     */
+    deleteResolverAccount: {
+      name: "DeleteResolverAccount",
+      I: DeleteResolverAccountRequest,
+      O: DeleteResolverAccountResponse,
       kind: MethodKind.Unary,
     },
   }

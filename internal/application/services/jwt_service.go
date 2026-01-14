@@ -165,6 +165,34 @@ func (s *JWTService) GetUserCredentials(ctx context.Context, user *entities.User
 	return creds, nil
 }
 
+// GenerateDeleteClaimJWT generates an operator-signed generic claim JWT for deleting accounts
+// This JWT is used with the $SYS.REQ.CLAIMS.DELETE subject to remove accounts from the resolver
+func (s *JWTService) GenerateDeleteClaimJWT(ctx context.Context, operator *entities.Operator, accountPublicKeys []string) (string, error) {
+	// Decrypt the operator's seed
+	seedBytes, err := s.encryptor.Decrypt(ctx, operator.EncryptedSeed)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt operator seed: %w", err)
+	}
+
+	// Parse the seed to get the key pair
+	kp, err := nkeys.FromSeed(seedBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse operator seed: %w", err)
+	}
+
+	// Create generic claims with accounts field for deletion
+	claims := jwt.NewGenericClaims(operator.PublicKey)
+	claims.Data["accounts"] = accountPublicKeys
+
+	// Encode and sign the JWT
+	token, err := claims.Encode(kp)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode delete claim JWT: %w", err)
+	}
+
+	return token, nil
+}
+
 // GenerateNKey generates a new NKey pair for the specified prefix type
 func GenerateNKey(prefix nkeys.PrefixByte) (seed []byte, publicKey string, err error) {
 	kp, err := nkeys.CreatePair(prefix)

@@ -129,13 +129,52 @@ message GenerateServerConfigResponse {
 // SyncClusterRequest is the request to sync accounts to a cluster
 message SyncClusterRequest {
   string id = 1;
+  // If true, remove accounts from the resolver that are not in the database
+  bool prune = 2;
 }
 
 // SyncClusterResponse is the response from syncing accounts
 message SyncClusterResponse {
   int32 account_count = 1;
   repeated string accounts = 2;
+  // Number of accounts added to the resolver
+  int32 accounts_added = 3;
+  // Number of accounts removed from the resolver (only if prune=true)
+  int32 accounts_removed = 4;
+  // Number of accounts updated in the resolver
+  int32 accounts_updated = 5;
+  // Accounts that were removed from the resolver
+  repeated string removed_accounts = 6;
+  // Errors encountered during sync (non-fatal)
+  repeated SyncError errors = 7;
 }
+
+// SyncError represents an error encountered during sync
+message SyncError {
+  string account_public_key = 1;
+  string account_name = 2;
+  string error = 3;
+}
+
+// ListResolverAccountsRequest is the request to list accounts on the NATS resolver
+message ListResolverAccountsRequest {
+  string cluster_id = 1;
+}
+
+// ListResolverAccountsResponse is the response from listing resolver accounts
+message ListResolverAccountsResponse {
+  // Public keys of accounts on the resolver
+  repeated string public_keys = 1;
+}
+
+// DeleteResolverAccountRequest is the request to delete an account from the NATS resolver
+message DeleteResolverAccountRequest {
+  string cluster_id = 1;
+  string public_key = 2;
+}
+
+// DeleteResolverAccountResponse is the response from deleting a resolver account
+message DeleteResolverAccountResponse {}
 
 // ClusterService manages NATS clusters
 service ClusterService {
@@ -149,5 +188,10 @@ service ClusterService {
   rpc GetClusterCredentials(GetClusterCredentialsRequest) returns (GetClusterCredentialsResponse);
   rpc GenerateServerConfig(GenerateServerConfigRequest) returns (GenerateServerConfigResponse);
   // SyncCluster pushes all account JWTs to the NATS cluster resolver
+  // If prune=true, removes accounts from resolver that are not in the database
   rpc SyncCluster(SyncClusterRequest) returns (SyncClusterResponse);
+  // ListResolverAccounts lists all account public keys on the NATS resolver
+  rpc ListResolverAccounts(ListResolverAccountsRequest) returns (ListResolverAccountsResponse);
+  // DeleteResolverAccount removes an account from the NATS resolver
+  rpc DeleteResolverAccount(DeleteResolverAccountRequest) returns (DeleteResolverAccountResponse);
 }

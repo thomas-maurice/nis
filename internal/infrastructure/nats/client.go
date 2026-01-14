@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -246,14 +247,16 @@ func (c *Client) PushAccountJWT(ctx context.Context, account *entities.Account) 
 	return nil
 }
 
-// DeleteAccountJWT removes an account JWT from the NATS resolver
-func (c *Client) DeleteAccountJWT(ctx context.Context, publicKey string) error {
+// DeleteAccountJWT removes account JWTs from the NATS resolver
+// The deleteClaimJWT must be an operator-signed generic claim JWT with an "accounts" field
+// containing the list of account public keys to delete
+func (c *Client) DeleteAccountJWT(ctx context.Context, deleteClaimJWT string) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to NATS")
 	}
 
 	// The subject for deleting account JWTs from the resolver
-	subject := fmt.Sprintf("$SYS.REQ.CLAIMS.DELETE.%s", publicKey)
+	subject := "$SYS.REQ.CLAIMS.DELETE"
 
 	// Create context with timeout if not already set
 	reqCtx := ctx
@@ -263,15 +266,28 @@ func (c *Client) DeleteAccountJWT(ctx context.Context, publicKey string) error {
 		defer cancel()
 	}
 
-	msg, err := c.nc.RequestWithContext(reqCtx, subject, nil)
+	msg, err := c.nc.RequestWithContext(reqCtx, subject, []byte(deleteClaimJWT))
 	if err != nil {
 		return fmt.Errorf("failed to delete account JWT: %w", err)
 	}
 
 	if len(msg.Data) > 0 {
 		response := string(msg.Data)
+		// Check for error in old format
 		if response[0] == '-' {
 			return fmt.Errorf("resolver error: %s", response)
+		}
+		// Check for JSON error response
+		if response[0] == '{' {
+			var jsonResp struct {
+				Error *struct {
+					Code        int    `json:"code"`
+					Description string `json:"description"`
+				} `json:"error,omitempty"`
+			}
+			if err := json.Unmarshal(msg.Data, &jsonResp); err == nil && jsonResp.Error != nil {
+				return fmt.Errorf("resolver error %d: %s", jsonResp.Error.Code, jsonResp.Error.Description)
+			}
 		}
 	}
 
@@ -310,6 +326,94 @@ func (c *Client) GetAccountJWT(ctx context.Context, publicKey string) (string, e
 	}
 
 	return response, nil
+}
+
+// claimsListResponse represents the JSON response from $SYS.REQ.CLAIMS.LIST
+type claimsListResponse struct {
+	Data   []string `json:"data"`
+	Error  *struct {
+		Code        int    `json:"code"`
+		Description string `json:"description"`
+	} `json:"error,omitempty"`
+}
+
+// ListAccountsFromResolver retrieves the list of account public keys from the NATS resolver
+// Returns a list of account public keys that are currently stored in the resolver
+func (c *Client) ListAccountsFromResolver(ctx context.Context) ([]string, error) {
+	if !c.IsConnected() {
+		return nil, fmt.Errorf("not connected to NATS")
+	}
+
+	// The subject for listing account JWTs from the resolver
+	subject := "$SYS.REQ.CLAIMS.LIST"
+
+	// Create context with timeout if not already set
+	reqCtx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		reqCtx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
+
+	msg, err := c.nc.RequestWithContext(reqCtx, subject, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list accounts from resolver: %w", err)
+	}
+
+	if len(msg.Data) == 0 {
+		return []string{}, nil
+	}
+
+	response := string(msg.Data)
+
+	// Check for old-style error format
+	if response[0] == '-' {
+		return nil, fmt.Errorf("resolver error: %s", response)
+	}
+
+	// Try to parse as JSON (newer NATS versions return JSON)
+	if response[0] == '{' {
+		var jsonResp claimsListResponse
+		if err := parseJSON(msg.Data, &jsonResp); err != nil {
+			return nil, fmt.Errorf("failed to parse claims list response: %w", err)
+		}
+		if jsonResp.Error != nil {
+			return nil, fmt.Errorf("resolver error %d: %s", jsonResp.Error.Code, jsonResp.Error.Description)
+		}
+		return jsonResp.Data, nil
+	}
+
+	// Fallback to old newline-separated format
+	var publicKeys []string
+	for _, line := range splitLines(response) {
+		line = trim(line)
+		if line != "" {
+			publicKeys = append(publicKeys, line)
+		}
+	}
+
+	return publicKeys, nil
+}
+
+// parseJSON parses JSON data into a target struct
+func parseJSON(data []byte, v interface{}) error {
+	return json.Unmarshal(data, v)
+}
+
+// splitLines splits a string by newlines
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
 }
 
 // Publish publishes a message to a subject

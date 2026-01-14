@@ -1079,8 +1079,10 @@ func (x *GenerateServerConfigResponse) GetConfig() string {
 
 // SyncClusterRequest is the request to sync accounts to a cluster
 type SyncClusterRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// If true, remove accounts from the resolver that are not in the database
+	Prune         bool `protobuf:"varint,2,opt,name=prune,proto3" json:"prune,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1122,11 +1124,28 @@ func (x *SyncClusterRequest) GetId() string {
 	return ""
 }
 
+func (x *SyncClusterRequest) GetPrune() bool {
+	if x != nil {
+		return x.Prune
+	}
+	return false
+}
+
 // SyncClusterResponse is the response from syncing accounts
 type SyncClusterResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountCount  int32                  `protobuf:"varint,1,opt,name=account_count,json=accountCount,proto3" json:"account_count,omitempty"`
-	Accounts      []string               `protobuf:"bytes,2,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	AccountCount int32                  `protobuf:"varint,1,opt,name=account_count,json=accountCount,proto3" json:"account_count,omitempty"`
+	Accounts     []string               `protobuf:"bytes,2,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	// Number of accounts added to the resolver
+	AccountsAdded int32 `protobuf:"varint,3,opt,name=accounts_added,json=accountsAdded,proto3" json:"accounts_added,omitempty"`
+	// Number of accounts removed from the resolver (only if prune=true)
+	AccountsRemoved int32 `protobuf:"varint,4,opt,name=accounts_removed,json=accountsRemoved,proto3" json:"accounts_removed,omitempty"`
+	// Number of accounts updated in the resolver
+	AccountsUpdated int32 `protobuf:"varint,5,opt,name=accounts_updated,json=accountsUpdated,proto3" json:"accounts_updated,omitempty"`
+	// Accounts that were removed from the resolver
+	RemovedAccounts []string `protobuf:"bytes,6,rep,name=removed_accounts,json=removedAccounts,proto3" json:"removed_accounts,omitempty"`
+	// Errors encountered during sync (non-fatal)
+	Errors        []*SyncError `protobuf:"bytes,7,rep,name=errors,proto3" json:"errors,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1173,6 +1192,283 @@ func (x *SyncClusterResponse) GetAccounts() []string {
 		return x.Accounts
 	}
 	return nil
+}
+
+func (x *SyncClusterResponse) GetAccountsAdded() int32 {
+	if x != nil {
+		return x.AccountsAdded
+	}
+	return 0
+}
+
+func (x *SyncClusterResponse) GetAccountsRemoved() int32 {
+	if x != nil {
+		return x.AccountsRemoved
+	}
+	return 0
+}
+
+func (x *SyncClusterResponse) GetAccountsUpdated() int32 {
+	if x != nil {
+		return x.AccountsUpdated
+	}
+	return 0
+}
+
+func (x *SyncClusterResponse) GetRemovedAccounts() []string {
+	if x != nil {
+		return x.RemovedAccounts
+	}
+	return nil
+}
+
+func (x *SyncClusterResponse) GetErrors() []*SyncError {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
+// SyncError represents an error encountered during sync
+type SyncError struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	AccountPublicKey string                 `protobuf:"bytes,1,opt,name=account_public_key,json=accountPublicKey,proto3" json:"account_public_key,omitempty"`
+	AccountName      string                 `protobuf:"bytes,2,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
+	Error            string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SyncError) Reset() {
+	*x = SyncError{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncError) ProtoMessage() {}
+
+func (x *SyncError) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncError.ProtoReflect.Descriptor instead.
+func (*SyncError) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SyncError) GetAccountPublicKey() string {
+	if x != nil {
+		return x.AccountPublicKey
+	}
+	return ""
+}
+
+func (x *SyncError) GetAccountName() string {
+	if x != nil {
+		return x.AccountName
+	}
+	return ""
+}
+
+func (x *SyncError) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// ListResolverAccountsRequest is the request to list accounts on the NATS resolver
+type ListResolverAccountsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId     string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListResolverAccountsRequest) Reset() {
+	*x = ListResolverAccountsRequest{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResolverAccountsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResolverAccountsRequest) ProtoMessage() {}
+
+func (x *ListResolverAccountsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListResolverAccountsRequest.ProtoReflect.Descriptor instead.
+func (*ListResolverAccountsRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListResolverAccountsRequest) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+// ListResolverAccountsResponse is the response from listing resolver accounts
+type ListResolverAccountsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Public keys of accounts on the resolver
+	PublicKeys    []string `protobuf:"bytes,1,rep,name=public_keys,json=publicKeys,proto3" json:"public_keys,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListResolverAccountsResponse) Reset() {
+	*x = ListResolverAccountsResponse{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResolverAccountsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResolverAccountsResponse) ProtoMessage() {}
+
+func (x *ListResolverAccountsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListResolverAccountsResponse.ProtoReflect.Descriptor instead.
+func (*ListResolverAccountsResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ListResolverAccountsResponse) GetPublicKeys() []string {
+	if x != nil {
+		return x.PublicKeys
+	}
+	return nil
+}
+
+// DeleteResolverAccountRequest is the request to delete an account from the NATS resolver
+type DeleteResolverAccountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId     string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	PublicKey     string                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteResolverAccountRequest) Reset() {
+	*x = DeleteResolverAccountRequest{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteResolverAccountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteResolverAccountRequest) ProtoMessage() {}
+
+func (x *DeleteResolverAccountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteResolverAccountRequest.ProtoReflect.Descriptor instead.
+func (*DeleteResolverAccountRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *DeleteResolverAccountRequest) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *DeleteResolverAccountRequest) GetPublicKey() string {
+	if x != nil {
+		return x.PublicKey
+	}
+	return ""
+}
+
+// DeleteResolverAccountResponse is the response from deleting a resolver account
+type DeleteResolverAccountResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteResolverAccountResponse) Reset() {
+	*x = DeleteResolverAccountResponse{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteResolverAccountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteResolverAccountResponse) ProtoMessage() {}
+
+func (x *DeleteResolverAccountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteResolverAccountResponse.ProtoReflect.Descriptor instead.
+func (*DeleteResolverAccountResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{25}
 }
 
 var File_nis_v1_cluster_proto protoreflect.FileDescriptor
@@ -1255,12 +1551,34 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x1b\n" +
 	"\thttp_port\x18\x03 \x01(\x05R\bhttpPort\"6\n" +
 	"\x1cGenerateServerConfigResponse\x12\x16\n" +
-	"\x06config\x18\x01 \x01(\tR\x06config\"$\n" +
+	"\x06config\x18\x01 \x01(\tR\x06config\":\n" +
 	"\x12SyncClusterRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"V\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05prune\x18\x02 \x01(\bR\x05prune\"\xa9\x02\n" +
 	"\x13SyncClusterResponse\x12#\n" +
 	"\raccount_count\x18\x01 \x01(\x05R\faccountCount\x12\x1a\n" +
-	"\baccounts\x18\x02 \x03(\tR\baccounts2\xe1\x06\n" +
+	"\baccounts\x18\x02 \x03(\tR\baccounts\x12%\n" +
+	"\x0eaccounts_added\x18\x03 \x01(\x05R\raccountsAdded\x12)\n" +
+	"\x10accounts_removed\x18\x04 \x01(\x05R\x0faccountsRemoved\x12)\n" +
+	"\x10accounts_updated\x18\x05 \x01(\x05R\x0faccountsUpdated\x12)\n" +
+	"\x10removed_accounts\x18\x06 \x03(\tR\x0fremovedAccounts\x12)\n" +
+	"\x06errors\x18\a \x03(\v2\x11.nis.v1.SyncErrorR\x06errors\"r\n" +
+	"\tSyncError\x12,\n" +
+	"\x12account_public_key\x18\x01 \x01(\tR\x10accountPublicKey\x12!\n" +
+	"\faccount_name\x18\x02 \x01(\tR\vaccountName\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"<\n" +
+	"\x1bListResolverAccountsRequest\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\"?\n" +
+	"\x1cListResolverAccountsResponse\x12\x1f\n" +
+	"\vpublic_keys\x18\x01 \x03(\tR\n" +
+	"publicKeys\"\\\n" +
+	"\x1cDeleteResolverAccountRequest\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x02 \x01(\tR\tpublicKey\"\x1f\n" +
+	"\x1dDeleteResolverAccountResponse2\xaa\b\n" +
 	"\x0eClusterService\x12L\n" +
 	"\rCreateCluster\x12\x1c.nis.v1.CreateClusterRequest\x1a\x1d.nis.v1.CreateClusterResponse\x12C\n" +
 	"\n" +
@@ -1272,7 +1590,9 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"\rDeleteCluster\x12\x1c.nis.v1.DeleteClusterRequest\x1a\x1d.nis.v1.DeleteClusterResponse\x12d\n" +
 	"\x15GetClusterCredentials\x12$.nis.v1.GetClusterCredentialsRequest\x1a%.nis.v1.GetClusterCredentialsResponse\x12a\n" +
 	"\x14GenerateServerConfig\x12#.nis.v1.GenerateServerConfigRequest\x1a$.nis.v1.GenerateServerConfigResponse\x12F\n" +
-	"\vSyncCluster\x12\x1a.nis.v1.SyncClusterRequest\x1a\x1b.nis.v1.SyncClusterResponseB\x83\x01\n" +
+	"\vSyncCluster\x12\x1a.nis.v1.SyncClusterRequest\x1a\x1b.nis.v1.SyncClusterResponse\x12a\n" +
+	"\x14ListResolverAccounts\x12#.nis.v1.ListResolverAccountsRequest\x1a$.nis.v1.ListResolverAccountsResponse\x12d\n" +
+	"\x15DeleteResolverAccount\x12$.nis.v1.DeleteResolverAccountRequest\x1a%.nis.v1.DeleteResolverAccountResponseB\x83\x01\n" +
 	"\n" +
 	"com.nis.v1B\fClusterProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -1288,7 +1608,7 @@ func file_nis_v1_cluster_proto_rawDescGZIP() []byte {
 	return file_nis_v1_cluster_proto_rawDescData
 }
 
-var file_nis_v1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_nis_v1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_nis_v1_cluster_proto_goTypes = []any{
 	(*Cluster)(nil),                          // 0: nis.v1.Cluster
 	(*CreateClusterRequest)(nil),             // 1: nis.v1.CreateClusterRequest
@@ -1311,45 +1631,55 @@ var file_nis_v1_cluster_proto_goTypes = []any{
 	(*GenerateServerConfigResponse)(nil),     // 18: nis.v1.GenerateServerConfigResponse
 	(*SyncClusterRequest)(nil),               // 19: nis.v1.SyncClusterRequest
 	(*SyncClusterResponse)(nil),              // 20: nis.v1.SyncClusterResponse
-	(*timestamppb.Timestamp)(nil),            // 21: google.protobuf.Timestamp
-	(*ListOptions)(nil),                      // 22: nis.v1.ListOptions
+	(*SyncError)(nil),                        // 21: nis.v1.SyncError
+	(*ListResolverAccountsRequest)(nil),      // 22: nis.v1.ListResolverAccountsRequest
+	(*ListResolverAccountsResponse)(nil),     // 23: nis.v1.ListResolverAccountsResponse
+	(*DeleteResolverAccountRequest)(nil),     // 24: nis.v1.DeleteResolverAccountRequest
+	(*DeleteResolverAccountResponse)(nil),    // 25: nis.v1.DeleteResolverAccountResponse
+	(*timestamppb.Timestamp)(nil),            // 26: google.protobuf.Timestamp
+	(*ListOptions)(nil),                      // 27: nis.v1.ListOptions
 }
 var file_nis_v1_cluster_proto_depIdxs = []int32{
-	21, // 0: nis.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
-	21, // 1: nis.v1.Cluster.updated_at:type_name -> google.protobuf.Timestamp
-	21, // 2: nis.v1.Cluster.last_health_check:type_name -> google.protobuf.Timestamp
+	26, // 0: nis.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	26, // 1: nis.v1.Cluster.updated_at:type_name -> google.protobuf.Timestamp
+	26, // 2: nis.v1.Cluster.last_health_check:type_name -> google.protobuf.Timestamp
 	0,  // 3: nis.v1.CreateClusterResponse.cluster:type_name -> nis.v1.Cluster
 	0,  // 4: nis.v1.GetClusterResponse.cluster:type_name -> nis.v1.Cluster
 	0,  // 5: nis.v1.GetClusterByNameResponse.cluster:type_name -> nis.v1.Cluster
-	22, // 6: nis.v1.ListClustersRequest.options:type_name -> nis.v1.ListOptions
+	27, // 6: nis.v1.ListClustersRequest.options:type_name -> nis.v1.ListOptions
 	0,  // 7: nis.v1.ListClustersResponse.clusters:type_name -> nis.v1.Cluster
 	0,  // 8: nis.v1.UpdateClusterResponse.cluster:type_name -> nis.v1.Cluster
 	0,  // 9: nis.v1.UpdateClusterCredentialsResponse.cluster:type_name -> nis.v1.Cluster
-	1,  // 10: nis.v1.ClusterService.CreateCluster:input_type -> nis.v1.CreateClusterRequest
-	3,  // 11: nis.v1.ClusterService.GetCluster:input_type -> nis.v1.GetClusterRequest
-	5,  // 12: nis.v1.ClusterService.GetClusterByName:input_type -> nis.v1.GetClusterByNameRequest
-	7,  // 13: nis.v1.ClusterService.ListClusters:input_type -> nis.v1.ListClustersRequest
-	9,  // 14: nis.v1.ClusterService.UpdateCluster:input_type -> nis.v1.UpdateClusterRequest
-	11, // 15: nis.v1.ClusterService.UpdateClusterCredentials:input_type -> nis.v1.UpdateClusterCredentialsRequest
-	13, // 16: nis.v1.ClusterService.DeleteCluster:input_type -> nis.v1.DeleteClusterRequest
-	15, // 17: nis.v1.ClusterService.GetClusterCredentials:input_type -> nis.v1.GetClusterCredentialsRequest
-	17, // 18: nis.v1.ClusterService.GenerateServerConfig:input_type -> nis.v1.GenerateServerConfigRequest
-	19, // 19: nis.v1.ClusterService.SyncCluster:input_type -> nis.v1.SyncClusterRequest
-	2,  // 20: nis.v1.ClusterService.CreateCluster:output_type -> nis.v1.CreateClusterResponse
-	4,  // 21: nis.v1.ClusterService.GetCluster:output_type -> nis.v1.GetClusterResponse
-	6,  // 22: nis.v1.ClusterService.GetClusterByName:output_type -> nis.v1.GetClusterByNameResponse
-	8,  // 23: nis.v1.ClusterService.ListClusters:output_type -> nis.v1.ListClustersResponse
-	10, // 24: nis.v1.ClusterService.UpdateCluster:output_type -> nis.v1.UpdateClusterResponse
-	12, // 25: nis.v1.ClusterService.UpdateClusterCredentials:output_type -> nis.v1.UpdateClusterCredentialsResponse
-	14, // 26: nis.v1.ClusterService.DeleteCluster:output_type -> nis.v1.DeleteClusterResponse
-	16, // 27: nis.v1.ClusterService.GetClusterCredentials:output_type -> nis.v1.GetClusterCredentialsResponse
-	18, // 28: nis.v1.ClusterService.GenerateServerConfig:output_type -> nis.v1.GenerateServerConfigResponse
-	20, // 29: nis.v1.ClusterService.SyncCluster:output_type -> nis.v1.SyncClusterResponse
-	20, // [20:30] is the sub-list for method output_type
-	10, // [10:20] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	21, // 10: nis.v1.SyncClusterResponse.errors:type_name -> nis.v1.SyncError
+	1,  // 11: nis.v1.ClusterService.CreateCluster:input_type -> nis.v1.CreateClusterRequest
+	3,  // 12: nis.v1.ClusterService.GetCluster:input_type -> nis.v1.GetClusterRequest
+	5,  // 13: nis.v1.ClusterService.GetClusterByName:input_type -> nis.v1.GetClusterByNameRequest
+	7,  // 14: nis.v1.ClusterService.ListClusters:input_type -> nis.v1.ListClustersRequest
+	9,  // 15: nis.v1.ClusterService.UpdateCluster:input_type -> nis.v1.UpdateClusterRequest
+	11, // 16: nis.v1.ClusterService.UpdateClusterCredentials:input_type -> nis.v1.UpdateClusterCredentialsRequest
+	13, // 17: nis.v1.ClusterService.DeleteCluster:input_type -> nis.v1.DeleteClusterRequest
+	15, // 18: nis.v1.ClusterService.GetClusterCredentials:input_type -> nis.v1.GetClusterCredentialsRequest
+	17, // 19: nis.v1.ClusterService.GenerateServerConfig:input_type -> nis.v1.GenerateServerConfigRequest
+	19, // 20: nis.v1.ClusterService.SyncCluster:input_type -> nis.v1.SyncClusterRequest
+	22, // 21: nis.v1.ClusterService.ListResolverAccounts:input_type -> nis.v1.ListResolverAccountsRequest
+	24, // 22: nis.v1.ClusterService.DeleteResolverAccount:input_type -> nis.v1.DeleteResolverAccountRequest
+	2,  // 23: nis.v1.ClusterService.CreateCluster:output_type -> nis.v1.CreateClusterResponse
+	4,  // 24: nis.v1.ClusterService.GetCluster:output_type -> nis.v1.GetClusterResponse
+	6,  // 25: nis.v1.ClusterService.GetClusterByName:output_type -> nis.v1.GetClusterByNameResponse
+	8,  // 26: nis.v1.ClusterService.ListClusters:output_type -> nis.v1.ListClustersResponse
+	10, // 27: nis.v1.ClusterService.UpdateCluster:output_type -> nis.v1.UpdateClusterResponse
+	12, // 28: nis.v1.ClusterService.UpdateClusterCredentials:output_type -> nis.v1.UpdateClusterCredentialsResponse
+	14, // 29: nis.v1.ClusterService.DeleteCluster:output_type -> nis.v1.DeleteClusterResponse
+	16, // 30: nis.v1.ClusterService.GetClusterCredentials:output_type -> nis.v1.GetClusterCredentialsResponse
+	18, // 31: nis.v1.ClusterService.GenerateServerConfig:output_type -> nis.v1.GenerateServerConfigResponse
+	20, // 32: nis.v1.ClusterService.SyncCluster:output_type -> nis.v1.SyncClusterResponse
+	23, // 33: nis.v1.ClusterService.ListResolverAccounts:output_type -> nis.v1.ListResolverAccountsResponse
+	25, // 34: nis.v1.ClusterService.DeleteResolverAccount:output_type -> nis.v1.DeleteResolverAccountResponse
+	23, // [23:35] is the sub-list for method output_type
+	11, // [11:23] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_cluster_proto_init() }
@@ -1365,7 +1695,7 @@ func file_nis_v1_cluster_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_cluster_proto_rawDesc), len(file_nis_v1_cluster_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

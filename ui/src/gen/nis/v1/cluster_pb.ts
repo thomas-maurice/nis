@@ -909,6 +909,13 @@ export class SyncClusterRequest extends Message<SyncClusterRequest> {
    */
   id = "";
 
+  /**
+   * If true, remove accounts from the resolver that are not in the database
+   *
+   * @generated from field: bool prune = 2;
+   */
+  prune = false;
+
   constructor(data?: PartialMessage<SyncClusterRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -918,6 +925,7 @@ export class SyncClusterRequest extends Message<SyncClusterRequest> {
   static readonly typeName = "nis.v1.SyncClusterRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "prune", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SyncClusterRequest {
@@ -953,6 +961,41 @@ export class SyncClusterResponse extends Message<SyncClusterResponse> {
    */
   accounts: string[] = [];
 
+  /**
+   * Number of accounts added to the resolver
+   *
+   * @generated from field: int32 accounts_added = 3;
+   */
+  accountsAdded = 0;
+
+  /**
+   * Number of accounts removed from the resolver (only if prune=true)
+   *
+   * @generated from field: int32 accounts_removed = 4;
+   */
+  accountsRemoved = 0;
+
+  /**
+   * Number of accounts updated in the resolver
+   *
+   * @generated from field: int32 accounts_updated = 5;
+   */
+  accountsUpdated = 0;
+
+  /**
+   * Accounts that were removed from the resolver
+   *
+   * @generated from field: repeated string removed_accounts = 6;
+   */
+  removedAccounts: string[] = [];
+
+  /**
+   * Errors encountered during sync (non-fatal)
+   *
+   * @generated from field: repeated nis.v1.SyncError errors = 7;
+   */
+  errors: SyncError[] = [];
+
   constructor(data?: PartialMessage<SyncClusterResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -963,6 +1006,11 @@ export class SyncClusterResponse extends Message<SyncClusterResponse> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "account_count", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 2, name: "accounts", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 3, name: "accounts_added", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 4, name: "accounts_removed", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 5, name: "accounts_updated", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 6, name: "removed_accounts", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 7, name: "errors", kind: "message", T: SyncError, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SyncClusterResponse {
@@ -979,6 +1027,215 @@ export class SyncClusterResponse extends Message<SyncClusterResponse> {
 
   static equals(a: SyncClusterResponse | PlainMessage<SyncClusterResponse> | undefined, b: SyncClusterResponse | PlainMessage<SyncClusterResponse> | undefined): boolean {
     return proto3.util.equals(SyncClusterResponse, a, b);
+  }
+}
+
+/**
+ * SyncError represents an error encountered during sync
+ *
+ * @generated from message nis.v1.SyncError
+ */
+export class SyncError extends Message<SyncError> {
+  /**
+   * @generated from field: string account_public_key = 1;
+   */
+  accountPublicKey = "";
+
+  /**
+   * @generated from field: string account_name = 2;
+   */
+  accountName = "";
+
+  /**
+   * @generated from field: string error = 3;
+   */
+  error = "";
+
+  constructor(data?: PartialMessage<SyncError>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.SyncError";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "account_public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "account_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SyncError {
+    return new SyncError().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SyncError {
+    return new SyncError().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SyncError {
+    return new SyncError().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SyncError | PlainMessage<SyncError> | undefined, b: SyncError | PlainMessage<SyncError> | undefined): boolean {
+    return proto3.util.equals(SyncError, a, b);
+  }
+}
+
+/**
+ * ListResolverAccountsRequest is the request to list accounts on the NATS resolver
+ *
+ * @generated from message nis.v1.ListResolverAccountsRequest
+ */
+export class ListResolverAccountsRequest extends Message<ListResolverAccountsRequest> {
+  /**
+   * @generated from field: string cluster_id = 1;
+   */
+  clusterId = "";
+
+  constructor(data?: PartialMessage<ListResolverAccountsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ListResolverAccountsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cluster_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListResolverAccountsRequest {
+    return new ListResolverAccountsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListResolverAccountsRequest {
+    return new ListResolverAccountsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListResolverAccountsRequest {
+    return new ListResolverAccountsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListResolverAccountsRequest | PlainMessage<ListResolverAccountsRequest> | undefined, b: ListResolverAccountsRequest | PlainMessage<ListResolverAccountsRequest> | undefined): boolean {
+    return proto3.util.equals(ListResolverAccountsRequest, a, b);
+  }
+}
+
+/**
+ * ListResolverAccountsResponse is the response from listing resolver accounts
+ *
+ * @generated from message nis.v1.ListResolverAccountsResponse
+ */
+export class ListResolverAccountsResponse extends Message<ListResolverAccountsResponse> {
+  /**
+   * Public keys of accounts on the resolver
+   *
+   * @generated from field: repeated string public_keys = 1;
+   */
+  publicKeys: string[] = [];
+
+  constructor(data?: PartialMessage<ListResolverAccountsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ListResolverAccountsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "public_keys", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListResolverAccountsResponse {
+    return new ListResolverAccountsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListResolverAccountsResponse {
+    return new ListResolverAccountsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListResolverAccountsResponse {
+    return new ListResolverAccountsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListResolverAccountsResponse | PlainMessage<ListResolverAccountsResponse> | undefined, b: ListResolverAccountsResponse | PlainMessage<ListResolverAccountsResponse> | undefined): boolean {
+    return proto3.util.equals(ListResolverAccountsResponse, a, b);
+  }
+}
+
+/**
+ * DeleteResolverAccountRequest is the request to delete an account from the NATS resolver
+ *
+ * @generated from message nis.v1.DeleteResolverAccountRequest
+ */
+export class DeleteResolverAccountRequest extends Message<DeleteResolverAccountRequest> {
+  /**
+   * @generated from field: string cluster_id = 1;
+   */
+  clusterId = "";
+
+  /**
+   * @generated from field: string public_key = 2;
+   */
+  publicKey = "";
+
+  constructor(data?: PartialMessage<DeleteResolverAccountRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.DeleteResolverAccountRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cluster_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteResolverAccountRequest {
+    return new DeleteResolverAccountRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteResolverAccountRequest {
+    return new DeleteResolverAccountRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteResolverAccountRequest {
+    return new DeleteResolverAccountRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteResolverAccountRequest | PlainMessage<DeleteResolverAccountRequest> | undefined, b: DeleteResolverAccountRequest | PlainMessage<DeleteResolverAccountRequest> | undefined): boolean {
+    return proto3.util.equals(DeleteResolverAccountRequest, a, b);
+  }
+}
+
+/**
+ * DeleteResolverAccountResponse is the response from deleting a resolver account
+ *
+ * @generated from message nis.v1.DeleteResolverAccountResponse
+ */
+export class DeleteResolverAccountResponse extends Message<DeleteResolverAccountResponse> {
+  constructor(data?: PartialMessage<DeleteResolverAccountResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.DeleteResolverAccountResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteResolverAccountResponse {
+    return new DeleteResolverAccountResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteResolverAccountResponse {
+    return new DeleteResolverAccountResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteResolverAccountResponse {
+    return new DeleteResolverAccountResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteResolverAccountResponse | PlainMessage<DeleteResolverAccountResponse> | undefined, b: DeleteResolverAccountResponse | PlainMessage<DeleteResolverAccountResponse> | undefined): boolean {
+    return proto3.util.equals(DeleteResolverAccountResponse, a, b);
   }
 }
 

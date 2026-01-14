@@ -63,6 +63,12 @@ const (
 	// ClusterServiceSyncClusterProcedure is the fully-qualified name of the ClusterService's
 	// SyncCluster RPC.
 	ClusterServiceSyncClusterProcedure = "/nis.v1.ClusterService/SyncCluster"
+	// ClusterServiceListResolverAccountsProcedure is the fully-qualified name of the ClusterService's
+	// ListResolverAccounts RPC.
+	ClusterServiceListResolverAccountsProcedure = "/nis.v1.ClusterService/ListResolverAccounts"
+	// ClusterServiceDeleteResolverAccountProcedure is the fully-qualified name of the ClusterService's
+	// DeleteResolverAccount RPC.
+	ClusterServiceDeleteResolverAccountProcedure = "/nis.v1.ClusterService/DeleteResolverAccount"
 )
 
 // ClusterServiceClient is a client for the nis.v1.ClusterService service.
@@ -77,7 +83,12 @@ type ClusterServiceClient interface {
 	GetClusterCredentials(context.Context, *connect.Request[v1.GetClusterCredentialsRequest]) (*connect.Response[v1.GetClusterCredentialsResponse], error)
 	GenerateServerConfig(context.Context, *connect.Request[v1.GenerateServerConfigRequest]) (*connect.Response[v1.GenerateServerConfigResponse], error)
 	// SyncCluster pushes all account JWTs to the NATS cluster resolver
+	// If prune=true, removes accounts from resolver that are not in the database
 	SyncCluster(context.Context, *connect.Request[v1.SyncClusterRequest]) (*connect.Response[v1.SyncClusterResponse], error)
+	// ListResolverAccounts lists all account public keys on the NATS resolver
+	ListResolverAccounts(context.Context, *connect.Request[v1.ListResolverAccountsRequest]) (*connect.Response[v1.ListResolverAccountsResponse], error)
+	// DeleteResolverAccount removes an account from the NATS resolver
+	DeleteResolverAccount(context.Context, *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error)
 }
 
 // NewClusterServiceClient constructs a client for the nis.v1.ClusterService service. By default, it
@@ -151,6 +162,18 @@ func NewClusterServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(clusterServiceMethods.ByName("SyncCluster")),
 			connect.WithClientOptions(opts...),
 		),
+		listResolverAccounts: connect.NewClient[v1.ListResolverAccountsRequest, v1.ListResolverAccountsResponse](
+			httpClient,
+			baseURL+ClusterServiceListResolverAccountsProcedure,
+			connect.WithSchema(clusterServiceMethods.ByName("ListResolverAccounts")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteResolverAccount: connect.NewClient[v1.DeleteResolverAccountRequest, v1.DeleteResolverAccountResponse](
+			httpClient,
+			baseURL+ClusterServiceDeleteResolverAccountProcedure,
+			connect.WithSchema(clusterServiceMethods.ByName("DeleteResolverAccount")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -166,6 +189,8 @@ type clusterServiceClient struct {
 	getClusterCredentials    *connect.Client[v1.GetClusterCredentialsRequest, v1.GetClusterCredentialsResponse]
 	generateServerConfig     *connect.Client[v1.GenerateServerConfigRequest, v1.GenerateServerConfigResponse]
 	syncCluster              *connect.Client[v1.SyncClusterRequest, v1.SyncClusterResponse]
+	listResolverAccounts     *connect.Client[v1.ListResolverAccountsRequest, v1.ListResolverAccountsResponse]
+	deleteResolverAccount    *connect.Client[v1.DeleteResolverAccountRequest, v1.DeleteResolverAccountResponse]
 }
 
 // CreateCluster calls nis.v1.ClusterService.CreateCluster.
@@ -218,6 +243,16 @@ func (c *clusterServiceClient) SyncCluster(ctx context.Context, req *connect.Req
 	return c.syncCluster.CallUnary(ctx, req)
 }
 
+// ListResolverAccounts calls nis.v1.ClusterService.ListResolverAccounts.
+func (c *clusterServiceClient) ListResolverAccounts(ctx context.Context, req *connect.Request[v1.ListResolverAccountsRequest]) (*connect.Response[v1.ListResolverAccountsResponse], error) {
+	return c.listResolverAccounts.CallUnary(ctx, req)
+}
+
+// DeleteResolverAccount calls nis.v1.ClusterService.DeleteResolverAccount.
+func (c *clusterServiceClient) DeleteResolverAccount(ctx context.Context, req *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error) {
+	return c.deleteResolverAccount.CallUnary(ctx, req)
+}
+
 // ClusterServiceHandler is an implementation of the nis.v1.ClusterService service.
 type ClusterServiceHandler interface {
 	CreateCluster(context.Context, *connect.Request[v1.CreateClusterRequest]) (*connect.Response[v1.CreateClusterResponse], error)
@@ -230,7 +265,12 @@ type ClusterServiceHandler interface {
 	GetClusterCredentials(context.Context, *connect.Request[v1.GetClusterCredentialsRequest]) (*connect.Response[v1.GetClusterCredentialsResponse], error)
 	GenerateServerConfig(context.Context, *connect.Request[v1.GenerateServerConfigRequest]) (*connect.Response[v1.GenerateServerConfigResponse], error)
 	// SyncCluster pushes all account JWTs to the NATS cluster resolver
+	// If prune=true, removes accounts from resolver that are not in the database
 	SyncCluster(context.Context, *connect.Request[v1.SyncClusterRequest]) (*connect.Response[v1.SyncClusterResponse], error)
+	// ListResolverAccounts lists all account public keys on the NATS resolver
+	ListResolverAccounts(context.Context, *connect.Request[v1.ListResolverAccountsRequest]) (*connect.Response[v1.ListResolverAccountsResponse], error)
+	// DeleteResolverAccount removes an account from the NATS resolver
+	DeleteResolverAccount(context.Context, *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error)
 }
 
 // NewClusterServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -300,6 +340,18 @@ func NewClusterServiceHandler(svc ClusterServiceHandler, opts ...connect.Handler
 		connect.WithSchema(clusterServiceMethods.ByName("SyncCluster")),
 		connect.WithHandlerOptions(opts...),
 	)
+	clusterServiceListResolverAccountsHandler := connect.NewUnaryHandler(
+		ClusterServiceListResolverAccountsProcedure,
+		svc.ListResolverAccounts,
+		connect.WithSchema(clusterServiceMethods.ByName("ListResolverAccounts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	clusterServiceDeleteResolverAccountHandler := connect.NewUnaryHandler(
+		ClusterServiceDeleteResolverAccountProcedure,
+		svc.DeleteResolverAccount,
+		connect.WithSchema(clusterServiceMethods.ByName("DeleteResolverAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.ClusterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ClusterServiceCreateClusterProcedure:
@@ -322,6 +374,10 @@ func NewClusterServiceHandler(svc ClusterServiceHandler, opts ...connect.Handler
 			clusterServiceGenerateServerConfigHandler.ServeHTTP(w, r)
 		case ClusterServiceSyncClusterProcedure:
 			clusterServiceSyncClusterHandler.ServeHTTP(w, r)
+		case ClusterServiceListResolverAccountsProcedure:
+			clusterServiceListResolverAccountsHandler.ServeHTTP(w, r)
+		case ClusterServiceDeleteResolverAccountProcedure:
+			clusterServiceDeleteResolverAccountHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -369,4 +425,12 @@ func (UnimplementedClusterServiceHandler) GenerateServerConfig(context.Context, 
 
 func (UnimplementedClusterServiceHandler) SyncCluster(context.Context, *connect.Request[v1.SyncClusterRequest]) (*connect.Response[v1.SyncClusterResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ClusterService.SyncCluster is not implemented"))
+}
+
+func (UnimplementedClusterServiceHandler) ListResolverAccounts(context.Context, *connect.Request[v1.ListResolverAccountsRequest]) (*connect.Response[v1.ListResolverAccountsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ClusterService.ListResolverAccounts is not implemented"))
+}
+
+func (UnimplementedClusterServiceHandler) DeleteResolverAccount(context.Context, *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ClusterService.DeleteResolverAccount is not implemented"))
 }

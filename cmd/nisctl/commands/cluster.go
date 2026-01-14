@@ -51,11 +51,29 @@ var clusterSyncCmd = &cobra.Command{
 	RunE:  runClusterSync,
 }
 
+var clusterResolverAccountsCmd = &cobra.Command{
+	Use:   "resolver-accounts ID_OR_NAME",
+	Short: "List accounts on the NATS resolver",
+	Long:  `List all account public keys currently stored in the NATS resolver.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runClusterResolverAccounts,
+}
+
+var clusterDeleteResolverAccountCmd = &cobra.Command{
+	Use:   "delete-resolver-account ID_OR_NAME PUBLIC_KEY",
+	Short: "Delete an account from the NATS resolver",
+	Long:  `Remove an account JWT from the NATS resolver. This does not delete the account from the database.`,
+	Args:  cobra.ExactArgs(2),
+	RunE:  runClusterDeleteResolverAccount,
+}
+
 var (
-	clusterOperatorID  string
-	clusterURLs        []string
-	clusterDescription string
-	clusterForce       bool
+	clusterOperatorID   string
+	clusterURLs         []string
+	clusterDescription  string
+	clusterForce        bool
+	clusterSyncPrune    bool
+	clusterDeleteForce  bool
 )
 
 func init() {
@@ -66,6 +84,8 @@ func init() {
 	clusterCmd.AddCommand(clusterGetCmd)
 	clusterCmd.AddCommand(clusterDeleteCmd)
 	clusterCmd.AddCommand(clusterSyncCmd)
+	clusterCmd.AddCommand(clusterResolverAccountsCmd)
+	clusterCmd.AddCommand(clusterDeleteResolverAccountCmd)
 
 	clusterCreateCmd.Flags().StringVar(&clusterOperatorID, "operator", "", "operator ID or name (required)")
 	clusterCreateCmd.Flags().StringSliceVar(&clusterURLs, "urls", []string{}, "NATS server URLs (required)")
@@ -74,6 +94,10 @@ func init() {
 	clusterCreateCmd.MarkFlagRequired("urls")
 
 	clusterDeleteCmd.Flags().BoolVarP(&clusterForce, "force", "f", false, "skip confirmation prompt")
+
+	clusterSyncCmd.Flags().BoolVar(&clusterSyncPrune, "prune", false, "remove accounts from resolver that are not in the database")
+
+	clusterDeleteResolverAccountCmd.Flags().BoolVarP(&clusterDeleteForce, "force", "f", false, "skip confirmation prompt")
 }
 
 func runClusterCreate(cmd *cobra.Command, args []string) error {
@@ -250,12 +274,17 @@ func runClusterSync(cmd *cobra.Command, args []string) error {
 	}
 
 	if GetOutputFormat() != "quiet" {
-		printer.PrintMessage("Syncing accounts to cluster...")
+		if clusterSyncPrune {
+			printer.PrintMessage("Syncing accounts to cluster (with pruning)...")
+		} else {
+			printer.PrintMessage("Syncing accounts to cluster...")
+		}
 	}
 
 	// Call sync API
 	req := connect.NewRequest(&nisv1.SyncClusterRequest{
-		Id: clusterID,
+		Id:    clusterID,
+		Prune: clusterSyncPrune,
 	})
 
 	resp, err := GetClient().Cluster.SyncCluster(context.Background(), req)
@@ -265,9 +294,108 @@ func runClusterSync(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() != "quiet" {
 		printer.PrintSuccess("Successfully synced %d accounts to cluster", resp.Msg.AccountCount)
-		for _, account := range resp.Msg.Accounts {
-			printer.PrintMessage("  - %s", account)
+		if len(resp.Msg.Accounts) > 0 {
+			printer.PrintMessage("Updated accounts:")
+			for _, account := range resp.Msg.Accounts {
+				printer.PrintMessage("  - %s", account)
+			}
 		}
+		if len(resp.Msg.RemovedAccounts) > 0 {
+			printer.PrintMessage("Removed accounts:")
+			for _, pubKey := range resp.Msg.RemovedAccounts {
+				printer.PrintMessage("  - %s", pubKey)
+			}
+		}
+		if len(resp.Msg.Errors) > 0 {
+			printer.PrintMessage("Errors encountered:")
+			for _, syncErr := range resp.Msg.Errors {
+				if syncErr.AccountName != "" {
+					printer.PrintMessage("  - %s (%s): %s", syncErr.AccountName, syncErr.AccountPublicKey, syncErr.Error)
+				} else {
+					printer.PrintMessage("  - %s", syncErr.Error)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func runClusterResolverAccounts(cmd *cobra.Command, args []string) error {
+	idOrName := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	// Resolve cluster ID
+	clusterID, err := resolveClusterID(idOrName)
+	if err != nil {
+		return err
+	}
+
+	req := connect.NewRequest(&nisv1.ListResolverAccountsRequest{
+		ClusterId: clusterID,
+	})
+
+	resp, err := GetClient().Cluster.ListResolverAccounts(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to list resolver accounts: %w", err)
+	}
+
+	if len(resp.Msg.PublicKeys) == 0 {
+		if GetOutputFormat() != "quiet" {
+			printer.PrintMessage("No accounts found on resolver")
+		}
+		return nil
+	}
+
+	if GetOutputFormat() == "table" {
+		headers := []string{"PUBLIC KEY"}
+		rows := make([][]string, len(resp.Msg.PublicKeys))
+		for i, pubKey := range resp.Msg.PublicKeys {
+			rows[i] = []string{pubKey}
+		}
+		return printer.PrintTable(headers, rows)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		for _, pubKey := range resp.Msg.PublicKeys {
+			fmt.Println(pubKey)
+		}
+		return nil
+	}
+
+	return printer.PrintList(resp.Msg.PublicKeys)
+}
+
+func runClusterDeleteResolverAccount(cmd *cobra.Command, args []string) error {
+	idOrName := args[0]
+	publicKey := args[1]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	// Resolve cluster ID
+	clusterID, err := resolveClusterID(idOrName)
+	if err != nil {
+		return err
+	}
+
+	if !clusterDeleteForce && GetOutputFormat() != "quiet" {
+		if !client.ConfirmDeletion("resolver account", publicKey) {
+			printer.PrintMessage("Deletion cancelled")
+			return nil
+		}
+	}
+
+	req := connect.NewRequest(&nisv1.DeleteResolverAccountRequest{
+		ClusterId: clusterID,
+		PublicKey: publicKey,
+	})
+
+	_, err = GetClient().Cluster.DeleteResolverAccount(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to delete resolver account: %w", err)
+	}
+
+	if GetOutputFormat() != "quiet" {
+		printer.PrintSuccess("Account '%s' deleted from resolver", publicKey)
 	}
 
 	return nil
