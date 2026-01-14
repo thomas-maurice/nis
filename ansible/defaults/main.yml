@@ -22,7 +22,7 @@ nis_postgres_container_name: "nis-postgres"
 nis_postgres_data_dir: "/opt/nis/postgres"
 
 # NATS Server Configuration
-nis_nats_enabled: true
+nis_nats_enabled: false
 nis_nats_image: "nats"
 nis_nats_image_tag: "2.10-alpine"
 nis_nats_container_name: "nis-nats"
