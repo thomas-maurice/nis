@@ -10,7 +10,7 @@ database:
   # host: "localhost"
   # port: 5432
   # user: "nis"
-  # password: "secret"
+  # password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
   # dbname: "nis"
   # sslmode: "disable"
 
@@ -27,7 +27,7 @@ encryption:
   keys:
     # Example: Old key (still needed to decrypt existing data)
     # - id: "key-2024-12"
-    #   key: "OGJhMWNmOGE3YzlkNGYzZTJiNWE2ZDFjOGI0ZTlmM2E="
+    #   key: "GENERATE_WITH_openssl_rand_base64_32"
 
     # Current key (used for new encryptions)
     - id: "key-2025-01"
@@ -64,7 +64,11 @@ nats:
   # credentials_file: "/path/to/system.creds"
   # Or provide credentials directly:
   # username: "admin"
-  # password: "secret"
+  # password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
+
+# Database auto-migration
+# Set to true only for development. Use explicit migrations in production.
+auto_migrate: false
 
 # Logging configuration
 logging:
@@ -84,8 +88,8 @@ logging:
 #   current_key_id: "key-2025-02"
 #   keys:
 #     - id: "key-2024-12"
-#       key: "OGJhMWNmOGE3YzlkNGYzZTJiNWE2ZDFjOGI0ZTlmM2E="
+#       key: "GENERATE_WITH_openssl_rand_base64_32"
 #     - id: "key-2025-01"
-#       key: "NGY3YTNkOWI4ZTZjMmExZDViNGM3Zjhh="
+#       key: "GENERATE_WITH_openssl_rand_base64_32"
 #     - id: "key-2025-02"
-#       key: "ZTNhOGY0YjdjOWQxMjM0NTY3ODlhYmNk="
+#       key: "GENERATE_WITH_openssl_rand_base64_32"

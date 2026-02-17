@@ -22,6 +22,11 @@ JWTs and credentials files for NATS authentication.`,
 	}
 )
 
+// SetVersion sets the version string for the root command
+func SetVersion(v string) {
+	rootCmd.Version = v
+}
+
 // Execute runs the root command
 func Execute() error {
 	return rootCmd.Execute()

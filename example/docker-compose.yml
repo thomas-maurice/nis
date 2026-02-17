@@ -4,7 +4,7 @@ services:
     container_name: nis-postgres
     environment:
       POSTGRES_USER: nis
-      POSTGRES_PASSWORD: nis_password
+      POSTGRES_PASSWORD: CHANGE_ME_USE_A_STRONG_PASSWORD
       POSTGRES_DB: nis
     ports:
       - "5432:5432"
@@ -27,9 +27,11 @@ services:
       - "8080:8080"
     environment:
       - DATABASE_DRIVER=postgres
-      - DATABASE_DSN=host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable
-      - AUTH_JWT_SECRET=change-this-to-a-secure-random-secret-at-least-32-bytes-long
-      - ENCRYPTION_KEY=12345678901234567890123456789012
+      - DATABASE_DSN=host=postgres user=nis password=CHANGE_ME_USE_A_STRONG_PASSWORD dbname=nis port=5432 sslmode=disable
+      # Generate with: make generate-jwt-secret
+      - AUTH_JWT_SECRET=CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32
+      # Generate with: make generate-encryption-key
+      - ENCRYPTION_KEY=CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32
       - DATABASE_AUTO_MIGRATE=true
     command: ["./nis", "serve", "--address", ":8080"]
     networks:
@@ -52,7 +54,7 @@ services:
     container_name: nis-setup
     environment:
       - DATABASE_DRIVER=postgres
-      - DATABASE_DSN=host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable
+      - DATABASE_DSN=host=postgres user=nis password=CHANGE_ME_USE_A_STRONG_PASSWORD dbname=nis port=5432 sslmode=disable
     command:
       - sh
       - -c

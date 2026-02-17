@@ -28,20 +28,26 @@ CLAUDE.md
 .DS_Store
 Thumbs.db
 
+# Backup files
+*.bak
+*.orig
+*.tmp
+
 # Data
 *.db
 *.db-shm
 *.db-wal
 /data/
-./data/
 
 # Logs
 *.log
 
-# Config
+# Config (may contain secrets)
 config.yaml
 config.yml
 .env
+.env.*
+!.env.example
 
 # nisctl config
 .config/nisctl/

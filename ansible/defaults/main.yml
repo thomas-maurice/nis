@@ -12,7 +12,7 @@ nis_db_host: "nis-postgres"
 nis_db_port: 5432
 nis_db_name: "nis"
 nis_db_user: "nis"
-nis_db_password: "changeme"
+nis_db_password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
 nis_db_sslmode: "disable"
 
 # PostgreSQL Container
@@ -32,16 +32,16 @@ nis_nats_data_dir: "/opt/nis/nats"
 
 # Security Configuration
 # JWT secret for API authentication - minimum 32 bytes, any length above that is fine
-nis_jwt_secret: "change-this-to-a-secure-random-secret-at-least-32-bytes-long"
+# Generate with: make generate-jwt-secret
+nis_jwt_secret: "CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
 
 # Encryption key for encrypting private keys in the database (ChaCha20-Poly1305)
-# MUST be exactly 32 bytes (256 bits). Generate with: openssl rand -hex 16 | tr -d '\n'
-# Or: head -c 32 /dev/urandom | base64 | head -c 32
-nis_encryption_key: "12345678901234567890123456789012"
+# MUST be exactly 32 bytes (256 bits). Generate with: make generate-encryption-key
+nis_encryption_key: "CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
 
 # Admin User Configuration
 nis_admin_user: "admin"
-nis_admin_password: "admin123"
+nis_admin_password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
 nis_create_admin_user: true
 
 # Docker Network
@@ -51,7 +51,8 @@ nis_create_admin_user: true
 nis_docker_network: ""
 
 # Auto-migrate database on startup
-nis_auto_migrate: true
+# Set to true only for development. Use explicit migrations in production.
+nis_auto_migrate: false
 
 # Restart policy
 nis_restart_policy: "unless-stopped"
