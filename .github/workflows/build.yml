@@ -26,6 +26,9 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Create UI dist placeholder
+        run: mkdir -p internal/interfaces/http/ui/dist && touch internal/interfaces/http/ui/dist/index.html
+
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
 
@@ -51,6 +54,8 @@ jobs:
 
       - name: Run linter
         uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.9.0
 
   build:
     needs: [test, lint]
