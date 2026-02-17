@@ -1,5 +1,5 @@
 # UI Builder stage
-FROM node:22-alpine AS ui-builder
+FROM node:25-alpine AS ui-builder
 WORKDIR /ui
 COPY ui/package*.json ./
 RUN npm ci
