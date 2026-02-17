@@ -7,8 +7,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - AUTH_JWT_SECRET=change-this-to-a-secure-random-secret-at-least-32-bytes-long
-      - ENCRYPTION_KEY=12345678901234567890123456789012
+      # Generate with: make generate-jwt-secret
+      - AUTH_JWT_SECRET=CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32
+      # Generate with: make generate-encryption-key
+      - ENCRYPTION_KEY=CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32
       - DATABASE_AUTO_MIGRATE=true
       - DATABASE_DSN=/data/nis.db
     command: ["./nis", "serve", "--address", ":8080"]
