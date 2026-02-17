@@ -29,7 +29,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags="-s -w" -o nis ./cmd/nis
 RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags="-s -w" -o nisctl ./cmd/nisctl
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.23
 
 # Install runtime dependencies
 RUN apk --no-cache add ca-certificates sqlite-libs libgcc libstdc++ wget
