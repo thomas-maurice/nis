@@ -76,7 +76,7 @@ func (s *ScopedSigningKeyServiceTestSuite) SetupSuite() {
 }
 
 func (s *ScopedSigningKeyServiceTestSuite) TearDownSuite() {
-	sql.Close(s.db)
+	_ = sql.Close(s.db)
 }
 
 func (s *ScopedSigningKeyServiceTestSuite) TearDownTest() {

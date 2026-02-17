@@ -48,7 +48,7 @@ func (s *AuthHandlerTestSuite) SetupTest() {
 func (s *AuthHandlerTestSuite) TearDownTest() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 }
 
 func TestAuthHandlerSuite(t *testing.T) {

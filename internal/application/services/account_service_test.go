@@ -75,7 +75,7 @@ func (s *AccountServiceTestSuite) SetupSuite() {
 }
 
 func (s *AccountServiceTestSuite) TearDownSuite() {
-	sql.Close(s.db)
+	_ = sql.Close(s.db)
 }
 
 func (s *AccountServiceTestSuite) TearDownTest() {
