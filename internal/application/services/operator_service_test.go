@@ -74,7 +74,7 @@ func (s *OperatorServiceTestSuite) SetupSuite() {
 }
 
 func (s *OperatorServiceTestSuite) TearDownSuite() {
-	sql.Close(s.db)
+	_ = sql.Close(s.db)
 }
 
 func (s *OperatorServiceTestSuite) TearDownTest() {

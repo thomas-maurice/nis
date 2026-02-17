@@ -69,16 +69,16 @@ func init() {
 	accountCreateCmd.Flags().Int64Var(&accountMaxStorage, "max-storage", 0, "max storage (bytes)")
 	accountCreateCmd.Flags().Int32Var(&accountMaxStreams, "max-streams", 0, "max streams")
 	accountCreateCmd.Flags().Int32Var(&accountMaxConsumers, "max-consumers", 0, "max consumers")
-	accountCreateCmd.MarkFlagRequired("operator")
+	_ = accountCreateCmd.MarkFlagRequired("operator")
 
 	// Get flags
 	accountGetCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
-	accountGetCmd.MarkFlagRequired("operator")
+	_ = accountGetCmd.MarkFlagRequired("operator")
 
 	// Delete flags
 	accountDeleteCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
 	accountDeleteCmd.Flags().BoolVarP(&accountForce, "force", "f", false, "skip confirmation prompt")
-	accountDeleteCmd.MarkFlagRequired("operator")
+	_ = accountDeleteCmd.MarkFlagRequired("operator")
 }
 
 func runAccountCreate(cmd *cobra.Command, args []string) error {

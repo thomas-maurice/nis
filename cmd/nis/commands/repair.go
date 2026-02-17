@@ -40,9 +40,9 @@ func init() {
 	repairSigningKeysCmd.Flags().String("db-dsn", "nis.db", "database connection string")
 	repairSigningKeysCmd.Flags().String("encryption-key", "", "encryption key for sensitive data")
 
-	viper.BindPFlag("database.driver", repairSigningKeysCmd.Flags().Lookup("db-driver"))
-	viper.BindPFlag("database.dsn", repairSigningKeysCmd.Flags().Lookup("db-dsn"))
-	viper.BindPFlag("encryption.key", repairSigningKeysCmd.Flags().Lookup("encryption-key"))
+	_ = viper.BindPFlag("database.driver", repairSigningKeysCmd.Flags().Lookup("db-driver"))
+	_ = viper.BindPFlag("database.dsn", repairSigningKeysCmd.Flags().Lookup("db-dsn"))
+	_ = viper.BindPFlag("encryption.key", repairSigningKeysCmd.Flags().Lookup("encryption-key"))
 }
 
 func runRepairSigningKeys(cmd *cobra.Command, args []string) error {
@@ -69,7 +69,7 @@ func runRepairSigningKeys(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	// Get all accounts
 	accounts, err := repoFactory.AccountRepository().List(ctx, repositories.ListOptions{

@@ -22,6 +22,11 @@ JWTs and credentials files for NATS authentication.`,
 	}
 )
 
+// SetVersion sets the version string for the root command
+func SetVersion(v string) {
+	rootCmd.Version = v
+}
+
 // Execute runs the root command
 func Execute() error {
 	return rootCmd.Execute()
@@ -35,7 +40,7 @@ func init() {
 	rootCmd.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
 
 	// Bind flags to viper
-	viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
+	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 }
 
 func initConfig() {

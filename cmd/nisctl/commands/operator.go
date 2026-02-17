@@ -80,7 +80,7 @@ func init() {
 
 	// Set system account flags
 	operatorSetSystemAccountCmd.Flags().StringVar(&operatorSystemAccountPubKey, "system-account-pubkey", "", "system account public key (required)")
-	operatorSetSystemAccountCmd.MarkFlagRequired("system-account-pubkey")
+	_ = operatorSetSystemAccountCmd.MarkFlagRequired("system-account-pubkey")
 
 	// Delete flags
 	operatorDeleteCmd.Flags().BoolVarP(&operatorForce, "force", "f", false, "skip confirmation prompt")

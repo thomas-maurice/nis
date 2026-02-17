@@ -61,11 +61,11 @@ func init() {
 
 	signingKeyCreateCmd.Flags().StringVar(&signingKeyOperatorID, "operator", "", "operator ID or name (required)")
 	signingKeyCreateCmd.Flags().StringVar(&signingKeyAccountID, "account", "", "account name (required)")
-	signingKeyCreateCmd.MarkFlagRequired("operator")
-	signingKeyCreateCmd.MarkFlagRequired("account")
+	_ = signingKeyCreateCmd.MarkFlagRequired("operator")
+	_ = signingKeyCreateCmd.MarkFlagRequired("account")
 
 	signingKeyListCmd.Flags().StringVar(&signingKeyOperatorID, "operator", "", "operator ID or name (required)")
-	signingKeyListCmd.MarkFlagRequired("operator")
+	_ = signingKeyListCmd.MarkFlagRequired("operator")
 
 	signingKeyDeleteCmd.Flags().BoolVarP(&signingKeyForce, "force", "f", false, "skip confirmation prompt")
 }

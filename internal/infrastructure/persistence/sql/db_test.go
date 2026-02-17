@@ -40,7 +40,7 @@ func TestMigrations(t *testing.T) {
 
 	db, err := NewDB(cfg)
 	require.NoError(t, err)
-	defer Close(db)
+	defer func() { _ = Close(db) }()
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)

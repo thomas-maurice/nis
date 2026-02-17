@@ -260,11 +260,8 @@ func (s *OperatorService) SetSystemAccount(ctx context.Context, operatorID uuid.
 	// Check if the operator JWT already has the correct system account
 	// This happens when importing from NSC where the JWT is preserved
 	existingClaims, err := jwt.DecodeOperatorClaims(operator.JWT)
-	regenerateJWT := true
-	if err == nil && existingClaims.SystemAccount == systemAccountPubKey {
-		// JWT already has correct system account, don't regenerate
-		regenerateJWT = false
-	}
+	// Regenerate JWT only if decoding failed or system account doesn't match
+	regenerateJWT := err != nil || existingClaims.SystemAccount != systemAccountPubKey
 
 	// Regenerate JWT with new system account only if needed
 	if regenerateJWT {

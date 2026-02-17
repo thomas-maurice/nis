@@ -61,7 +61,7 @@ func (s *RepositoryTestSuite) SetupSuite() {
 
 func (s *RepositoryTestSuite) TearDownSuite() {
 	sqlDB, _ := s.db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 }
 
 func (s *RepositoryTestSuite) SetupTest() {

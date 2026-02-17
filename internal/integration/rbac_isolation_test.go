@@ -208,33 +208,33 @@ func (s *RBACIsolationTestSuite) TearDownTest() {
 
 	// Clean up API users
 	if s.adminUser != nil {
-		s.authService.DeleteAPIUser(ctx, s.adminUser.ID, s.adminUser)
+		_ = s.authService.DeleteAPIUser(ctx, s.adminUser.ID, s.adminUser)
 	}
 	if s.operator1Admin != nil {
-		s.authService.DeleteAPIUser(ctx, s.operator1Admin.ID, s.adminUser)
+		_ = s.authService.DeleteAPIUser(ctx, s.operator1Admin.ID, s.adminUser)
 	}
 	if s.operator2Admin != nil {
-		s.authService.DeleteAPIUser(ctx, s.operator2Admin.ID, s.adminUser)
+		_ = s.authService.DeleteAPIUser(ctx, s.operator2Admin.ID, s.adminUser)
 	}
 	if s.account1Admin != nil {
-		s.authService.DeleteAPIUser(ctx, s.account1Admin.ID, s.adminUser)
+		_ = s.authService.DeleteAPIUser(ctx, s.account1Admin.ID, s.adminUser)
 	}
 	if s.account2Admin != nil {
-		s.authService.DeleteAPIUser(ctx, s.account2Admin.ID, s.adminUser)
+		_ = s.authService.DeleteAPIUser(ctx, s.account2Admin.ID, s.adminUser)
 	}
 
 	// Clean up operators (cascades to accounts)
 	if s.operator1 != nil {
-		s.operatorService.DeleteOperator(ctx, s.operator1.ID)
+		_ = s.operatorService.DeleteOperator(ctx, s.operator1.ID)
 	}
 	if s.operator2 != nil {
-		s.operatorService.DeleteOperator(ctx, s.operator2.ID)
+		_ = s.operatorService.DeleteOperator(ctx, s.operator2.ID)
 	}
 }
 
 func (s *RBACIsolationTestSuite) TearDownSuite() {
 	if s.repoFactory != nil {
-		s.repoFactory.Close()
+		_ = s.repoFactory.Close()
 	}
 }
 
@@ -426,7 +426,7 @@ func (s *RBACIsolationTestSuite) TestAccountAdmin_CanCreateUsersInTheirAccount()
 		Name:      "test-user",
 	})
 	s.NoError(err)
-	defer s.userService.DeleteUser(ctx, user1.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user1.ID) }()
 
 	// Account1Admin CAN read users in their account
 	err = s.permService.CanReadUser(ctx, s.account1Admin, user1.ID)
@@ -438,7 +438,7 @@ func (s *RBACIsolationTestSuite) TestAccountAdmin_CanCreateUsersInTheirAccount()
 		Name:      "test-user2",
 	})
 	s.NoError(err)
-	defer s.userService.DeleteUser(ctx, user2.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user2.ID) }()
 
 	// Account1Admin CANNOT read users in account2
 	err = s.permService.CanReadUser(ctx, s.account1Admin, user2.ID)
@@ -455,14 +455,14 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanAccessAllUsersInTheirOpera
 		Name:      "user-in-account1",
 	})
 	s.NoError(err)
-	defer s.userService.DeleteUser(ctx, user1.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user1.ID) }()
 
 	user2, err := s.userService.CreateUser(ctx, services.CreateUserRequest{
 		AccountID: s.operator1Account2.ID,
 		Name:      "user-in-account2",
 	})
 	s.NoError(err)
-	defer s.userService.DeleteUser(ctx, user2.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user2.ID) }()
 
 	// Create user in operator2
 	user3, err := s.userService.CreateUser(ctx, services.CreateUserRequest{
@@ -470,7 +470,7 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanAccessAllUsersInTheirOpera
 		Name:      "user-in-operator2",
 	})
 	s.NoError(err)
-	defer s.userService.DeleteUser(ctx, user3.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user3.ID) }()
 
 	// Operator1Admin CAN read users in both operator1 accounts
 	err = s.permService.CanReadUser(ctx, s.operator1Admin, user1.ID)
@@ -522,7 +522,7 @@ func (s *RBACIsolationTestSuite) TestOnlyAdminCanManageAPIUsers() {
 	}, s.adminUser)
 	s.NoError(err, "Admin should create API users")
 	if newUser != nil {
-		defer s.authService.DeleteAPIUser(ctx, newUser.ID, s.adminUser)
+		defer func() { _ = s.authService.DeleteAPIUser(ctx, newUser.ID, s.adminUser) }()
 	}
 }
 
@@ -535,19 +535,19 @@ func (s *RBACIsolationTestSuite) TestCompleteIsolationScenario() {
 		AccountID: s.operator1Account1.ID,
 		Name:      "user1-account1",
 	})
-	defer s.userService.DeleteUser(ctx, user1.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user1.ID) }()
 
 	user2, _ := s.userService.CreateUser(ctx, services.CreateUserRequest{
 		AccountID: s.operator1Account2.ID,
 		Name:      "user2-account2",
 	})
-	defer s.userService.DeleteUser(ctx, user2.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user2.ID) }()
 
 	user3, _ := s.userService.CreateUser(ctx, services.CreateUserRequest{
 		AccountID: s.operator2Account1.ID,
 		Name:      "user3-operator2",
 	})
-	defer s.userService.DeleteUser(ctx, user3.ID)
+	defer func() { _ = s.userService.DeleteUser(ctx, user3.ID) }()
 
 	allUsers := []*entities.User{user1, user2, user3}
 

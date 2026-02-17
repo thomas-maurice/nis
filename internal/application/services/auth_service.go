@@ -160,21 +160,22 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 	}
 
 	// Validate role-specific requirements
-	if req.Role == entities.RoleOperatorAdmin {
+	switch req.Role {
+	case entities.RoleOperatorAdmin:
 		if req.OperatorID == nil {
 			return nil, fmt.Errorf("operator_id is required for operator-admin role")
 		}
 		if req.AccountID != nil {
 			return nil, fmt.Errorf("account_id must not be set for operator-admin role")
 		}
-	} else if req.Role == entities.RoleAccountAdmin {
+	case entities.RoleAccountAdmin:
 		if req.AccountID == nil {
 			return nil, fmt.Errorf("account_id is required for account-admin role")
 		}
 		if req.OperatorID != nil {
 			return nil, fmt.Errorf("operator_id must not be set for account-admin role")
 		}
-	} else if req.Role == entities.RoleAdmin {
+	case entities.RoleAdmin:
 		if req.OperatorID != nil || req.AccountID != nil {
 			return nil, fmt.Errorf("operator_id and account_id must not be set for admin role")
 		}
@@ -295,21 +296,22 @@ func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req U
 	}
 
 	// Validate role-specific requirements
-	if req.Role == entities.RoleOperatorAdmin {
+	switch req.Role {
+	case entities.RoleOperatorAdmin:
 		if req.OperatorID == nil {
 			return nil, fmt.Errorf("operator_id is required for operator-admin role")
 		}
 		if req.AccountID != nil {
 			return nil, fmt.Errorf("account_id must not be set for operator-admin role")
 		}
-	} else if req.Role == entities.RoleAccountAdmin {
+	case entities.RoleAccountAdmin:
 		if req.AccountID == nil {
 			return nil, fmt.Errorf("account_id is required for account-admin role")
 		}
 		if req.OperatorID != nil {
 			return nil, fmt.Errorf("operator_id must not be set for account-admin role")
 		}
-	} else if req.Role == entities.RoleAdmin {
+	case entities.RoleAdmin:
 		if req.OperatorID != nil || req.AccountID != nil {
 			return nil, fmt.Errorf("operator_id and account_id must not be set for admin role")
 		}

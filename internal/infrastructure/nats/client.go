@@ -118,14 +118,14 @@ func parseCredsContent(credsContent string) (string, string, error) {
 	jwtEnd := "------END NATS USER JWT------"
 
 	jwtStartIdx := len(jwtStart)
-	startIdx := 0
+	var startIdx int
 	if idx := find(credsContent, jwtStart); idx >= 0 {
 		startIdx = idx + jwtStartIdx
 	} else {
 		return "", "", fmt.Errorf("JWT start marker not found")
 	}
 
-	endIdx := len(credsContent)
+	var endIdx int
 	if idx := find(credsContent, jwtEnd); idx >= 0 {
 		endIdx = idx
 	} else {
@@ -139,14 +139,12 @@ func parseCredsContent(credsContent string) (string, string, error) {
 	seedEnd := "------END USER NKEY SEED------"
 
 	seedStartIdx := len(seedStart)
-	startIdx = 0
 	if idx := find(credsContent, seedStart); idx >= 0 {
 		startIdx = idx + seedStartIdx
 	} else {
 		return "", "", fmt.Errorf("seed start marker not found")
 	}
 
-	endIdx = len(credsContent)
 	if idx := find(credsContent, seedEnd); idx >= 0 {
 		endIdx = idx
 	} else {

@@ -142,7 +142,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to write credentials file: %v", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Try to connect to NATS
 	fmt.Printf("\n=== ATTEMPTING NATS CONNECTION ===\n")

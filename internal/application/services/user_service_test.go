@@ -96,7 +96,7 @@ func (s *UserServiceTestSuite) SetupSuite() {
 }
 
 func (s *UserServiceTestSuite) TearDownSuite() {
-	sql.Close(s.db)
+	_ = sql.Close(s.db)
 }
 
 func (s *UserServiceTestSuite) TearDownTest() {

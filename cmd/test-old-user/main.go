@@ -123,7 +123,7 @@ func main() {
 			log.Printf("Failed to write credentials file: %v", err)
 			continue
 		}
-		defer os.Remove(tmpFile)
+		defer func() { _ = os.Remove(tmpFile) }()
 
 		// Try to connect
 		for _, serverURL := range cluster.ServerURLs {

@@ -49,7 +49,7 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
-		defer indexFile.Close()
+		defer func() { _ = indexFile.Close() }()
 
 		stat, err := indexFile.Stat()
 		if err != nil {
@@ -60,7 +60,7 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, h.indexPath, stat.ModTime(), indexFile)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Check if it's a directory
 	stat, err := f.Stat()
@@ -76,7 +76,7 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
-		defer indexFile.Close()
+		defer func() { _ = indexFile.Close() }()
 
 		indexStat, err := indexFile.Stat()
 		if err != nil {

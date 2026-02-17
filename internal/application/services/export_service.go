@@ -515,7 +515,7 @@ func (s *ExportService) extractArchive(archiveData []byte) (string, error) {
 		// Extract ZIP
 		for _, file := range zipReader.File {
 			if err := extractZipFile(file, tempDir); err != nil {
-				os.RemoveAll(tempDir)
+				_ = os.RemoveAll(tempDir)
 				return "", fmt.Errorf("failed to extract zip file: %w", err)
 			}
 		}
@@ -523,25 +523,25 @@ func (s *ExportService) extractArchive(archiveData []byte) (string, error) {
 	}
 
 	// Try gzip + tar
-	reader.Seek(0, io.SeekStart)
+	_, _ = reader.Seek(0, io.SeekStart)
 	gzipReader, err := gzip.NewReader(reader)
 	if err == nil {
-		defer gzipReader.Close()
+		defer func() { _ = gzipReader.Close() }()
 		if err := extractTar(gzipReader, tempDir); err == nil {
 			return tempDir, nil
 		}
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to extract tar.gz: %w", err)
 	}
 
 	// Try bzip2 + tar
-	reader.Seek(0, io.SeekStart)
+	_, _ = reader.Seek(0, io.SeekStart)
 	bz2Reader := bzip2.NewReader(reader)
 	if err := extractTar(bz2Reader, tempDir); err == nil {
 		return tempDir, nil
 	}
 
-	os.RemoveAll(tempDir)
+	_ = os.RemoveAll(tempDir)
 	return "", fmt.Errorf("unsupported archive format (supported: .zip, .tar.gz, .tar.bz2)")
 }
 
@@ -551,7 +551,7 @@ func extractZipFile(file *zip.File, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	path := filepath.Join(destDir, file.Name)
 
@@ -567,7 +567,7 @@ func extractZipFile(file *zip.File, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = io.Copy(f, rc)
 	return err
@@ -602,10 +602,10 @@ func extractTar(reader io.Reader, destDir string) error {
 				return err
 			}
 			if _, err := io.Copy(f, tarReader); err != nil {
-				f.Close()
+				_ = f.Close()
 				return err
 			}
-			f.Close()
+			_ = f.Close()
 		}
 	}
 
@@ -624,7 +624,7 @@ func (s *ExportService) ImportFromNSC(ctx context.Context, archiveData []byte, o
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("failed to extract archive: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Find the NSC store directory (may be nested in the archive)
 	nscDir := tempDir
@@ -946,11 +946,11 @@ func (s *ExportService) importNSCAccount(ctx context.Context, nscDir string, ope
 		Description:           description,
 		EncryptedSeed:         encryptedSeed,
 		PublicKey:             accountPubKey,
-		JetStreamEnabled:      accountClaims.Limits.JetStreamLimits.DiskStorage != 0 || accountClaims.Limits.JetStreamLimits.MemoryStorage != 0,
-		JetStreamMaxMemory:    accountClaims.Limits.JetStreamLimits.MemoryStorage,
-		JetStreamMaxStorage:   accountClaims.Limits.JetStreamLimits.DiskStorage,
-		JetStreamMaxStreams:   int64(accountClaims.Limits.JetStreamLimits.Streams),
-		JetStreamMaxConsumers: int64(accountClaims.Limits.JetStreamLimits.Consumer),
+		JetStreamEnabled:      accountClaims.Limits.DiskStorage != 0 || accountClaims.Limits.MemoryStorage != 0,
+		JetStreamMaxMemory:    accountClaims.Limits.MemoryStorage,
+		JetStreamMaxStorage:   accountClaims.Limits.DiskStorage,
+		JetStreamMaxStreams:   int64(accountClaims.Limits.Streams),
+		JetStreamMaxConsumers: int64(accountClaims.Limits.Consumer),
 		CreatedAt:             time.Now(),
 		UpdatedAt:             time.Now(),
 	}

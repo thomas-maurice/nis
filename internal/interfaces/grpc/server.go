@@ -75,10 +75,10 @@ func NewServer(
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if config.MigrationsDone {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("ok"))
+			_, _ = w.Write([]byte("ok"))
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("migrations pending"))
+			_, _ = w.Write([]byte("migrations pending"))
 		}
 	})
 

@@ -46,15 +46,15 @@ func init() {
 	serveCmd.Flags().Bool("enable-ui", true, "enable web UI")
 
 	// Bind flags to viper
-	viper.BindPFlag("server.address", serveCmd.Flags().Lookup("address"))
-	viper.BindPFlag("database.driver", serveCmd.Flags().Lookup("db-driver"))
-	viper.BindPFlag("database.dsn", serveCmd.Flags().Lookup("db-dsn"))
-	viper.BindPFlag("encryption.key", serveCmd.Flags().Lookup("encryption-key"))
-	viper.BindPFlag("encryption.key_id", serveCmd.Flags().Lookup("encryption-key-id"))
-	viper.BindPFlag("auth.jwt_secret", serveCmd.Flags().Lookup("jwt-secret"))
-	viper.BindPFlag("auth.jwt_ttl", serveCmd.Flags().Lookup("jwt-ttl"))
-	viper.BindPFlag("database.auto_migrate", serveCmd.Flags().Lookup("auto-migrate"))
-	viper.BindPFlag("server.enable_ui", serveCmd.Flags().Lookup("enable-ui"))
+	_ = viper.BindPFlag("server.address", serveCmd.Flags().Lookup("address"))
+	_ = viper.BindPFlag("database.driver", serveCmd.Flags().Lookup("db-driver"))
+	_ = viper.BindPFlag("database.dsn", serveCmd.Flags().Lookup("db-dsn"))
+	_ = viper.BindPFlag("encryption.key", serveCmd.Flags().Lookup("encryption-key"))
+	_ = viper.BindPFlag("encryption.key_id", serveCmd.Flags().Lookup("encryption-key-id"))
+	_ = viper.BindPFlag("auth.jwt_secret", serveCmd.Flags().Lookup("jwt-secret"))
+	_ = viper.BindPFlag("auth.jwt_ttl", serveCmd.Flags().Lookup("jwt-ttl"))
+	_ = viper.BindPFlag("database.auto_migrate", serveCmd.Flags().Lookup("auto-migrate"))
+	_ = viper.BindPFlag("server.enable_ui", serveCmd.Flags().Lookup("enable-ui"))
 
 	// Note: encryption-key and jwt-secret are NOT marked as required flags
 	// because they can be provided via config file or environment variables
@@ -89,7 +89,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	// Run migrations if enabled
 	migrationsDone := false

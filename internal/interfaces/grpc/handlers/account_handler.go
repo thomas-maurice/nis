@@ -17,7 +17,6 @@ import (
 type AccountHandler struct {
 	service     *services.AccountService
 	permService *services.PermissionService
-	natsClient  interface{} // TODO: Will be replaced with NATS client for PushAccountJWT
 }
 
 // NewAccountHandler creates a new AccountHandler

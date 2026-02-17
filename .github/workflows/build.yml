@@ -12,7 +12,56 @@ env:
   IMAGE_NAME: mauricethomas/nis
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Create UI dist placeholder
+        run: mkdir -p internal/interfaces/http/ui/dist && touch internal/interfaces/http/ui/dist/index.html
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Create UI dist placeholder
+        run: mkdir -p internal/interfaces/http/ui/dist && touch internal/interfaces/http/ui/dist/index.html
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.9.0
+
   build:
+    needs: [test, lint]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -54,3 +103,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan Docker image
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:latest
+          severity: CRITICAL,HIGH

@@ -47,15 +47,15 @@ func init() {
 	// Flags for user create
 	userCreateCmd.Flags().String("password", "", "password for the user (required)")
 	userCreateCmd.Flags().String("role", "operator-admin", "role for the user (admin, operator-admin, account-admin)")
-	userCreateCmd.MarkFlagRequired("password")
+	_ = userCreateCmd.MarkFlagRequired("password")
 
 	// Database flags for user commands
 	for _, cmd := range []*cobra.Command{userCreateCmd, userListCmd} {
 		cmd.Flags().String("db-driver", "sqlite", "database driver (sqlite or postgres)")
 		cmd.Flags().String("db-dsn", "nis.db", "database connection string")
 
-		viper.BindPFlag("database.driver", cmd.Flags().Lookup("db-driver"))
-		viper.BindPFlag("database.dsn", cmd.Flags().Lookup("db-dsn"))
+		_ = viper.BindPFlag("database.driver", cmd.Flags().Lookup("db-driver"))
+		_ = viper.BindPFlag("database.dsn", cmd.Flags().Lookup("db-dsn"))
 	}
 }
 
@@ -80,7 +80,7 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	// Initialize service
 	authService := services.NewAuthService(
@@ -124,7 +124,7 @@ func runUserList(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	// Initialize service
 	authService := services.NewAuthService(
@@ -151,11 +151,11 @@ func runUserList(cmd *cobra.Command, args []string) error {
 
 	// Print users in a table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tUSERNAME\tROLE\tCREATED")
-	fmt.Fprintln(w, "--\t--------\t----\t-------")
+	_, _ = fmt.Fprintln(w, "ID\tUSERNAME\tROLE\tCREATED")
+	_, _ = fmt.Fprintln(w, "--\t--------\t----\t-------")
 
 	for _, user := range users {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			user.ID.String()[:8]+"...",
 			user.Username,
 			user.Role,
@@ -163,7 +163,7 @@ func runUserList(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 
 	return nil
 }

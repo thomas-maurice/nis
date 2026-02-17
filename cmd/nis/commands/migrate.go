@@ -49,8 +49,8 @@ func init() {
 		cmd.Flags().String("db-driver", "sqlite", "database driver (sqlite or postgres)")
 		cmd.Flags().String("db-dsn", "nis.db", "database connection string")
 
-		viper.BindPFlag("database.driver", cmd.Flags().Lookup("db-driver"))
-		viper.BindPFlag("database.dsn", cmd.Flags().Lookup("db-dsn"))
+		_ = viper.BindPFlag("database.driver", cmd.Flags().Lookup("db-driver"))
+		_ = viper.BindPFlag("database.dsn", cmd.Flags().Lookup("db-dsn"))
 	}
 }
 
@@ -64,7 +64,7 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	fmt.Println("Running database migrations...")
 
@@ -86,7 +86,7 @@ func runMigrateDown(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	fmt.Println("Rolling back database migrations...")
 	fmt.Println("WARNING: This will revert the last migration!")
@@ -109,7 +109,7 @@ func runMigrateStatus(cmd *cobra.Command, args []string) error {
 	if err := repoFactory.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer repoFactory.Close()
+	defer func() { _ = repoFactory.Close() }()
 
 	fmt.Println("Database Migration Status:")
 	fmt.Println()

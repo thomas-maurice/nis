@@ -76,32 +76,32 @@ func init() {
 	userCreateCmd.Flags().StringVar(&userAccountID, "account", "", "account name (required)")
 	userCreateCmd.Flags().StringVar(&userDescription, "description", "", "user description")
 	userCreateCmd.Flags().StringVar(&userScopedKeyID, "scoped-key", "", "scoped signing key ID (defines user permissions)")
-	userCreateCmd.MarkFlagRequired("operator")
-	userCreateCmd.MarkFlagRequired("account")
+	_ = userCreateCmd.MarkFlagRequired("operator")
+	_ = userCreateCmd.MarkFlagRequired("account")
 
 	// List flags
 	userListCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
-	userListCmd.MarkFlagRequired("operator")
+	_ = userListCmd.MarkFlagRequired("operator")
 
 	// Get flags
 	userGetCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
 	userGetCmd.Flags().StringVar(&userAccountID, "account", "", "account name (required)")
-	userGetCmd.MarkFlagRequired("operator")
-	userGetCmd.MarkFlagRequired("account")
+	_ = userGetCmd.MarkFlagRequired("operator")
+	_ = userGetCmd.MarkFlagRequired("account")
 
 	// Credentials flags
 	userCredsCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
 	userCredsCmd.Flags().StringVar(&userAccountID, "account", "", "account name (required)")
 	userCredsCmd.Flags().StringVarP(&userCredsOutputFile, "output", "o", "", "output file (default: stdout)")
-	userCredsCmd.MarkFlagRequired("operator")
-	userCredsCmd.MarkFlagRequired("account")
+	_ = userCredsCmd.MarkFlagRequired("operator")
+	_ = userCredsCmd.MarkFlagRequired("account")
 
 	// Delete flags
 	userDeleteCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
 	userDeleteCmd.Flags().StringVar(&userAccountID, "account", "", "account name (required)")
 	userDeleteCmd.Flags().BoolVarP(&userForce, "force", "f", false, "skip confirmation prompt")
-	userDeleteCmd.MarkFlagRequired("operator")
-	userDeleteCmd.MarkFlagRequired("account")
+	_ = userDeleteCmd.MarkFlagRequired("operator")
+	_ = userDeleteCmd.MarkFlagRequired("account")
 }
 
 func runUserCreate(cmd *cobra.Command, args []string) error {

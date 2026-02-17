@@ -283,12 +283,12 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT_WithJetStream() {
 	require.NoError(s.T(), err)
 
 	// Verify JetStream limits
-	assert.Equal(s.T(), account.JetStreamMaxMemory, claims.Limits.JetStreamLimits.MemoryStorage)
-	assert.Equal(s.T(), account.JetStreamMaxStorage, claims.Limits.JetStreamLimits.DiskStorage)
-	assert.Equal(s.T(), account.JetStreamMaxStreams, claims.Limits.JetStreamLimits.Streams)
-	assert.Equal(s.T(), account.JetStreamMaxConsumers, claims.Limits.JetStreamLimits.Consumer)
-	assert.Equal(s.T(), int64(-1), claims.Limits.JetStreamLimits.MemoryMaxStreamBytes)
-	assert.Equal(s.T(), int64(-1), claims.Limits.JetStreamLimits.DiskMaxStreamBytes)
+	assert.Equal(s.T(), account.JetStreamMaxMemory, claims.Limits.MemoryStorage)
+	assert.Equal(s.T(), account.JetStreamMaxStorage, claims.Limits.DiskStorage)
+	assert.Equal(s.T(), account.JetStreamMaxStreams, claims.Limits.Streams)
+	assert.Equal(s.T(), account.JetStreamMaxConsumers, claims.Limits.Consumer)
+	assert.Equal(s.T(), int64(-1), claims.Limits.MemoryMaxStreamBytes)
+	assert.Equal(s.T(), int64(-1), claims.Limits.DiskMaxStreamBytes)
 }
 
 // TestGenerateUserJWT_SignedByAccount tests user JWT signed by account

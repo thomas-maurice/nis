@@ -90,8 +90,8 @@ func init() {
 	clusterCreateCmd.Flags().StringVar(&clusterOperatorID, "operator", "", "operator ID or name (required)")
 	clusterCreateCmd.Flags().StringSliceVar(&clusterURLs, "urls", []string{}, "NATS server URLs (required)")
 	clusterCreateCmd.Flags().StringVar(&clusterDescription, "description", "", "cluster description")
-	clusterCreateCmd.MarkFlagRequired("operator")
-	clusterCreateCmd.MarkFlagRequired("urls")
+	_ = clusterCreateCmd.MarkFlagRequired("operator")
+	_ = clusterCreateCmd.MarkFlagRequired("urls")
 
 	clusterDeleteCmd.Flags().BoolVarP(&clusterForce, "force", "f", false, "skip confirmation prompt")
 

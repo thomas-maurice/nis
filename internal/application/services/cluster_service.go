@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/nats-io/nkeys"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -135,60 +134,6 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 	}
 
 	return cluster, nil
-}
-
-// createClusterUser creates a user in the SYS account for cluster management
-func (s *ClusterService) createClusterUser(ctx context.Context, clusterName string, sysAccount *entities.Account) (*entities.User, error) {
-	// Generate a unique name for the cluster management user
-	userName := fmt.Sprintf("cluster-%s", clusterName)
-
-	// Check if user already exists (in case of retry)
-	existing, err := s.userRepo.GetByName(ctx, sysAccount.ID, userName)
-	if err == nil && existing != nil {
-		// User already exists, return it
-		return existing, nil
-	}
-	if err != nil && err != repositories.ErrNotFound {
-		return nil, fmt.Errorf("failed to check existing user: %w", err)
-	}
-
-	// Generate user NKey pair
-	seed, pubKey, err := GenerateNKey(nkeys.PrefixByteUser)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate user keys: %w", err)
-	}
-
-	// Encrypt the seed
-	encryptedSeed, err := s.encryptor.Encrypt(ctx, seed)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt user seed: %w", err)
-	}
-
-	// Create user entity
-	user := &entities.User{
-		ID:            uuid.New(),
-		AccountID:     sysAccount.ID,
-		Name:          userName,
-		Description:   fmt.Sprintf("Management user for cluster %s", clusterName),
-		EncryptedSeed: encryptedSeed,
-		PublicKey:     pubKey,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-	}
-
-	// Generate JWT signed by the system account
-	jwt, err := s.jwtService.GenerateUserJWT(ctx, user, sysAccount, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate user JWT: %w", err)
-	}
-	user.JWT = jwt
-
-	// Save to repository
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	return user, nil
 }
 
 // GetCluster retrieves a cluster by ID
@@ -403,7 +348,7 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bo
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
 	}
-	defer natsClient.Close()
+	defer func() { _ = natsClient.Close() }()
 
 	result := &SyncResult{
 		Accounts:        make([]string, 0),
@@ -527,7 +472,7 @@ func (s *ClusterService) ListResolverAccounts(ctx context.Context, clusterID uui
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
 	}
-	defer natsClient.Close()
+	defer func() { _ = natsClient.Close() }()
 
 	// List accounts from resolver
 	return natsClient.ListAccountsFromResolver(ctx)
@@ -562,7 +507,7 @@ func (s *ClusterService) DeleteResolverAccount(ctx context.Context, clusterID uu
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS cluster: %w", err)
 	}
-	defer natsClient.Close()
+	defer func() { _ = natsClient.Close() }()
 
 	// Get the operator to sign the delete claim
 	operator, err := s.operatorRepo.GetByID(ctx, cluster.OperatorID)
@@ -611,7 +556,7 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 			} else {
 				// Successfully connected
 				healthy = true
-				natsClient.Close()
+				_ = natsClient.Close()
 			}
 		}
 	} else {

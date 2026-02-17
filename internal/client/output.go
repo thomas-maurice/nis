@@ -51,15 +51,15 @@ func (p *Printer) PrintTable(headers []string, rows [][]string) error {
 
 	// Table format
 	w := tabwriter.NewWriter(p.writer, 0, 0, 2, ' ', 0)
-	defer w.Flush()
+	defer func() { _ = w.Flush() }()
 
 	// Print headers
-	fmt.Fprintln(w, strings.Join(headers, "\t"))
-	fmt.Fprintln(w, strings.Repeat("-", len(strings.Join(headers, "\t"))))
+	_, _ = fmt.Fprintln(w, strings.Join(headers, "\t"))
+	_, _ = fmt.Fprintln(w, strings.Repeat("-", len(strings.Join(headers, "\t"))))
 
 	// Print rows
 	for _, row := range rows {
-		fmt.Fprintln(w, strings.Join(row, "\t"))
+		_, _ = fmt.Fprintln(w, strings.Join(row, "\t"))
 	}
 
 	return nil
@@ -107,7 +107,7 @@ func (p *Printer) PrintMessage(format string, args ...interface{}) {
 	if p.format == OutputFormatQuiet {
 		return
 	}
-	fmt.Fprintf(p.writer, format+"\n", args...)
+	_, _ = fmt.Fprintf(p.writer, format+"\n", args...)
 }
 
 // PrintSuccess prints a success message
@@ -115,12 +115,12 @@ func (p *Printer) PrintSuccess(format string, args ...interface{}) {
 	if p.format == OutputFormatQuiet {
 		return
 	}
-	fmt.Fprintf(p.writer, "✓ "+format+"\n", args...)
+	_, _ = fmt.Fprintf(p.writer, "✓ "+format+"\n", args...)
 }
 
 // PrintError prints an error message
 func (p *Printer) PrintError(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "✗ "+format+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stderr, "✗ "+format+"\n", args...)
 }
 
 // PrintWarning prints a warning message
@@ -128,12 +128,12 @@ func (p *Printer) PrintWarning(format string, args ...interface{}) {
 	if p.format == OutputFormatQuiet {
 		return
 	}
-	fmt.Fprintf(p.writer, "⚠ "+format+"\n", args...)
+	_, _ = fmt.Fprintf(p.writer, "⚠ "+format+"\n", args...)
 }
 
 // PrintID prints just an ID (useful for quiet mode scripts)
 func (p *Printer) PrintID(id string) {
-	fmt.Fprintln(p.writer, id)
+	_, _ = fmt.Fprintln(p.writer, id)
 }
 
 func (p *Printer) printJSON(obj interface{}) error {
@@ -145,7 +145,7 @@ func (p *Printer) printJSON(obj interface{}) error {
 func (p *Printer) printYAML(obj interface{}) error {
 	encoder := yaml.NewEncoder(p.writer)
 	encoder.SetIndent(2)
-	defer encoder.Close()
+	defer func() { _ = encoder.Close() }()
 	return encoder.Encode(obj)
 }
 

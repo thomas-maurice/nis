@@ -35,6 +35,7 @@ Before using nisctl, you must login to the NIS server using the 'login' command.
 			"login":      true,
 			"completion": true,
 			"help":       true,
+			"version":    true,
 		}
 
 		if skipClientCommands[cmd.Name()] {
@@ -77,9 +78,14 @@ Before using nisctl, you must login to the NIS server using the 'login' command.
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		// Close client connection if it was created
 		if nisClient != nil {
-			nisClient.Close()
+			_ = nisClient.Close()
 		}
 	},
+}
+
+// SetVersion sets the version string for the root command
+func SetVersion(v string) {
+	rootCmd.Version = v
 }
 
 func Execute() error {
