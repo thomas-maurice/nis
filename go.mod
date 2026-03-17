@@ -1,6 +1,6 @@
 module github.com/thomas-maurice/nis
 
-go 1.25
+go 1.25.0
 
 require (
 	connectrpc.com/connect v1.19.1
@@ -10,16 +10,16 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.33
-	github.com/nats-io/jwt/v2 v2.8.0
+	github.com/nats-io/jwt/v2 v2.8.1
 	github.com/nats-io/nats.go v1.48.0
-	github.com/nats-io/nkeys v0.4.12
+	github.com/nats-io/nkeys v0.4.15
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.46.0
-	golang.org/x/net v0.48.0
-	golang.org/x/term v0.38.0
+	golang.org/x/crypto v0.48.0
+	golang.org/x/net v0.49.0
+	golang.org/x/term v0.40.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.6.0
@@ -69,6 +69,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
