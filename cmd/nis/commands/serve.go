@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,10 +17,22 @@ import (
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
+	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
+	"github.com/thomas-maurice/nis/internal/infrastructure/tracing"
 	grpcServer "github.com/thomas-maurice/nis/internal/interfaces/grpc"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
+
+// serverVersion returns the version string set via SetVersion at startup,
+// falling back to "dev" so the OTel service.version attribute and Prometheus
+// labels still have a value during local runs.
+func serverVersion() string {
+	if v := rootCmd.Version; v != "" {
+		return v
+	}
+	return "dev"
+}
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -46,6 +59,16 @@ func init() {
 	serveCmd.Flags().Bool("auto-migrate", true, "automatically run database migrations on startup")
 	serveCmd.Flags().Bool("enable-ui", true, "enable web UI")
 
+	// Observability flags. Prometheus /metrics is on by default and zero-cost
+	// when nothing scrapes it. OTel tracing is off by default — turning it on
+	// without a configured collector would log export errors every batch.
+	serveCmd.Flags().Bool("metrics-enabled", true, "expose Prometheus /metrics and record OTel metrics")
+	serveCmd.Flags().Bool("tracing-enabled", false, "export OpenTelemetry traces over OTLP/gRPC")
+	serveCmd.Flags().String("tracing-endpoint", "localhost:4317", "OTLP/gRPC collector endpoint (host:port)")
+	serveCmd.Flags().Bool("tracing-insecure", true, "disable TLS for the OTLP connection")
+	serveCmd.Flags().Float64("tracing-sample-ratio", 1.0, "TraceIDRatio sampler ratio in [0,1]")
+	serveCmd.Flags().String("tracing-service-name", "nis", "service.name OpenTelemetry resource attribute")
+
 	// Bind flags to viper
 	_ = viper.BindPFlag("server.address", serveCmd.Flags().Lookup("address"))
 	_ = viper.BindPFlag("database.driver", serveCmd.Flags().Lookup("db-driver"))
@@ -56,6 +79,12 @@ func init() {
 	_ = viper.BindPFlag("auth.jwt_ttl", serveCmd.Flags().Lookup("jwt-ttl"))
 	_ = viper.BindPFlag("database.auto_migrate", serveCmd.Flags().Lookup("auto-migrate"))
 	_ = viper.BindPFlag("server.enable_ui", serveCmd.Flags().Lookup("enable-ui"))
+	_ = viper.BindPFlag("metrics.enabled", serveCmd.Flags().Lookup("metrics-enabled"))
+	_ = viper.BindPFlag("tracing.enabled", serveCmd.Flags().Lookup("tracing-enabled"))
+	_ = viper.BindPFlag("tracing.endpoint", serveCmd.Flags().Lookup("tracing-endpoint"))
+	_ = viper.BindPFlag("tracing.insecure", serveCmd.Flags().Lookup("tracing-insecure"))
+	_ = viper.BindPFlag("tracing.sample_ratio", serveCmd.Flags().Lookup("tracing-sample-ratio"))
+	_ = viper.BindPFlag("tracing.service_name", serveCmd.Flags().Lookup("tracing-service-name"))
 
 	// Note: encryption-key and jwt-secret are NOT marked as required flags
 	// because they can be provided via config file or environment variables
@@ -112,6 +141,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 	encryptor, err := initEncryptionService()
 	if err != nil {
 		return fmt.Errorf("failed to initialize encryption: %w", err)
+	}
+
+	// Initialize observability (metrics + optional tracing). Both default to
+	// safe values — metrics on, tracing off — so the binary boots without an
+	// OTel collector present. See README "Observability" for setup guidance.
+	metricsProvider, metricsHandler, err := maybeInitMetrics()
+	if err != nil {
+		return fmt.Errorf("failed to initialize metrics: %w", err)
+	}
+	defer func() {
+		if metricsProvider != nil {
+			_ = metricsProvider.Shutdown(context.Background())
+		}
+	}()
+
+	tracingShutdown, err := maybeInitTracing(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to initialize tracing: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tracingShutdown(shutdownCtx)
+	}()
+
+	// Register domain gauges and start the periodic refresh. Inventory queries
+	// cost a handful of COUNT(*); running them at 60s cadence stays well below
+	// Prometheus' typical scrape interval without paying per-scrape.
+	var domainGauges *metrics.DomainGauges
+	if metricsProvider != nil {
+		domainGauges, err = metrics.RegisterDomainGauges(repoFactory)
+		if err != nil {
+			return fmt.Errorf("failed to register domain gauges: %w", err)
+		}
 	}
 
 	// Initialize Casbin enforcer
@@ -202,9 +265,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Initialize gRPC server with auth middleware
 	server := grpcServer.NewServer(
 		grpcServer.ServerConfig{
-			Address:        address,
-			EnableUI:       enableUI,
-			MigrationsDone: migrationsDone,
+			Address:         address,
+			EnableUI:        enableUI,
+			MigrationsDone:  migrationsDone,
+			RepoFactory:     repoFactory,
+			Encryptor:       encryptor,
+			MetricsProvider: metricsProvider,
 		},
 		operatorService,
 		accountService,
@@ -216,6 +282,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		permissionService,
 		authMiddleware,
 	)
+	if metricsHandler != nil {
+		server.AttachMetricsHandler(metricsHandler)
+	}
 
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -246,6 +315,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}()
+
+	// Start domain gauge refresh loop. Single goroutine, 60s cadence.
+	if domainGauges != nil {
+		go domainGauges.RefreshLoop(ctx, 60*time.Second)
+	}
 
 	// Start server in a goroutine
 	errChan := make(chan error, 1)
@@ -347,4 +421,43 @@ func initCasbin() (*casbin.Enforcer, error) {
 	// Model and policy are embedded in the services package via //go:embed,
 	// so this works regardless of the binary's launch directory.
 	return services.NewCasbinEnforcer()
+}
+
+// maybeInitMetrics returns (nil, nil, nil) when metrics are disabled in
+// config, otherwise builds an OTel meter provider backed by a Prometheus
+// registry and returns the provider + a handler for /metrics.
+func maybeInitMetrics() (*metrics.Provider, http.Handler, error) {
+	if !viper.GetBool("metrics.enabled") {
+		return nil, nil, nil
+	}
+	p, handler, err := metrics.New("nis", serverVersion())
+	if err != nil {
+		return nil, nil, err
+	}
+	logging.GetLogger().Info("metrics enabled", "endpoint", "/metrics")
+	return p, handler, nil
+}
+
+// maybeInitTracing returns a no-op shutdown when tracing is disabled. When
+// enabled it stands up an OTLP/gRPC exporter pointed at tracing.endpoint.
+func maybeInitTracing(ctx context.Context) (tracing.ShutdownFunc, error) {
+	cfg := tracing.Config{
+		Enabled:  viper.GetBool("tracing.enabled"),
+		Endpoint: viper.GetString("tracing.endpoint"),
+		Insecure: viper.GetBool("tracing.insecure"),
+		Service:  viper.GetString("tracing.service_name"),
+		Version:  serverVersion(),
+		Sampler:  viper.GetFloat64("tracing.sample_ratio"),
+	}
+	shutdown, err := tracing.Init(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Enabled {
+		logging.GetLogger().Info("tracing enabled",
+			"endpoint", cfg.Endpoint,
+			"insecure", cfg.Insecure,
+			"sample_ratio", cfg.Sampler)
+	}
+	return shutdown, nil
 }

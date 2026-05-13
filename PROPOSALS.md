@@ -32,7 +32,7 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | A5  |        |       |
 | A6  |        |       |
 | A7  |        |       |
-| A8  |        |       |
+| A8  | **Done 2026-05-13** | Prometheus `/metrics`, OTel tracing (off by default), `/livez` + `/readyz` (strict) + `/healthz` (back-compat). otelconnect interceptor + otelhttp middleware. Domain gauges via 60s refresh. Six new instrumentation sites. Full doc-triangle update incl. README OTel walkthrough. |
 | A9  |        |       |
 | A10 |        |       |
 | A11 |        |       |

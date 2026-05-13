@@ -24,6 +24,23 @@ type RepositoryFactory interface {
 	Migrate(ctx context.Context) error
 	Rollback(ctx context.Context) error
 	MigrationStatus(ctx context.Context) ([]MigrationInfo, error)
+
+	// Ping verifies the database connection is alive. Used by /readyz.
+	Ping(ctx context.Context) error
+
+	// Inventory returns aggregate counts for the entity tables. Used by the metrics
+	// refresh loop to populate domain gauges without paying COUNT(*) on every Prom scrape.
+	Inventory(ctx context.Context) (Inventory, error)
+}
+
+// Inventory is a snapshot of entity counts surfaced as Prometheus gauges.
+type Inventory struct {
+	Operators       int64
+	Accounts        int64
+	Users           int64
+	ScopedKeys      int64
+	Clusters        int64
+	ClustersHealthy int64
 }
 
 // MigrationInfo represents information about a database migration

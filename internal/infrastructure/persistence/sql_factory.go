@@ -98,6 +98,46 @@ func (f *sqlRepositoryFactory) Close() error {
 	return nil
 }
 
+// Ping verifies the database connection is alive. Cheap enough to be called per
+// /readyz probe (Postgres + SQLite both implement Ping as a connection check).
+func (f *sqlRepositoryFactory) Ping(ctx context.Context) error {
+	if f.sqlDB == nil {
+		return fmt.Errorf("database not connected")
+	}
+	return f.sqlDB.PingContext(ctx)
+}
+
+// Inventory returns counts for the entity tables surfaced as Prometheus gauges.
+// Called from the metrics refresh goroutine — not from every Prom scrape — so a
+// handful of COUNT(*) queries is acceptable. clusters_healthy uses the cached
+// Healthy flag maintained by the 60s health-check loop.
+func (f *sqlRepositoryFactory) Inventory(ctx context.Context) (Inventory, error) {
+	if f.gormDB == nil {
+		return Inventory{}, fmt.Errorf("database not connected")
+	}
+	var inv Inventory
+	db := f.gormDB.WithContext(ctx)
+	if err := db.Table("operators").Count(&inv.Operators).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count operators: %w", err)
+	}
+	if err := db.Table("accounts").Count(&inv.Accounts).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count accounts: %w", err)
+	}
+	if err := db.Table("users").Count(&inv.Users).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count users: %w", err)
+	}
+	if err := db.Table("scoped_signing_keys").Count(&inv.ScopedKeys).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count scoped keys: %w", err)
+	}
+	if err := db.Table("clusters").Count(&inv.Clusters).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count clusters: %w", err)
+	}
+	if err := db.Table("clusters").Where("healthy = ?", true).Count(&inv.ClustersHealthy).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count healthy clusters: %w", err)
+	}
+	return inv, nil
+}
+
 func (f *sqlRepositoryFactory) Migrate(ctx context.Context) error {
 	if f.sqlDB == nil {
 		return fmt.Errorf("database not connected")

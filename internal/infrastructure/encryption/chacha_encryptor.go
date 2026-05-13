@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/chacha20poly1305"
+
+	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 )
 
 // ChaChaEncryptor implements the Encryptor interface using ChaCha20-Poly1305
@@ -56,6 +58,14 @@ func NewChaChaEncryptor(keys map[string]string, currentKeyID string) (*ChaChaEnc
 
 // Encrypt encrypts plaintext using ChaCha20-Poly1305 and returns a storage reference
 func (e *ChaChaEncryptor) Encrypt(ctx context.Context, plaintext []byte) (string, error) {
+	ref, err := e.encrypt(plaintext)
+	if err != nil {
+		metrics.Default().RecordEncryptionFailure(ctx, "encrypt")
+	}
+	return ref, err
+}
+
+func (e *ChaChaEncryptor) encrypt(plaintext []byte) (string, error) {
 	key, ok := e.keys[e.currentKeyID]
 	if !ok {
 		return "", fmt.Errorf("current key %s not found", e.currentKeyID)
@@ -84,6 +94,14 @@ func (e *ChaChaEncryptor) Encrypt(ctx context.Context, plaintext []byte) (string
 
 // Decrypt decrypts a storage reference and returns the plaintext
 func (e *ChaChaEncryptor) Decrypt(ctx context.Context, storageRef string) ([]byte, error) {
+	pt, err := e.decrypt(storageRef)
+	if err != nil {
+		metrics.Default().RecordEncryptionFailure(ctx, "decrypt")
+	}
+	return pt, err
+}
+
+func (e *ChaChaEncryptor) decrypt(storageRef string) ([]byte, error) {
 	// Parse storage reference format
 	parts := strings.SplitN(storageRef, ":", 3)
 	if len(parts) != 3 {

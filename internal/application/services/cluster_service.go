@@ -11,6 +11,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
+	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 	"github.com/thomas-maurice/nis/internal/infrastructure/nats"
 )
 
@@ -335,9 +336,19 @@ func (s *ClusterService) openManagedCluster(ctx context.Context, id uuid.UUID) (
 
 // SyncCluster pushes all account JWTs for the operator to the NATS cluster resolver
 // If prune is true, it also removes accounts from the resolver that are not in the database
-func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bool) (*SyncResult, error) {
+func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bool) (result *SyncResult, retErr error) {
+	syncStart := time.Now()
+	defer func() {
+		outcome := "ok"
+		if retErr != nil || (result != nil && len(result.Errors) > 0) {
+			outcome = "err"
+		}
+		metrics.Default().RecordClusterSyncDuration(ctx, time.Since(syncStart).Seconds(), outcome)
+	}()
+
 	natsClient, cluster, err := s.openManagedCluster(ctx, id)
 	if err != nil {
+		metrics.Default().RecordClusterSyncError(ctx, "open_cluster")
 		return nil, err
 	}
 	defer func() { _ = natsClient.Close() }()
@@ -348,10 +359,11 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bo
 		Offset: 0,
 	})
 	if err != nil {
+		metrics.Default().RecordClusterSyncError(ctx, "list_accounts")
 		return nil, fmt.Errorf("failed to list accounts: %w", err)
 	}
 
-	result := &SyncResult{
+	result = &SyncResult{
 		Accounts:        make([]string, 0),
 		RemovedAccounts: make([]string, 0),
 		Errors:          make([]SyncError, 0),
@@ -505,12 +517,14 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 		natsClient, _, connErr := s.openManagedCluster(ctx, id)
 		if connErr != nil {
 			healthErr = connErr.Error()
+			metrics.Default().RecordClusterHealthCheckFailure(ctx)
 		} else {
 			healthy = true
 			_ = natsClient.Close()
 		}
 	} else {
 		healthErr = "no credentials configured"
+		metrics.Default().RecordClusterHealthCheckFailure(ctx)
 	}
 
 	// Update health status

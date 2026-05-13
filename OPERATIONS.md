@@ -340,25 +340,46 @@ cp nis.db.pre-migration-TIMESTAMP nis.db
 
 ## Monitoring
 
-### Health Check Endpoint
+### Probe endpoints
 
-NIS exposes a health check endpoint at `/healthz`.
+NIS exposes three probe endpoints with distinct semantics:
+
+| Endpoint | Semantics | Use for |
+|---|---|---|
+| `/livez` | Always 200 if the process is responding. | Kubernetes **liveness** probe. Restart the container only if this fails (it never should under normal operation). |
+| `/healthz` | 200 once migrations have run. **Lax** — does not check DB or encryptor. | Docker HEALTHCHECK, simple uptime monitors. Compatible with the original 0.x behaviour. |
+| `/readyz` | 200 only if migrations are done, the DB ping succeeds, and an encrypt/decrypt roundtrip works. Returns a JSON `{status, components}` body. | Kubernetes **readiness** probe, Prometheus blackbox, anything that should pull NIS out of rotation on real failure. |
 
 ```bash
-# Basic health check
-curl -s http://localhost:8080/healthz
-# Returns: "ok" with HTTP 200 when healthy
+# Basic liveness check
+curl -s http://localhost:8080/livez                    # "ok"
 
-# With status code
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/healthz
-# Returns: 200 when healthy, 503 when migrations are still running
+# Back-compat health
+curl -s http://localhost:8080/healthz                  # "ok"
+
+# Strict readiness (JSON body)
+curl -s http://localhost:8080/readyz | jq
+# {
+#   "status": "ok",
+#   "components": {
+#     "migrations": "ok",
+#     "database":   "ok",
+#     "encryption": "ok"
+#   }
+# }
 ```
 
-The Docker image includes a built-in health check:
+The Docker image's built-in HEALTHCHECK still uses `/healthz` for back-compat
+— deliberately, because a stricter check can flip containers unhealthy on
+transient DB hiccups. For Kubernetes, prefer:
 
-```dockerfile
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1
+```yaml
+livenessProbe:
+  httpGet: { path: /livez, port: 8080 }
+readinessProbe:
+  httpGet: { path: /readyz, port: 8080 }
+  initialDelaySeconds: 5
+  periodSeconds: 10
 ```
 
 ### NATS Monitoring
@@ -382,27 +403,46 @@ curl http://localhost:8222/jsz
 curl http://localhost:8222/routez
 ```
 
-### Suggested Prometheus Metrics
+### Prometheus metrics
 
-If integrating with Prometheus, consider tracking these metrics:
+NIS exposes `/metrics` in OpenMetrics format by default
+(`--metrics-enabled`, on out of the box). The series emitted today:
 
-```yaml
-# NIS application metrics
-- nis_operators_total           # Total number of operators
-- nis_accounts_total            # Total number of accounts
-- nis_users_total               # Total number of users
-- nis_clusters_total            # Total number of registered clusters
-- nis_clusters_healthy          # Number of healthy clusters
-- nis_cluster_sync_duration_seconds   # Time to sync accounts to a cluster
-- nis_cluster_sync_errors_total       # Number of failed sync operations
-- nis_encryption_operations_total     # Encryption/decryption operations
-- nis_api_request_duration_seconds    # API request latency histogram
-- nis_api_requests_total              # Total API requests by method and status
+```text
+# RPC layer (otelconnect, OTel semantic-convention names)
+rpc_server_duration_milliseconds          histogram   rpc_service, rpc_method, rpc_grpc_status_code
 
-# Database metrics
-- nis_db_connections_open       # Open database connections
-- nis_db_query_duration_seconds # Query latency histogram
+# HTTP layer (non-RPC paths only — /metrics and probes excluded)
+nis_http_server_duration_seconds          histogram   path_class, method, status
+
+# Domain inventory (gauges, refreshed every 60s into a cache)
+nis_operators_total
+nis_accounts_total
+nis_users_total
+nis_scoped_keys_total
+nis_clusters_total
+nis_clusters_healthy
+
+# Cluster sync
+nis_cluster_sync_duration_seconds         histogram   outcome  (ok|err)
+nis_cluster_sync_errors_total             counter     phase    (open_cluster|list_accounts|...)
+nis_cluster_health_check_failures_total   counter
+
+# Encryption
+nis_encryption_failures_total             counter     op       (encrypt|decrypt)
+
+# Auth interceptor
+nis_auth_rejections_total                 counter     reason   (missing_token|invalid_token|forbidden)
+
+# Plus standard Go runtime + process collectors:
+go_*
+process_*
 ```
+
+The full schema lives in the source — see
+`internal/infrastructure/metrics/metrics.go`. The README's
+[Observability section](../README.md#observability) is the user-facing
+reference.
 
 ### Suggested Alerting Rules
 
@@ -449,24 +489,40 @@ groups:
         annotations:
           summary: "Cluster sync operations are failing"
 
-      # High API error rate
-      - alert: NISHighErrorRate
-        expr: rate(nis_api_requests_total{status=~"5.."}[5m]) / rate(nis_api_requests_total[5m]) > 0.05
+      # High RPC error rate
+      - alert: NISHighRPCErrorRate
+        expr: sum(rate(rpc_server_duration_milliseconds_count{rpc_grpc_status_code!="OK"}[5m]))
+              / sum(rate(rpc_server_duration_milliseconds_count[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "NIS API error rate exceeds 5%"
+          summary: "NIS RPC error rate exceeds 5%"
 
-      # Database connection issues
-      - alert: NISDBConnectionPoolExhausted
-        expr: nis_db_connections_open >= nis_db_connections_max
-        for: 1m
+      # Encryption decrypt failures — usually a key-rotation problem
+      - alert: NISEncryptionDecryptFailures
+        expr: rate(nis_encryption_failures_total{op="decrypt"}[5m]) > 0
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Database connection pool is exhausted"
+          summary: "NIS is failing to decrypt stored secrets"
+          description: "Check whether an encryption key was removed before all data was re-encrypted."
+
+      # Auth interceptor seeing a flood of invalid tokens
+      - alert: NISAuthInvalidTokenSpike
+        expr: rate(nis_auth_rejections_total{reason="invalid_token"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spike in rejected NIS tokens"
 ```
+
+> The legacy `nis_api_*` and `nis_db_connections_*` series referenced in
+> earlier drafts of this document do not exist. RPC latency lives under
+> `rpc_server_duration_milliseconds` (OTel semconv name) and database
+> connection metrics are not exported today.
 
 ### External Health Check (cron-based)
 

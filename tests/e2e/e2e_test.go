@@ -15,6 +15,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -464,6 +465,46 @@ func TestE2E_FullLifecycle(t *testing.T) {
 		}
 		if string(msg.Data) != "from-B" {
 			t.Fatalf("unexpected payload within account B: %q", msg.Data)
+		}
+	})
+
+	t.Run("Observability_ProbeAndMetricsEndpoints", func(t *testing.T) {
+		// /livez, /healthz, /readyz, /metrics must all be reachable. The earlier
+		// SyncCluster / Create* calls will have produced RPC metric series, so
+		// /metrics body should contain rpc.server.duration histogram samples.
+		check := func(path string) {
+			resp, err := http.Get(h.serverURL + path)
+			if err != nil {
+				t.Fatalf("GET %s: %v", path, err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("GET %s status = %d, want 200", path, resp.StatusCode)
+			}
+		}
+		check("/livez")
+		check("/healthz")
+		check("/readyz")
+		check("/metrics")
+
+		resp, err := http.Get(h.serverURL + "/metrics")
+		if err != nil {
+			t.Fatalf("GET /metrics: %v", err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("read /metrics: %v", err)
+		}
+		bodyStr := string(body)
+		// otelconnect exports rpc.server.duration as rpc_server_duration_*; the
+		// process collector exports process_start_time_seconds; either alone is
+		// proof that the meter provider + Prometheus registry are wired.
+		if !strings.Contains(bodyStr, "rpc_server_duration") {
+			t.Fatalf("expected /metrics to contain rpc_server_duration_* series after RPC traffic. body sample: %q", bodyStr[:min(len(bodyStr), 400)])
+		}
+		if !strings.Contains(bodyStr, "nis_operators_total") {
+			t.Fatalf("expected /metrics to contain nis_operators_total gauge. body sample: %q", bodyStr[:min(len(bodyStr), 400)])
 		}
 	})
 }

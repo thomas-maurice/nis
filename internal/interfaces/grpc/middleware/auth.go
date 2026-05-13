@@ -8,6 +8,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 )
 
 // AuthInterceptor provides authentication and authorization middleware
@@ -54,12 +55,14 @@ func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		// Extract token from Authorization header
 		token := extractToken(req.Header().Get("Authorization"))
 		if token == "" {
+			metrics.Default().RecordAuthRejection(ctx, "missing_token")
 			return nil, connect.NewError(connect.CodeUnauthenticated, nil)
 		}
 
 		// Validate token and get user
 		user, err := i.authService.ValidateToken(ctx, token)
 		if err != nil {
+			metrics.Default().RecordAuthRejection(ctx, "invalid_token")
 			return nil, connect.NewError(connect.CodeUnauthenticated, err)
 		}
 
@@ -70,6 +73,7 @@ func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 		if !allowed {
+			metrics.Default().RecordAuthRejection(ctx, "forbidden")
 			return nil, connect.NewError(connect.CodePermissionDenied, nil)
 		}
 
@@ -98,12 +102,14 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 		// Extract token from Authorization header
 		token := extractToken(conn.RequestHeader().Get("Authorization"))
 		if token == "" {
+			metrics.Default().RecordAuthRejection(ctx, "missing_token")
 			return connect.NewError(connect.CodeUnauthenticated, nil)
 		}
 
 		// Validate token and get user
 		user, err := i.authService.ValidateToken(ctx, token)
 		if err != nil {
+			metrics.Default().RecordAuthRejection(ctx, "invalid_token")
 			return connect.NewError(connect.CodeUnauthenticated, err)
 		}
 
@@ -114,6 +120,7 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 			return connect.NewError(connect.CodeInternal, err)
 		}
 		if !allowed {
+			metrics.Default().RecordAuthRejection(ctx, "forbidden")
 			return connect.NewError(connect.CodePermissionDenied, nil)
 		}
 
