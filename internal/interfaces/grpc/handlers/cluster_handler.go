@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -10,9 +9,7 @@ import (
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
-	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
 
 // ClusterHandler implements the ClusterService gRPC service
@@ -35,9 +32,9 @@ func (h *ClusterHandler) CreateCluster(
 	req *connect.Request[pb.CreateClusterRequest],
 ) (*connect.Response[pb.CreateClusterResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
@@ -85,9 +82,9 @@ func (h *ClusterHandler) GetCluster(
 	req *connect.Request[pb.GetClusterRequest],
 ) (*connect.Response[pb.GetClusterResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -97,10 +94,7 @@ func (h *ClusterHandler) GetCluster(
 
 	cluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read the operator that owns this cluster
@@ -119,17 +113,14 @@ func (h *ClusterHandler) GetClusterByName(
 	req *connect.Request[pb.GetClusterByNameRequest],
 ) (*connect.Response[pb.GetClusterByNameResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	cluster, err := h.service.GetClusterByName(ctx, req.Msg.Name)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read the operator that owns this cluster
@@ -148,9 +139,9 @@ func (h *ClusterHandler) ListClusters(
 	req *connect.Request[pb.ListClustersRequest],
 ) (*connect.Response[pb.ListClustersResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// If operator_id is empty, list all clusters across all operators (filtered by permissions)
@@ -199,9 +190,9 @@ func (h *ClusterHandler) UpdateCluster(
 	req *connect.Request[pb.UpdateClusterRequest],
 ) (*connect.Response[pb.UpdateClusterResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -212,10 +203,7 @@ func (h *ClusterHandler) UpdateCluster(
 	// First get the cluster to check which operator it belongs to
 	existingCluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the operator that owns this cluster
@@ -234,10 +222,7 @@ func (h *ClusterHandler) UpdateCluster(
 
 	cluster, err := h.service.UpdateCluster(ctx, id, updateReq)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateClusterResponse{
@@ -251,9 +236,9 @@ func (h *ClusterHandler) UpdateClusterCredentials(
 	req *connect.Request[pb.UpdateClusterCredentialsRequest],
 ) (*connect.Response[pb.UpdateClusterCredentialsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -264,10 +249,7 @@ func (h *ClusterHandler) UpdateClusterCredentials(
 	// First get the cluster to check which operator it belongs to
 	existingCluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the operator that owns this cluster
@@ -284,10 +266,7 @@ func (h *ClusterHandler) UpdateClusterCredentials(
 
 	cluster, err := h.service.UpdateClusterCredentials(ctx, id, systemAccountUserID)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateClusterCredentialsResponse{
@@ -301,9 +280,9 @@ func (h *ClusterHandler) DeleteCluster(
 	req *connect.Request[pb.DeleteClusterRequest],
 ) (*connect.Response[pb.DeleteClusterResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -314,10 +293,7 @@ func (h *ClusterHandler) DeleteCluster(
 	// First get the cluster to check which operator it belongs to
 	existingCluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to delete the operator that owns this cluster
@@ -327,10 +303,7 @@ func (h *ClusterHandler) DeleteCluster(
 
 	err = h.service.DeleteCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.DeleteClusterResponse{}), nil
@@ -342,9 +315,9 @@ func (h *ClusterHandler) GetClusterCredentials(
 	req *connect.Request[pb.GetClusterCredentialsRequest],
 ) (*connect.Response[pb.GetClusterCredentialsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -355,10 +328,7 @@ func (h *ClusterHandler) GetClusterCredentials(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read the operator that owns this cluster
@@ -368,10 +338,7 @@ func (h *ClusterHandler) GetClusterCredentials(
 
 	creds, err := h.service.GetClusterCredentials(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GetClusterCredentialsResponse{
@@ -395,9 +362,9 @@ func (h *ClusterHandler) SyncCluster(
 	req *connect.Request[pb.SyncClusterRequest],
 ) (*connect.Response[pb.SyncClusterResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -408,10 +375,7 @@ func (h *ClusterHandler) SyncCluster(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the operator that owns this cluster (sync requires update permission)
@@ -451,9 +415,9 @@ func (h *ClusterHandler) ListResolverAccounts(
 	req *connect.Request[pb.ListResolverAccountsRequest],
 ) (*connect.Response[pb.ListResolverAccountsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	clusterID, err := mappers.ParseUUID(req.Msg.ClusterId)
@@ -464,10 +428,7 @@ func (h *ClusterHandler) ListResolverAccounts(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, clusterID)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read the operator that owns this cluster
@@ -491,9 +452,9 @@ func (h *ClusterHandler) DeleteResolverAccount(
 	req *connect.Request[pb.DeleteResolverAccountRequest],
 ) (*connect.Response[pb.DeleteResolverAccountResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	clusterID, err := mappers.ParseUUID(req.Msg.ClusterId)
@@ -504,10 +465,7 @@ func (h *ClusterHandler) DeleteResolverAccount(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, clusterID)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the operator that owns this cluster (delete requires update permission)

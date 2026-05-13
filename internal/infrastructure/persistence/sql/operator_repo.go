@@ -111,7 +111,7 @@ func (r *OperatorRepo) Update(ctx context.Context, operator *entities.Operator) 
 
 	result := r.db.WithContext(ctx).Model(&OperatorModel{}).
 		Where("id = ?", model.ID).
-		Updates(model)
+		Select("*").Omit("CreatedAt").Updates(model)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update operator: %w", result.Error)

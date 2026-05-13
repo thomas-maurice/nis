@@ -136,7 +136,7 @@ func (r *ScopedSigningKeyRepo) Update(ctx context.Context, key *entities.ScopedS
 
 	result := r.db.WithContext(ctx).Model(&ScopedSigningKeyModel{}).
 		Where("id = ?", model.ID).
-		Updates(model)
+		Select("*").Omit("CreatedAt").Updates(model)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update scoped signing key: %w", result.Error)

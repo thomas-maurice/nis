@@ -209,7 +209,7 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT() {
 	}
 
 	// Generate JWT
-	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator)
+	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil)
 	require.NoError(s.T(), err)
 	assert.NotEmpty(s.T(), token)
 
@@ -275,7 +275,7 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT_WithJetStream() {
 	}
 
 	// Generate JWT
-	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator)
+	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil)
 	require.NoError(s.T(), err)
 
 	// Decode and validate
@@ -423,16 +423,13 @@ func (s *JWTServiceTestSuite) TestGenerateUserJWT_SignedByScopedKey() {
 	assert.Equal(s.T(), scopedPubKey, claims.Issuer)
 	assert.Equal(s.T(), account.PublicKey, claims.IssuerAccount)
 
-	// Verify permissions from scoped key (claims use jwt.StringList type)
-	assert.ElementsMatch(s.T(), scopedKey.PubAllow, claims.Pub.Allow)
-	assert.ElementsMatch(s.T(), scopedKey.PubDeny, claims.Pub.Deny)
-	assert.ElementsMatch(s.T(), scopedKey.SubAllow, claims.Sub.Allow)
-	assert.ElementsMatch(s.T(), scopedKey.SubDeny, claims.Sub.Deny)
-
-	// Verify response permissions
-	require.NotNil(s.T(), claims.Resp)
-	assert.Equal(s.T(), scopedKey.ResponseMaxMsgs, claims.Resp.MaxMsgs)
-	assert.Equal(s.T(), scopedKey.ResponseTTL, claims.Resp.Expires)
+	// For a scoped-key-signed user, the user JWT MUST have empty permissions and
+	// limits — NATS rejects scoped users whose UserPermissionLimits are non-zero
+	// (`UserScope.ValidateScopedSigner` → `HasEmptyPermissions`). The effective
+	// permissions come from the scope template embedded in the account JWT, not
+	// from the user JWT.
+	assert.True(s.T(), claims.HasEmptyPermissions(),
+		"scoped user JWT must have empty UserPermissionLimits; got %+v", claims.UserPermissionLimits)
 }
 
 // TestGetUserCredentials tests credentials file generation
@@ -508,7 +505,7 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT_DecryptionError() {
 		UpdatedAt:     time.Now(),
 	}
 
-	_, err := s.service.GenerateAccountJWT(s.ctx, account, operator)
+	_, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "failed to decrypt operator seed")
 }

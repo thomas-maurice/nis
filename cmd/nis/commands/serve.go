@@ -154,6 +154,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	scopedKeyService := services.NewScopedSigningKeyService(
 		repoFactory.ScopedSigningKeyRepository(),
 		repoFactory.AccountRepository(),
+		repoFactory.OperatorRepository(),
+		jwtService,
 		encryptor,
 	)
 

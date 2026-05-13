@@ -6,12 +6,11 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // ExportHandler implements the ExportService gRPC service
@@ -34,9 +33,9 @@ func (h *ExportHandler) ExportOperator(
 	req *connect.Request[pb.ExportOperatorRequest],
 ) (*connect.Response[pb.ExportOperatorResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
@@ -65,9 +64,9 @@ func (h *ExportHandler) ImportOperator(
 	req *connect.Request[pb.ImportOperatorRequest],
 ) (*connect.Response[pb.ImportOperatorResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Importing operators requires admin privileges
@@ -99,9 +98,9 @@ func (h *ExportHandler) ImportFromNSC(
 	req *connect.Request[pb.ImportFromNSCRequest],
 ) (*connect.Response[pb.ImportFromNSCResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Importing from NSC requires admin privileges

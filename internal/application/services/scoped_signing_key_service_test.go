@@ -72,7 +72,7 @@ func (s *ScopedSigningKeyServiceTestSuite) SetupSuite() {
 
 	s.accountService = NewAccountService(s.accountRepo, s.operatorRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
 	s.operatorService = NewOperatorService(s.operatorRepo, s.accountRepo, s.userRepo, s.accountService, s.jwtService, s.encryptor)
-	s.scopedKeyService = NewScopedSigningKeyService(s.scopedSigningKeyRepo, s.accountRepo, s.encryptor)
+	s.scopedKeyService = NewScopedSigningKeyService(s.scopedSigningKeyRepo, s.accountRepo, s.operatorRepo, s.jwtService, s.encryptor)
 }
 
 func (s *ScopedSigningKeyServiceTestSuite) TearDownSuite() {

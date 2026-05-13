@@ -2,16 +2,13 @@ package handlers
 
 import (
 	"context"
-	"errors"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
-	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
 
 // AccountHandler implements the AccountService gRPC service
@@ -34,9 +31,9 @@ func (h *AccountHandler) CreateAccount(
 	req *connect.Request[pb.CreateAccountRequest],
 ) (*connect.Response[pb.CreateAccountResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
@@ -77,9 +74,9 @@ func (h *AccountHandler) GetAccount(
 	req *connect.Request[pb.GetAccountRequest],
 ) (*connect.Response[pb.GetAccountResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -94,10 +91,7 @@ func (h *AccountHandler) GetAccount(
 
 	account, err := h.service.GetAccount(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GetAccountResponse{
@@ -111,9 +105,9 @@ func (h *AccountHandler) GetAccountByName(
 	req *connect.Request[pb.GetAccountByNameRequest],
 ) (*connect.Response[pb.GetAccountByNameResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
@@ -123,10 +117,7 @@ func (h *AccountHandler) GetAccountByName(
 
 	account, err := h.service.GetAccountByName(ctx, operatorID, req.Msg.Name)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read this account
@@ -145,13 +136,12 @@ func (h *AccountHandler) ListAccounts(
 	req *connect.Request[pb.ListAccountsRequest],
 ) (*connect.Response[pb.ListAccountsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	var accounts []*entities.Account
-	var err error
 
 	// If operator_id is empty, list all accounts across all operators
 	if req.Msg.OperatorId == "" {
@@ -197,10 +187,7 @@ func (h *AccountHandler) UpdateAccount(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateAccountResponse{
@@ -229,10 +216,7 @@ func (h *AccountHandler) UpdateJetStreamLimits(
 		MaxConsumers: maxCons,
 	})
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateJetStreamLimitsResponse{
@@ -252,10 +236,7 @@ func (h *AccountHandler) DeleteAccount(
 
 	err = h.service.DeleteAccount(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.DeleteAccountResponse{}), nil

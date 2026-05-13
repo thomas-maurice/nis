@@ -96,7 +96,7 @@ func (r *APIUserRepo) Update(ctx context.Context, user *entities.APIUser) error 
 
 	result := r.db.WithContext(ctx).Model(&APIUserModel{}).
 		Where("id = ?", model.ID).
-		Updates(model)
+		Select("*").Omit("CreatedAt").Updates(model)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update API user: %w", result.Error)

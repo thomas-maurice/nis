@@ -2,15 +2,12 @@ package handlers
 
 import (
 	"context"
-	"errors"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
 
 // OperatorHandler implements the OperatorService gRPC service
@@ -52,9 +49,9 @@ func (h *OperatorHandler) GetOperator(
 	req *connect.Request[pb.GetOperatorRequest],
 ) (*connect.Response[pb.GetOperatorResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -69,10 +66,7 @@ func (h *OperatorHandler) GetOperator(
 
 	operator, err := h.service.GetOperator(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GetOperatorResponse{
@@ -86,17 +80,14 @@ func (h *OperatorHandler) GetOperatorByName(
 	req *connect.Request[pb.GetOperatorByNameRequest],
 ) (*connect.Response[pb.GetOperatorByNameResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	operator, err := h.service.GetOperatorByName(ctx, req.Msg.Name)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read this operator
@@ -115,9 +106,9 @@ func (h *OperatorHandler) ListOperators(
 	req *connect.Request[pb.ListOperatorsRequest],
 ) (*connect.Response[pb.ListOperatorsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	operators, err := h.service.ListOperators(ctx, mappers.ProtoToListOptions(req.Msg.Options))
@@ -142,9 +133,9 @@ func (h *OperatorHandler) UpdateOperator(
 	req *connect.Request[pb.UpdateOperatorRequest],
 ) (*connect.Response[pb.UpdateOperatorResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -162,10 +153,7 @@ func (h *OperatorHandler) UpdateOperator(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateOperatorResponse{
@@ -179,9 +167,9 @@ func (h *OperatorHandler) SetSystemAccount(
 	req *connect.Request[pb.SetSystemAccountRequest],
 ) (*connect.Response[pb.SetSystemAccountResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -196,10 +184,7 @@ func (h *OperatorHandler) SetSystemAccount(
 
 	operator, err := h.service.SetSystemAccount(ctx, id, req.Msg.SystemAccountPubKey)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.SetSystemAccountResponse{
@@ -213,9 +198,9 @@ func (h *OperatorHandler) DeleteOperator(
 	req *connect.Request[pb.DeleteOperatorRequest],
 ) (*connect.Response[pb.DeleteOperatorResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -230,10 +215,7 @@ func (h *OperatorHandler) DeleteOperator(
 
 	err = h.service.DeleteOperator(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.DeleteOperatorResponse{}), nil
@@ -245,9 +227,9 @@ func (h *OperatorHandler) GenerateInclude(
 	req *connect.Request[pb.GenerateIncludeRequest],
 ) (*connect.Response[pb.GenerateIncludeResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -262,10 +244,7 @@ func (h *OperatorHandler) GenerateInclude(
 
 	config, err := h.service.GenerateInclude(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GenerateIncludeResponse{

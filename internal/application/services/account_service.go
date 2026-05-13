@@ -86,9 +86,20 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 		return nil, fmt.Errorf("failed to encrypt account seed: %w", err)
 	}
 
+	accountID := uuid.New()
+
+	// Build the default scoped signing key in memory first so we can declare it
+	// inside the account JWT's `signing_keys` claim before any of it goes to disk.
+	// NATS requires the scoped signing key to appear in the account JWT, otherwise
+	// users signed by that key are rejected with "Authorization Violation."
+	defaultKey, err := s.buildDefaultScopedSigningKey(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create account entity
 	account := &entities.Account{
-		ID:                    uuid.New(),
+		ID:                    accountID,
 		OperatorID:            req.OperatorID,
 		Name:                  req.Name,
 		Description:           req.Description,
@@ -103,22 +114,20 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 		UpdatedAt:             time.Now(),
 	}
 
-	// Generate JWT signed by operator
-	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator)
+	// Generate JWT signed by operator, declaring the default scoped key as a signer.
+	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, []*entities.ScopedSigningKey{defaultKey})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate account JWT: %w", err)
 	}
 	account.JWT = jwt
 
-	// Save to repository
+	// Save account first so the scoped key's FK to accounts(id) is satisfied.
 	if err := s.repo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("failed to create account: %w", err)
 	}
 
-	// Create a default scoped signing key with unlimited permissions (mandatory)
-	defaultKey, err := s.createDefaultScopedSigningKey(ctx, account.ID)
-	if err != nil {
-		// Rollback account creation if signing key creation fails
+	if err := s.scopedKeyRepo.Create(ctx, defaultKey); err != nil {
+		// Rollback the account so we don't leave a half-created one.
 		if deleteErr := s.repo.Delete(ctx, account.ID); deleteErr != nil {
 			logging.LogFromContext(ctx).Error("failed to rollback account creation after signing key failure",
 				"account", account.Name, "error", deleteErr)
@@ -132,8 +141,10 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 	return account, nil
 }
 
-// createDefaultScopedSigningKey creates a default scoped signing key with unlimited account permissions
-func (s *AccountService) createDefaultScopedSigningKey(ctx context.Context, accountID uuid.UUID) (*entities.ScopedSigningKey, error) {
+// buildDefaultScopedSigningKey constructs (but does NOT persist) the default scoped
+// signing key for a new account. Returns the in-memory entity so the caller can
+// embed it in the account JWT before saving anything.
+func (s *AccountService) buildDefaultScopedSigningKey(ctx context.Context, accountID uuid.UUID) (*entities.ScopedSigningKey, error) {
 	// Generate account NKey pair (scoped signing keys use account key prefix)
 	seed, pubKey, err := GenerateNKey(nkeys.PrefixByteAccount)
 	if err != nil {
@@ -146,8 +157,7 @@ func (s *AccountService) createDefaultScopedSigningKey(ctx context.Context, acco
 		return nil, fmt.Errorf("failed to encrypt scoped signing key seed: %w", err)
 	}
 
-	// Create scoped signing key entity with unlimited permissions
-	scopedKey := &entities.ScopedSigningKey{
+	return &entities.ScopedSigningKey{
 		ID:              uuid.New(),
 		AccountID:       accountID,
 		Name:            "default",
@@ -162,14 +172,7 @@ func (s *AccountService) createDefaultScopedSigningKey(ctx context.Context, acco
 		ResponseTTL:     0, // 0 = unlimited
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
-	}
-
-	// Save to repository
-	if err := s.scopedKeyRepo.Create(ctx, scopedKey); err != nil {
-		return nil, fmt.Errorf("failed to create default scoped signing key: %w", err)
-	}
-
-	return scopedKey, nil
+	}, nil
 }
 
 // GetAccount retrieves an account by ID
@@ -243,8 +246,16 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 		return nil, fmt.Errorf("failed to get operator: %w", err)
 	}
 
+	// Fetch existing scoped signing keys so the regenerated JWT continues to declare
+	// them as authorised signers. Skipping this would invalidate every user signed
+	// by a scoped key as soon as the account is updated.
+	scopedKeys, err := s.scopedKeyRepo.ListByAccount(ctx, account.ID, repositories.ListOptions{Limit: 1000})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scoped signing keys: %w", err)
+	}
+
 	// Regenerate JWT with updated metadata
-	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator)
+	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys)
 	if err != nil {
 		return nil, fmt.Errorf("failed to regenerate account JWT: %w", err)
 	}
@@ -289,8 +300,15 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 		return nil, fmt.Errorf("failed to get operator: %w", err)
 	}
 
+	// Fetch existing scoped signing keys so the regenerated JWT continues to declare
+	// them as authorised signers (see UpdateAccount).
+	scopedKeys, err := s.scopedKeyRepo.ListByAccount(ctx, account.ID, repositories.ListOptions{Limit: 1000})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list scoped signing keys: %w", err)
+	}
+
 	// Regenerate JWT with new JetStream limits
-	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator)
+	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys)
 	if err != nil {
 		return nil, fmt.Errorf("failed to regenerate account JWT: %w", err)
 	}

@@ -11,26 +11,67 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 )
 
-// ScopedSigningKeyService provides business logic for scoped signing key management
+// ScopedSigningKeyService provides business logic for scoped signing key management.
+//
+// Every mutating method (Create / Update / Delete) re-signs the parent account's JWT
+// so the NATS resolver sees the up-to-date set of scoped signers. Without that, NATS
+// rejects users signed by newly-created or just-modified scoped keys as
+// "Authorization Violation" — the bug previously labelled E1 in PROPOSALS.md.
 type ScopedSigningKeyService struct {
-	repo        repositories.ScopedSigningKeyRepository
-	accountRepo repositories.AccountRepository
-	encryptor   encryption.Encryptor
+	repo         repositories.ScopedSigningKeyRepository
+	accountRepo  repositories.AccountRepository
+	operatorRepo repositories.OperatorRepository
+	jwtService   *JWTService
+	encryptor    encryption.Encryptor
 }
 
 // NewScopedSigningKeyService creates a new scoped signing key service
 func NewScopedSigningKeyService(
 	repo repositories.ScopedSigningKeyRepository,
 	accountRepo repositories.AccountRepository,
+	operatorRepo repositories.OperatorRepository,
+	jwtService *JWTService,
 	encryptor encryption.Encryptor,
 ) *ScopedSigningKeyService {
 	return &ScopedSigningKeyService{
-		repo:        repo,
-		accountRepo: accountRepo,
-		encryptor:   encryptor,
+		repo:         repo,
+		accountRepo:  accountRepo,
+		operatorRepo: operatorRepo,
+		jwtService:   jwtService,
+		encryptor:    encryptor,
 	}
+}
+
+// regenerateAccountJWT re-signs the account's JWT to reflect the current set of
+// scoped signing keys. Call this after every Create/Update/Delete on a scoped key
+// so the resolver eventually trusts (or stops trusting) the key as a signer.
+// SyncCluster pushes the regenerated JWT to NATS the next time it runs.
+func (s *ScopedSigningKeyService) regenerateAccountJWT(ctx context.Context, accountID uuid.UUID) error {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to get account: %w", err)
+	}
+	operator, err := s.operatorRepo.GetByID(ctx, account.OperatorID)
+	if err != nil {
+		return fmt.Errorf("failed to get operator: %w", err)
+	}
+	scopedKeys, err := s.repo.ListByAccount(ctx, accountID, repositories.ListOptions{Limit: 1000})
+	if err != nil {
+		return fmt.Errorf("failed to list scoped signing keys: %w", err)
+	}
+	newJWT, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys)
+	if err != nil {
+		return fmt.Errorf("failed to regenerate account JWT: %w", err)
+	}
+	account.JWT = newJWT
+	account.UpdatedAt = time.Now()
+	if err := s.accountRepo.Update(ctx, account); err != nil {
+		return fmt.Errorf("failed to persist regenerated account JWT: %w", err)
+	}
+	return nil
 }
 
 // CreateScopedSigningKeyRequest contains the data needed to create a scoped signing key
@@ -101,6 +142,16 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 	// Save to repository
 	if err := s.repo.Create(ctx, scopedKey); err != nil {
 		return nil, fmt.Errorf("failed to create scoped signing key: %w", err)
+	}
+
+	// Re-sign the account JWT so NATS recognises the new scoped signer.
+	if err := s.regenerateAccountJWT(ctx, req.AccountID); err != nil {
+		// Best-effort rollback: delete the just-created key so the DB matches the JWT.
+		if delErr := s.repo.Delete(ctx, scopedKey.ID); delErr != nil {
+			logging.LogFromContext(ctx).Error("failed to roll back scoped signing key after JWT regen failure",
+				"scoped_key_id", scopedKey.ID, "error", delErr)
+		}
+		return nil, err
 	}
 
 	return scopedKey, nil
@@ -211,18 +262,27 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 		return nil, fmt.Errorf("failed to update scoped signing key: %w", err)
 	}
 
+	// Re-sign the account JWT so the updated template permissions take effect on NATS.
+	if err := s.regenerateAccountJWT(ctx, scopedKey.AccountID); err != nil {
+		return nil, err
+	}
+
 	return scopedKey, nil
 }
 
 // DeleteScopedSigningKey deletes a scoped signing key
 // Note: This will cascade to users signed by this key (foreign key constraint)
 func (s *ScopedSigningKeyService) DeleteScopedSigningKey(ctx context.Context, id uuid.UUID) error {
-	// Check if scoped signing key exists
-	_, err := s.repo.GetByID(ctx, id)
+	// Need the accountID for the post-delete JWT regen.
+	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// Delete scoped signing key
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// Re-sign the account JWT so NATS stops trusting the deleted key as a signer.
+	return s.regenerateAccountJWT(ctx, existing.AccountID)
 }

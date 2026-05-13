@@ -121,7 +121,7 @@ func (r *ClusterRepo) Update(ctx context.Context, cluster *entities.Cluster) err
 
 	result := r.db.WithContext(ctx).Model(&ClusterModel{}).
 		Where("id = ?", model.ID).
-		Updates(model)
+		Select("*").Omit("CreatedAt").Updates(model)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update cluster: %w", result.Error)

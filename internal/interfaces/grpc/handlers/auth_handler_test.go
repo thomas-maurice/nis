@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -123,7 +124,8 @@ func (s *AuthHandlerTestSuite) TestLogin_InvalidCredentials() {
 	s.Nil(resp)
 
 	// Should be an Unauthenticated connect error
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeUnauthenticated, connectErr.Code())
 }
@@ -140,7 +142,8 @@ func (s *AuthHandlerTestSuite) TestLogin_NonexistentUser() {
 	s.Error(err)
 	s.Nil(resp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeUnauthenticated, connectErr.Code())
 }
@@ -226,7 +229,8 @@ func (s *AuthHandlerTestSuite) TestCreateAPIUser_NoUserInContext() {
 	s.Error(err)
 	s.Nil(resp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeUnauthenticated, connectErr.Code())
 }
@@ -254,7 +258,8 @@ func (s *AuthHandlerTestSuite) TestCreateAPIUser_DuplicateUsername() {
 	s.Error(err)
 	s.Nil(resp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeAlreadyExists, connectErr.Code())
 }
@@ -294,7 +299,8 @@ func (s *AuthHandlerTestSuite) TestListAPIUsers_NoUserInContext() {
 	s.Error(err)
 	s.Nil(resp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeUnauthenticated, connectErr.Code())
 }
@@ -332,7 +338,8 @@ func (s *AuthHandlerTestSuite) TestDeleteAPIUser_Success() {
 	s.Error(err)
 	s.Nil(getResp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeNotFound, connectErr.Code())
 }
@@ -348,7 +355,8 @@ func (s *AuthHandlerTestSuite) TestDeleteAPIUser_NotFound() {
 	s.Error(err)
 	s.Nil(resp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeNotFound, connectErr.Code())
 }
@@ -364,7 +372,8 @@ func (s *AuthHandlerTestSuite) TestDeleteAPIUser_NoUserInContext() {
 	s.Error(err)
 	s.Nil(resp)
 
-	connectErr, ok := err.(*connect.Error)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
 	s.True(ok)
 	s.Equal(connect.CodeUnauthenticated, connectErr.Code())
 }

@@ -1,0 +1,28 @@
+# golangci-lint configuration.
+#
+# We extend the default set with two extra linters that catch classes of bug
+# this repo has been bitten by:
+#
+#   errorlint  — flags `err == repositories.ErrNotFound` style checks, which
+#                fail silently on wrapped errors (`fmt.Errorf("...: %w", err)`).
+#                This was the "C4" cleanup; the lint locks the regression door.
+#   bodyclose  — flags HTTP response bodies that aren't Close()'d.
+#
+# Other linters from the proposal (unparam, dupl, gocyclo, gosec) are deliberately
+# not enabled here — each surfaces a non-trivial backlog of its own and should
+# land as a focused follow-up. See PROPOSALS.md ("C14") for status.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - bodyclose
+  settings:
+    errorlint:
+      # Catch `err == ErrFoo` comparisons against sentinel errors.
+      errorf: true
+      # Catch direct type assertions instead of errors.As.
+      asserts: true
+      # Catch `err == ErrFoo` (not just %w wrapping issues).
+      comparison: true

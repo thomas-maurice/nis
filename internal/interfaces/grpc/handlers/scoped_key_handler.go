@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"connectrpc.com/connect"
@@ -10,9 +9,7 @@ import (
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
-	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
 
 // ScopedSigningKeyHandler implements the ScopedSigningKeyService gRPC service
@@ -35,9 +32,9 @@ func (h *ScopedSigningKeyHandler) CreateScopedSigningKey(
 	req *connect.Request[pb.CreateScopedSigningKeyRequest],
 ) (*connect.Response[pb.CreateScopedSigningKeyResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
@@ -79,9 +76,9 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKey(
 	req *connect.Request[pb.GetScopedSigningKeyRequest],
 ) (*connect.Response[pb.GetScopedSigningKeyResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -91,10 +88,7 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKey(
 
 	key, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read the account that owns this key
@@ -113,9 +107,9 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKeyByName(
 	req *connect.Request[pb.GetScopedSigningKeyByNameRequest],
 ) (*connect.Response[pb.GetScopedSigningKeyByNameResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
@@ -130,10 +124,7 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKeyByName(
 
 	key, err := h.service.GetScopedSigningKeyByName(ctx, accountID, req.Msg.Name)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GetScopedSigningKeyByNameResponse{
@@ -147,9 +138,9 @@ func (h *ScopedSigningKeyHandler) ListScopedSigningKeys(
 	req *connect.Request[pb.ListScopedSigningKeysRequest],
 ) (*connect.Response[pb.ListScopedSigningKeysResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// If account_id is empty, list all scoped signing keys (filtered by permissions)
@@ -196,9 +187,9 @@ func (h *ScopedSigningKeyHandler) UpdateScopedSigningKey(
 	req *connect.Request[pb.UpdateScopedSigningKeyRequest],
 ) (*connect.Response[pb.UpdateScopedSigningKeyResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -209,10 +200,7 @@ func (h *ScopedSigningKeyHandler) UpdateScopedSigningKey(
 	// First get the key to check which account it belongs to
 	existingKey, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the account that owns this key
@@ -225,10 +213,7 @@ func (h *ScopedSigningKeyHandler) UpdateScopedSigningKey(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateScopedSigningKeyResponse{
@@ -236,14 +221,70 @@ func (h *ScopedSigningKeyHandler) UpdateScopedSigningKey(
 	}), nil
 }
 
-// UpdatePermissions updates permissions for a scoped signing key
+// UpdatePermissions updates the pub/sub allow/deny lists and response permission
+// of a scoped signing key. The underlying service treats this as an UpdateScoped
+// SigningKey call with permission fields populated, and re-signs the parent
+// account JWT so NATS picks up the new template on the next cluster sync.
 func (h *ScopedSigningKeyHandler) UpdatePermissions(
 	ctx context.Context,
 	req *connect.Request[pb.UpdatePermissionsRequest],
 ) (*connect.Response[pb.UpdatePermissionsResponse], error) {
-	// TODO: The service doesn't have a separate UpdatePermissions method
-	// Permissions need to be updated via UpdateScopedSigningKey or a new service method should be added
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	existingKey, err := h.service.GetScopedSigningKey(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	if err := h.permService.CanUpdateAccount(ctx, requestingUser, existingKey.AccountID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	updateReq := services.UpdateScopedSigningKeyRequest{}
+	if perms := req.Msg.Permissions; perms != nil {
+		// Always replace the lists (nil means "leave alone" per UpdateScopedSigningKey
+		// semantics — but the caller of UpdatePermissions intends to set them, so we
+		// pass through whatever they sent, treating nil slices as "clear this list").
+		updateReq.PubAllow = perms.PubAllow
+		if updateReq.PubAllow == nil {
+			updateReq.PubAllow = []string{}
+		}
+		updateReq.PubDeny = perms.PubDeny
+		if updateReq.PubDeny == nil {
+			updateReq.PubDeny = []string{}
+		}
+		updateReq.SubAllow = perms.SubAllow
+		if updateReq.SubAllow == nil {
+			updateReq.SubAllow = []string{}
+		}
+		updateReq.SubDeny = perms.SubDeny
+		if updateReq.SubDeny == nil {
+			updateReq.SubDeny = []string{}
+		}
+	}
+	if resp := req.Msg.ResponsePermission; resp != nil {
+		maxMsgs := int(resp.MaxMsgs)
+		expires := time.Duration(resp.Expires) * time.Nanosecond
+		updateReq.ResponseMaxMsgs = &maxMsgs
+		updateReq.ResponseTTL = &expires
+	}
+
+	updated, err := h.service.UpdateScopedSigningKey(ctx, id, updateReq)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	return connect.NewResponse(&pb.UpdatePermissionsResponse{
+		Key: mappers.ScopedSigningKeyToProto(updated),
+	}), nil
 }
 
 // DeleteScopedSigningKey deletes a scoped signing key
@@ -252,9 +293,9 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 	req *connect.Request[pb.DeleteScopedSigningKeyRequest],
 ) (*connect.Response[pb.DeleteScopedSigningKeyResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -265,10 +306,7 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 	// First get the key to check which account it belongs to
 	existingKey, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the account that owns this key
@@ -278,10 +316,7 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 
 	err = h.service.DeleteScopedSigningKey(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.DeleteScopedSigningKeyResponse{}), nil

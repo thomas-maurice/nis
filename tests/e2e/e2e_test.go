@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,19 +47,15 @@ const (
 //
 //	(1) a freshly minted user's .creds authenticates and can publish/subscribe;
 //	(2) connecting without credentials is rejected by NATS;
-//	(3) a second account is fully isolated from the first — a user in account B cannot
-//	    receive messages published by a user in account A on the same subject.
+//	(3) a user signed under a scoped key with pub_deny=["secret.>"] is permitted on
+//	    public.> but denied on secret.> (E1 regression test — see PROPOSALS.md);
+//	(4) a second account is fully isolated from the first — a user in account B cannot
+//	    receive messages published by a user in account A on the same subject;
+//	(5) after MUTATING a scoped key and re-syncing, NATS observes the new template
+//	    on the next reconnect (proves cluster sync actually pushes account-JWT updates
+//	    and that the resolver respects them in real time).
 //
 // Each phase is a sub-test so failures localise.
-//
-// Known gap (discovered while building this suite, 2026-05-13): scoped signing keys
-// created via CreateScopedSigningKey are not added to the account JWT's `signing_keys`
-// list, so NATS rejects any user JWT signed by such a key as "Authorization Violation."
-// AccountService.CreateAccount in particular generates the account JWT before its own
-// default scoped key exists, and there is no flow that re-signs the account JWT when
-// a scoped key is added. Filed as part of the C9/PermissionService work; until fixed,
-// the third sub-test deliberately exercises account-level isolation rather than
-// scoped-key permission enforcement.
 func TestE2E_FullLifecycle(t *testing.T) {
 	h := newHarness(t)
 	t.Cleanup(h.teardown)
@@ -160,6 +157,248 @@ func TestE2E_FullLifecycle(t *testing.T) {
 		if err == nil {
 			nc.Close()
 			t.Fatal("expected NATS to refuse unauthenticated connection")
+		}
+	})
+
+	t.Run("ScopedKey_PubDenyEnforced", func(t *testing.T) {
+		// Create a scoped key denying pub on secret.>.
+		denyKeyResp, err := h.keyCli.CreateScopedSigningKey(ctx, connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+			AccountId: accountID,
+			Name:      "deny-secret",
+			Permissions: &nisv1.UserPermissions{
+				PubDeny: []string{"secret.>"},
+			},
+		}))
+		if err != nil {
+			t.Fatalf("CreateScopedSigningKey: %v", err)
+		}
+		denyKeyID := denyKeyResp.Msg.Key.Id
+
+		// User signed by that scoped key.
+		denyUserResp, err := h.userCli.CreateUser(ctx, connect.NewRequest(&nisv1.CreateUserRequest{
+			AccountId:          accountID,
+			Name:               "deny-user",
+			ScopedSigningKeyId: denyKeyID,
+		}))
+		if err != nil {
+			t.Fatalf("CreateUser (scoped): %v", err)
+		}
+		denyUserID := denyUserResp.Msg.User.Id
+
+		// Sync so the resolver picks up the re-signed account JWT (which now declares
+		// the new scoped signer) and the deny rule actually applies on NATS.
+		if _, err := h.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterID})); err != nil {
+			t.Fatalf("SyncCluster (scoped): %v", err)
+		}
+
+		denyCredsPath := h.fetchUserCreds(t, denyUserID, "deny-user")
+
+		errCh := make(chan error, 8)
+		nc, err := nats.Connect(h.natsURL,
+			nats.UserCredentials(denyCredsPath),
+			nats.Timeout(5*time.Second),
+			nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, e error) {
+				select {
+				case errCh <- e:
+				default:
+				}
+			}),
+		)
+		if err != nil {
+			t.Fatalf("connect with scoped creds: %v", err)
+		}
+		defer nc.Close()
+
+		// Allowed subject works.
+		if err := nc.Publish("public.allowed", []byte("ok")); err != nil {
+			t.Fatalf("publish public.allowed: %v", err)
+		}
+		if err := nc.FlushTimeout(2 * time.Second); err != nil {
+			t.Fatalf("flush after allowed publish: %v", err)
+		}
+		// No async error should arrive for the allowed publish.
+		select {
+		case got := <-errCh:
+			t.Fatalf("unexpected async error after allowed publish: %v", got)
+		case <-time.After(300 * time.Millisecond):
+		}
+
+		// Denied subject: publish returns nil locally; NATS sends an async permissions
+		// violation. Drain errCh after a short wait.
+		_ = nc.Publish("secret.denied", []byte("nope"))
+		_ = nc.FlushTimeout(2 * time.Second)
+
+		select {
+		case got := <-errCh:
+			if !strings.Contains(strings.ToLower(got.Error()), "permission") {
+				t.Fatalf("expected a permissions violation error, got: %v", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected a permissions violation error within deadline; none observed")
+		}
+	})
+
+	t.Run("SyncAfterMutation_NewScopeTakesEffect", func(t *testing.T) {
+		// Start with a permissive scoped key (no deny rules).
+		permissiveResp, err := h.keyCli.CreateScopedSigningKey(ctx, connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+			AccountId: accountID,
+			Name:      "mutating-key",
+		}))
+		if err != nil {
+			t.Fatalf("CreateScopedSigningKey (permissive): %v", err)
+		}
+		mutKeyID := permissiveResp.Msg.Key.Id
+
+		mutUserResp, err := h.userCli.CreateUser(ctx, connect.NewRequest(&nisv1.CreateUserRequest{
+			AccountId:          accountID,
+			Name:               "mutating-user",
+			ScopedSigningKeyId: mutKeyID,
+		}))
+		if err != nil {
+			t.Fatalf("CreateUser (mutating): %v", err)
+		}
+		mutUserID := mutUserResp.Msg.User.Id
+
+		if _, err := h.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterID})); err != nil {
+			t.Fatalf("SyncCluster (initial): %v", err)
+		}
+
+		credsPath := h.fetchUserCreds(t, mutUserID, "mutating-user")
+
+		// Phase 1: permissive scope — publish to secret.> works (no async error).
+		errCh1 := make(chan error, 8)
+		nc1, err := nats.Connect(h.natsURL,
+			nats.UserCredentials(credsPath),
+			nats.Timeout(5*time.Second),
+			nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, e error) {
+				select {
+				case errCh1 <- e:
+				default:
+				}
+			}),
+		)
+		if err != nil {
+			t.Fatalf("connect (permissive phase): %v", err)
+		}
+		if err := nc1.Publish("secret.before-mutation", []byte("ok-now")); err != nil {
+			t.Fatalf("permissive publish: %v", err)
+		}
+		_ = nc1.FlushTimeout(2 * time.Second)
+		select {
+		case got := <-errCh1:
+			t.Fatalf("permissive scope unexpectedly rejected publish: %v", got)
+		case <-time.After(400 * time.Millisecond):
+		}
+		nc1.Close()
+
+		// Mutation: add a pub_deny=["secret.>"] to the scoped key. This re-signs the
+		// account JWT in the NIS DB; the resolver still has the OLD JWT until sync.
+		denyList := []string{"secret.>"}
+		if _, err := h.keyCli.UpdatePermissions(ctx, connect.NewRequest(&nisv1.UpdatePermissionsRequest{
+			Id: mutKeyID,
+			Permissions: &nisv1.UserPermissions{
+				PubDeny: denyList,
+			},
+		})); err != nil {
+			t.Fatalf("UpdatePermissions: %v", err)
+		}
+
+		// Push the freshly re-signed account JWT to the resolver. This is the line
+		// that proves "sync after mutation" actually works end-to-end.
+		if _, err := h.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterID})); err != nil {
+			t.Fatalf("SyncCluster (post-mutation): %v", err)
+		}
+
+		// Phase 2: reconnect with the same creds. NATS reads the updated scope from
+		// the resolver and now enforces the new deny rule on secret.>.
+		errCh2 := make(chan error, 8)
+		nc2, err := nats.Connect(h.natsURL,
+			nats.UserCredentials(credsPath),
+			nats.Timeout(5*time.Second),
+			nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, e error) {
+				select {
+				case errCh2 <- e:
+				default:
+				}
+			}),
+		)
+		if err != nil {
+			t.Fatalf("connect (post-mutation phase): %v", err)
+		}
+		defer nc2.Close()
+
+		_ = nc2.Publish("secret.after-mutation", []byte("should-be-denied"))
+		_ = nc2.FlushTimeout(2 * time.Second)
+		select {
+		case got := <-errCh2:
+			if !strings.Contains(strings.ToLower(got.Error()), "permission") {
+				t.Fatalf("expected a permissions violation after mutation, got: %v", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected a permissions violation after mutation; none observed (sync did not take effect)")
+		}
+	})
+
+	t.Run("SyncAfterMutation_DeleteRevokesAccess", func(t *testing.T) {
+		// Create a scoped key + user, sync — user connects fine.
+		keyResp, err := h.keyCli.CreateScopedSigningKey(ctx, connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+			AccountId: accountID,
+			Name:      "to-be-deleted",
+		}))
+		if err != nil {
+			t.Fatalf("CreateScopedSigningKey (delete-test): %v", err)
+		}
+		delKeyID := keyResp.Msg.Key.Id
+
+		userResp, err := h.userCli.CreateUser(ctx, connect.NewRequest(&nisv1.CreateUserRequest{
+			AccountId:          accountID,
+			Name:               "ephemeral-user",
+			ScopedSigningKeyId: delKeyID,
+		}))
+		if err != nil {
+			t.Fatalf("CreateUser (delete-test): %v", err)
+		}
+		ephUserID := userResp.Msg.User.Id
+
+		if _, err := h.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterID})); err != nil {
+			t.Fatalf("SyncCluster (pre-delete): %v", err)
+		}
+		credsPath := h.fetchUserCreds(t, ephUserID, "ephemeral-user")
+
+		// Sanity: connection works before we delete the scoped key.
+		ncBefore, err := nats.Connect(h.natsURL,
+			nats.UserCredentials(credsPath),
+			nats.Timeout(5*time.Second),
+			nats.MaxReconnects(0),
+		)
+		if err != nil {
+			t.Fatalf("pre-delete connect: %v", err)
+		}
+		ncBefore.Close()
+
+		// Delete the scoped key. The account JWT gets re-signed in the DB without
+		// the deleted key in `signing_keys`; the user JWT (still signed by the
+		// deleted key) is now orphaned.
+		if _, err := h.keyCli.DeleteScopedSigningKey(ctx, connect.NewRequest(&nisv1.DeleteScopedSigningKeyRequest{
+			Id: delKeyID,
+		})); err != nil {
+			t.Fatalf("DeleteScopedSigningKey: %v", err)
+		}
+
+		// Push the new account JWT to the resolver.
+		if _, err := h.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterID})); err != nil {
+			t.Fatalf("SyncCluster (post-delete): %v", err)
+		}
+
+		// Reconnect attempt should fail — the signing key is no longer trusted.
+		ncAfter, err := nats.Connect(h.natsURL,
+			nats.UserCredentials(credsPath),
+			nats.Timeout(5*time.Second),
+			nats.MaxReconnects(0),
+		)
+		if err == nil {
+			ncAfter.Close()
+			t.Fatal("expected post-delete connection to be rejected; it succeeded")
 		}
 	})
 

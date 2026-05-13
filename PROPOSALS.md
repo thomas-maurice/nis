@@ -39,22 +39,34 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | A12 |        |       |
 | C1  | **Done 2026-05-13** | Dead cmds + `test-nats.go` removed. |
 | C2  | **Done 2026-05-13** | Stale top-level docs removed (IMPLEMENTATION/IMPROVEMENT/IMPROVEMENTS_IMPLEM/PROGRESS/STATUS/UI_IMPLEMENTATION.md). |
-| C3  |        | Deferred until e2e suite is green on master (it is now). |
+| C3  | **Done 2026-05-13** | `repoErrToConnect(err)` and `authedUser(ctx)` helpers in `handlers/util.go`; applied across every handler via perl + goimports cleanup. `errorlint` (C14) prevents regressions. |
 | C4  | **Done 2026-05-13** | `errors.Is` mechanical replace across services + handlers; `errors` imports added by goimports. |
 | C5  | **Done 2026-05-13** | Introduced `openManagedCluster` helper; 4 cluster-service methods collapsed to a few lines each. |
 | C6  | **Done 2026-05-13** | `ListAllClusters` removed; caller redirected to `ListClusters`. |
 | C7  | **Done 2026-05-13** | `fmt.Printf`/`Println` removed from services, grpc/server.go, cmd/nis/serve.go; replaced with `logging.LogFromContext` / `logging.GetLogger`. |
-| C8  |        | **Refactor-class — needs review-agent gate + e2e green first.** |
-| C9  |        | **Security-sensitive refactor — needs review-agent gate + e2e first.** |
-| C10 |        | Same as A12. **Refactor — needs e2e first.** |
-| C11 |        | Behavior change — needs e2e first. |
-| C12 | **Done 2026-05-13** | Casbin model + policy embedded via `//go:embed` in `internal/application/services/casbin_embed.go`; `initCasbin` is now a 2-line passthrough. Side benefit: fixes the "running the binary outside the repo root breaks RBAC" gotcha. |
-| C13 |        | Deferred to land with C9 — the param has semantic intent that the C9 PermissionService refactor needs to settle. |
-| C14 |        | Surfaces unknown work — deferred. |
+| C8  |        | **Deferred.** Full SQL-repo genericization is a focused refactor of its own. The agent-cited ~600 LOC savings overstate the win once per-resource methods (GetByName, ListBy<Parent>, GetByPublicKey) are excluded, while the risk on persistence layer is medium and is best done with its own review-agent pass. Leaving as a stand-alone follow-up. |
+| C9  | **Done 2026-05-13** | `PermissionService` rewritten around three helpers: `requireRole`, `ownsOperator`, `ownsAccount`. Can* methods are now 2–5 line compositions; the 517-line file is down to ~330 LOC with materially clearer scope semantics. RBAC isolation tests + integration tests still green. |
+| C10 | **Partial Done 2026-05-13** | Archive helpers (`extractArchive`, `extractZipFile`, `extractTar`) extracted to `archive.go`. `export_service.go` reduced from 1207 to ~1078 LOC. The full export/import/NSC-import split (A12) remains for a follow-up refactor PR. |
+| C11 | **Done 2026-05-13** | All six GORM repo `Update` methods now use `.Select("*").Omit("CreatedAt").Updates(model)` so zero-value field updates (e.g. clearing a description) actually persist. CreatedAt remains immutable. Caught no regressions in the test suite. |
+| C12 | **Done 2026-05-13** | Casbin model + policy embedded via `//go:embed` in `internal/application/services/casbin_embed.go`; `initCasbin` is now a 2-line passthrough. Side benefit: fixes the "running the binary outside the repo root breaks RBAC" gotcha. **Bonus 2026-05-13:** both files now have thorough explanatory comments suitable for newcomers — see the files. |
+| C13 | **Done 2026-05-13** | Bundled with C9. Admin-only Can*Operator / Can*Cluster methods now route through `requireRole(RoleAdmin)`; the `operatorID` params on `CanUpdateOperator`/`CanDeleteOperator` are explicitly retained for future operator-admin-self-update semantics (commented). |
+| C14 | **Done 2026-05-13** | `.golangci.yml` added enabling `errorlint` (catches sentinel-error comparisons + bad type assertions on errors) and `bodyclose`. Surfaced 3 real issues (config viper ConfigFileNotFoundError, two test-only `err.(*connect.Error)` assertions), all fixed with `errors.As`. Lint runs clean. Other linters from the proposal (`unparam`, `dupl`, `gocyclo`, `gosec`) deferred — each surfaces its own backlog and should be a follow-up. |
 
-### Discovered while building the e2e suite (2026-05-13)
+### E1 — Scoped signing keys not trusted by NATS  (FIXED 2026-05-13)
 
-**E1. Scoped signing keys are not added to the account JWT's `signing_keys` list.** `AccountService.CreateAccount` (account_service.go:104–116) signs the account JWT *before* creating its default scoped key, and there is no flow that re-signs the account JWT when a scoped key is added later. NATS therefore rejects any user JWT signed by a scoped key as `Authorization Violation`. The e2e suite originally tested `pub_deny` enforcement against a scoped-key-signed user and surfaced this immediately. Severity: high — this is a featured part of NIS that doesn't actually work end-to-end. Fix surface: `JWTService.GenerateAccountJWT` should load the account's scoped signing keys and populate `claims.SigningKeys`, and `ScopedSigningKeyService.CreateScopedSigningKey` / `UpdatePermissions` / `Delete` must trigger account-JWT re-signing. Worth folding into A6 (event substrate) so any scoped-key mutation emits an `AccountSigningKeysChanged` event that the account service subscribes to.
+Originally discovered while building the e2e suite: `JWTService.GenerateAccountJWT` did not populate `claims.SigningKeys`, so NATS rejected every user JWT signed by a scoped key as "Authorization Violation". Fixed across four files:
+
+1. **`jwt_service.go`** — `GenerateAccountJWT` now takes `scopedKeys []*entities.ScopedSigningKey` and calls `claims.SigningKeys.AddScopedSigner(scope)` per key, embedding the pub/sub allow/deny lists and response permission as a `UserScope` template.
+2. **`jwt_service.go`** — `GenerateUserJWT` now calls `claims.SetScoped(true)` for scoped users, zeroing `UserPermissionLimits` (NATS's `UserScope.ValidateScopedSigner` requires `HasEmptyPermissions()`; `NewUserClaims` pre-fills `NatsLimits` with `NoLimit` sentinels so silent failures were guaranteed until `SetScoped` was called).
+3. **`account_service.go`** — `CreateAccount` now generates the default scoped key in memory *before* signing the account JWT, so the very first JWT pushed to the resolver already trusts the default signer. `UpdateAccount` / `UpdateJetStreamLimits` fetch the account's scoped keys and pass them when regenerating.
+4. **`scoped_signing_key_service.go`** — gained `operatorRepo` and `jwtService` dependencies and a `regenerateAccountJWT(accountID)` helper. Every mutating method (`Create`, `Update`, `Delete`) calls it after persisting, so the next `SyncCluster` push carries the up-to-date signing-keys map. `Create` rolls back its just-persisted key if regeneration fails.
+5. **`scoped_key_handler.go`** — `UpdatePermissions` (previously a `CodeUnimplemented` stub) now delegates to `UpdateScopedSigningKey` so callers can actually update template permissions over the wire.
+
+Regression net: three new e2e sub-tests cover this surface and run in CI:
+
+- `ScopedKey_PubDenyEnforced` — user signed by a scoped key with `pub_deny=["secret.>"]` is permitted on `public.>` and denied on `secret.>`.
+- `SyncAfterMutation_NewScopeTakesEffect` — start permissive, mutate the scope to add `pub_deny`, sync, and confirm the new template applies on next connect.
+- `SyncAfterMutation_DeleteRevokesAccess` — delete a scoped key, sync, and confirm previously-issued user creds signed by that key are rejected by NATS.
 
 ---
 
@@ -236,29 +248,56 @@ Linter passes today but the enabled set is minimal. Surfaces unknown amount of a
 
 ## Status of this round (2026-05-13)
 
-- **Tidying batch implemented and landed:** C1, C2, C4, C5, C6, C7, C12. C13 was pulled out because the unused `operatorID` params carry semantic intent that the C9 PermissionService refactor needs to settle properly; it will land in that batch.
-- **E2E test harness implemented and passing:** `tests/e2e/e2e_test.go` (build tag `e2e`), `make test-e2e`, CI job added between `lint`/`test` and `build`. Three sub-tests cover: authorized connection with a fresh user's creds, rejection of unauthenticated connections, and account-level subject isolation. CLAUDE.md gained rule 6 making `make test-e2e` mandatory after non-trivial server-side changes; the skill's §6 documents the suite.
-- **Discovered gap E1** (scoped-signing-key trust, above) is now visible and recorded. A focused fix should be its own proposal; tagging here for triage.
-- All other proposals (P1–P12, A1–A12, C3, C8–C11, C14) still awaiting decision in the table above. The refactor-class Cs (C3, C8, C9, C10, C11, C14) are unblocked now that e2e is green.
+All cleanup proposals except **C8** are now landed and the CI gate is in place. Specifically:
 
-### Files touched in this round
+- **Tidying batch (C1, C2, C4, C5, C6, C7, C12)** — landed in the first sub-round.
+- **E1 fix** — scoped signing keys now appear in the account JWT's `signing_keys`, account JWT is re-signed on every scoped-key mutation, user JWTs use `SetScoped(true)` per NATS's validator. Three dedicated e2e sub-tests guard the regression surface.
+- **Cleanup batch (C3, C9, C10 partial, C11, C13, C14)** — landed.
+- **C8** is the one outstanding C. It's a real refactor (genericize SQL repos) whose value is mostly aesthetic and whose risk is medium because it touches persistence; left for a focused follow-up PR where it can get its own review-agent gate.
+- **CI**: `e2e` job added to `.github/workflows/build.yml`, gating the `build` job behind `[test, lint, e2e]`. Job does `docker info` upfront and pre-pulls the NATS image. `make test-e2e` is the local equivalent.
+- **Casbin docs**: both `casbin_model.conf` and `casbin_policy.csv` now carry detailed header + per-section comments explaining the request/policy/role/matcher format and what each policy row authorises. Readable cold.
+- All other proposals (P1–P12, A1–A12) still awaiting decision in the table above.
+
+### E2E coverage today
+
+`tests/e2e/e2e_test.go` — six sub-tests, all passing locally and in CI:
+
+1. `AuthorizedConnection_DefaultUser` — fresh user's `.creds` connects and round-trips pub/sub.
+2. `UnauthorizedConnection_NoCredsRejected` — connection without credentials refused.
+3. `ScopedKey_PubDenyEnforced` — scoped key with `pub_deny=["secret.>"]` allows `public.>`, denies `secret.>` (E1 regression test).
+4. `SyncAfterMutation_NewScopeTakesEffect` — mutate scope, re-sync, new policy takes effect on next connect.
+5. `SyncAfterMutation_DeleteRevokesAccess` — delete scoped key, re-sync, old creds rejected.
+6. `AccountIsolation_CrossAccountSubjectsDoNotLeak` — account-level subject isolation enforced by NATS.
+
+### Files touched across the full round
 
 ```
 deleted   cmd/fix-cluster-creds/, cmd/test-nats-connection/, cmd/test-old-user/, test-nats.go
 deleted   IMPLEMENTATION.md, IMPROVEMENT.md, IMPROVEMENTS_IMPLEM.md, PROGRESS.md, STATUS.md, UI_IMPLEMENTATION.md
-new       internal/application/services/casbin_embed.go        — embedded RBAC model+policy
-new       tests/e2e/e2e_test.go                                — e2e harness + suite (build tag e2e)
-new       PROPOSALS.md                                         — this file
-edit      internal/application/services/cluster_service.go     — C5/C6/C7
-edit      internal/application/services/account_service.go     — C7
-edit      internal/application/services/export_service.go      — C7
-edit      internal/application/services/{auth,scoped_signing_key,operator,user}_service.go — C4
-edit      internal/interfaces/grpc/handlers/*_handler.go        — C4
-edit      internal/interfaces/grpc/server.go                   — C7
-edit      cmd/nis/commands/serve.go                            — C7 + C12 (initCasbin)
-edit      Makefile                                             — test-e2e target + .PHONY
-edit      .github/workflows/build.yml                          — new e2e job between [test,lint] and build
-edit      CLAUDE.md                                            — rule 6 (mandatory e2e), Test section update
-edit      README.md                                            — make test-e2e doc
-edit      .claude/skills/nis-dev/SKILL.md                      — §6 e2e suite documentation
+new       internal/application/services/casbin_embed.go         — embedded RBAC model+policy + loader
+new       internal/application/services/archive.go              — zip/tar.gz/tar.bz2 extraction helpers (C10)
+new       internal/interfaces/grpc/handlers/util.go             — repoErrToConnect + authedUser (C3)
+new       tests/e2e/e2e_test.go                                 — full e2e harness + 6 sub-tests
+new       .golangci.yml                                         — errorlint + bodyclose config (C14)
+new       PROPOSALS.md                                          — this file
+edit      internal/application/services/jwt_service.go          — E1: SigningKeys + SetScoped(true)
+edit      internal/application/services/account_service.go      — E1 + C7
+edit      internal/application/services/scoped_signing_key_service.go — E1 (regenerateAccountJWT)
+edit      internal/application/services/cluster_service.go      — C5/C6/C7
+edit      internal/application/services/export_service.go       — C7 + C10 partial
+edit      internal/application/services/permission_service.go   — full C9 rewrite
+edit      internal/application/services/casbin_model.conf       — extensive comments
+edit      internal/application/services/casbin_policy.csv       — section headers + per-row notes
+edit      internal/application/services/{auth,operator,user}_service.go — C4
+edit      internal/interfaces/grpc/handlers/*_handler.go         — C3 + C4 + UpdatePermissions impl
+edit      internal/interfaces/grpc/server.go                    — C7
+edit      internal/infrastructure/persistence/sql/*_repo.go     — C11 (Select("*").Omit("CreatedAt"))
+edit      internal/config/config.go                             — errorlint fix (errors.As)
+edit      internal/interfaces/grpc/handlers/auth_handler_test.go — errorlint fix
+edit      cmd/nis/commands/serve.go                             — C7 + C12 (initCasbin → services.NewCasbinEnforcer)
+edit      Makefile                                              — test-e2e target + .PHONY
+edit      .github/workflows/build.yml                           — e2e job between [test,lint] and build
+edit      CLAUDE.md                                             — rule 6 (mandatory e2e), Test section update
+edit      README.md                                             — make test-e2e doc
+edit      .claude/skills/nis-dev/SKILL.md                       — §6 e2e suite documentation
 ```

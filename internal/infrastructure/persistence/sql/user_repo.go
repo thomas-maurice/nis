@@ -161,7 +161,7 @@ func (r *UserRepo) Update(ctx context.Context, user *entities.User) error {
 
 	result := r.db.WithContext(ctx).Model(&UserModel{}).
 		Where("id = ?", model.ID).
-		Updates(model)
+		Select("*").Omit("CreatedAt").Updates(model)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update user: %w", result.Error)

@@ -1,46 +1,118 @@
-p, admin, operator, create
-p, admin, operator, read
-p, admin, operator, update
-p, admin, operator, delete
-p, admin, account, create
-p, admin, account, read
-p, admin, account, update
-p, admin, account, delete
-p, admin, user, create
-p, admin, user, read
-p, admin, user, update
-p, admin, user, delete
+# =============================================================================
+# Casbin policy — the data the model in casbin_model.conf operates on.
+#
+# Format: `p, <role>, <resource>, <action>`
+#   role     = one of admin | operator-admin | account-admin
+#   resource = operator | account | user | scoped_key | cluster | export | api_user
+#   action   = create | read | update | delete | sync
+#
+# A line means "role X is allowed action Y on resource Z" — nothing more.
+# The COARSE check happens here; the FINE-GRAINED check (e.g. "operator-admin
+# X is only allowed to touch operator-X's accounts, not operator-Y's") happens
+# in Go in PermissionService. If you remove a line here, the corresponding
+# RPC is locked out for that role globally — useful as a kill-switch but be
+# aware the Go check is the one that actually keeps tenants isolated.
+#
+# `#` lines and blank lines are ignored by the loader (see casbin_embed.go).
+# =============================================================================
+
+
+# ============================================================
+# admin — full access to everything. Reserve for break-glass /
+# platform operators. Stored in api_users with role="admin".
+# ============================================================
+
+# Operators
+p, admin, operator,   create
+p, admin, operator,   read
+p, admin, operator,   update
+p, admin, operator,   delete
+
+# Accounts
+p, admin, account,    create
+p, admin, account,    read
+p, admin, account,    update
+p, admin, account,    delete
+
+# Users
+p, admin, user,       create
+p, admin, user,       read
+p, admin, user,       update
+p, admin, user,       delete
+
+# Scoped signing keys (per-account templates that delegate signing)
 p, admin, scoped_key, create
 p, admin, scoped_key, read
 p, admin, scoped_key, update
 p, admin, scoped_key, delete
-p, admin, cluster, create
-p, admin, cluster, read
-p, admin, cluster, update
-p, admin, cluster, delete
-p, admin, export, create
-p, admin, export, read
-p, admin, api_user, create
-p, admin, api_user, read
-p, admin, api_user, update
-p, admin, api_user, delete
-p, operator-admin, operator, read
-p, operator-admin, account, create
-p, operator-admin, account, read
-p, operator-admin, account, update
-p, operator-admin, user, create
-p, operator-admin, user, read
-p, operator-admin, user, update
-p, operator-admin, user, delete
+
+# Clusters (NATS resolver endpoints NIS pushes JWTs to)
+p, admin, cluster,    create
+p, admin, cluster,    read
+p, admin, cluster,    update
+p, admin, cluster,    delete
+
+# Export / import (full operator subtree dump or NSC archive ingest)
+p, admin, export,     create
+p, admin, export,     read
+
+# API users (NIS-side accounts that log in to use this service)
+p, admin, api_user,   create
+p, admin, api_user,   read
+p, admin, api_user,   update
+p, admin, api_user,   delete
+
+
+# ============================================================
+# operator-admin — scoped to ONE operator (api_users.operator_id
+# names which one). Can manage everything under that operator
+# EXCEPT the operator itself (no rename/delete of their own org).
+# Cannot delete accounts (data-loss guard, admin-only).
+# ============================================================
+
+# Read-only on the parent operator (no mutate / no delete).
+p, operator-admin, operator,   read
+
+# Accounts: create + read + update; delete is admin-only.
+p, operator-admin, account,    create
+p, operator-admin, account,    read
+p, operator-admin, account,    update
+
+# Users in any of their accounts: full lifecycle.
+p, operator-admin, user,       create
+p, operator-admin, user,       read
+p, operator-admin, user,       update
+p, operator-admin, user,       delete
+
+# Scoped signing keys in any of their accounts.
 p, operator-admin, scoped_key, create
 p, operator-admin, scoped_key, read
 p, operator-admin, scoped_key, update
-p, operator-admin, cluster, read
-p, operator-admin, cluster, sync
-p, operator-admin, export, read
+
+# Clusters: read + sync. No create/update/delete (cluster lifecycle is
+# admin-only because credentials live there).
+p, operator-admin, cluster,    read
+p, operator-admin, cluster,    sync
+
+# Export their own operator's subtree (read-only — no import).
+p, operator-admin, export,     read
+
+
+# ============================================================
+# account-admin — scoped to ONE account (api_users.account_id
+# names which one). Mostly used by tenants/customers managing
+# their own users. Read-only on the surrounding operator and
+# cluster, no scoped-key management, no account renames.
+# ============================================================
+
+# Visibility into the parent operator and own account.
 p, account-admin, operator, read
-p, account-admin, account, read
-p, account-admin, user, create
-p, account-admin, user, read
-p, account-admin, user, update
-p, account-admin, cluster, read
+p, account-admin, account,  read
+
+# Users within the account: create / read / update (no delete).
+p, account-admin, user,     create
+p, account-admin, user,     read
+p, account-admin, user,     update
+
+# Clusters: read-only (they need to know where to point clients).
+p, account-admin, cluster,  read

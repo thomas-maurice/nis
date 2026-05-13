@@ -12,7 +12,6 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
 
 // AuthHandler implements the AuthService gRPC service
@@ -77,9 +76,9 @@ func (h *AuthHandler) CreateAPIUser(
 	req *connect.Request[pb.CreateAPIUserRequest],
 ) (*connect.Response[pb.CreateAPIUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	role := mappers.ProtoToAPIUserRole(req.Msg.Permissions)
@@ -128,9 +127,9 @@ func (h *AuthHandler) GetAPIUser(
 	req *connect.Request[pb.GetAPIUserRequest],
 ) (*connect.Response[pb.GetAPIUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -157,9 +156,9 @@ func (h *AuthHandler) GetAPIUserByUsername(
 	req *connect.Request[pb.GetAPIUserByUsernameRequest],
 ) (*connect.Response[pb.GetAPIUserByUsernameResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	user, err := h.service.GetAPIUserByUsername(ctx, req.Msg.Username, requestingUser)
@@ -181,9 +180,9 @@ func (h *AuthHandler) ListAPIUsers(
 	req *connect.Request[pb.ListAPIUsersRequest],
 ) (*connect.Response[pb.ListAPIUsersResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	users, err := h.service.ListAPIUsers(ctx, requestingUser)
@@ -202,9 +201,9 @@ func (h *AuthHandler) UpdateAPIUserPassword(
 	req *connect.Request[pb.UpdateAPIUserPasswordRequest],
 ) (*connect.Response[pb.UpdateAPIUserPasswordResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -233,9 +232,9 @@ func (h *AuthHandler) UpdateAPIUserPermissions(
 	req *connect.Request[pb.UpdateAPIUserPermissionsRequest],
 ) (*connect.Response[pb.UpdateAPIUserPermissionsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -287,9 +286,9 @@ func (h *AuthHandler) DeleteAPIUser(
 	req *connect.Request[pb.DeleteAPIUserRequest],
 ) (*connect.Response[pb.DeleteAPIUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)

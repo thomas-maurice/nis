@@ -136,7 +136,7 @@ func (r *AccountRepo) Update(ctx context.Context, account *entities.Account) err
 
 	result := r.db.WithContext(ctx).Model(&AccountModel{}).
 		Where("id = ?", model.ID).
-		Updates(model)
+		Select("*").Omit("CreatedAt").Updates(model)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update account: %w", result.Error)

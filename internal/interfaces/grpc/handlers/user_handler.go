@@ -2,15 +2,12 @@ package handlers
 
 import (
 	"context"
-	"errors"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
-	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 )
 
 // UserHandler implements the UserService gRPC service
@@ -33,9 +30,9 @@ func (h *UserHandler) CreateUser(
 	req *connect.Request[pb.CreateUserRequest],
 ) (*connect.Response[pb.CreateUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
@@ -74,9 +71,9 @@ func (h *UserHandler) GetUser(
 	req *connect.Request[pb.GetUserRequest],
 ) (*connect.Response[pb.GetUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -86,10 +83,7 @@ func (h *UserHandler) GetUser(
 
 	user, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read this user
@@ -108,9 +102,9 @@ func (h *UserHandler) GetUserByName(
 	req *connect.Request[pb.GetUserByNameRequest],
 ) (*connect.Response[pb.GetUserByNameResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
@@ -125,10 +119,7 @@ func (h *UserHandler) GetUserByName(
 
 	user, err := h.service.GetUserByName(ctx, accountID, req.Msg.Name)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GetUserByNameResponse{
@@ -142,9 +133,9 @@ func (h *UserHandler) ListUsers(
 	req *connect.Request[pb.ListUsersRequest],
 ) (*connect.Response[pb.ListUsersResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// If account_id is empty, list all users across all accounts (filtered by permissions)
@@ -191,9 +182,9 @@ func (h *UserHandler) UpdateUser(
 	req *connect.Request[pb.UpdateUserRequest],
 ) (*connect.Response[pb.UpdateUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -204,10 +195,7 @@ func (h *UserHandler) UpdateUser(
 	// First get the user to check which account it belongs to
 	existingUser, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the account that owns this user
@@ -220,10 +208,7 @@ func (h *UserHandler) UpdateUser(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.UpdateUserResponse{
@@ -237,9 +222,9 @@ func (h *UserHandler) DeleteUser(
 	req *connect.Request[pb.DeleteUserRequest],
 ) (*connect.Response[pb.DeleteUserResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -250,10 +235,7 @@ func (h *UserHandler) DeleteUser(
 	// First get the user to check which account it belongs to
 	existingUser, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to update the account that owns this user
@@ -263,10 +245,7 @@ func (h *UserHandler) DeleteUser(
 
 	err = h.service.DeleteUser(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.DeleteUserResponse{}), nil
@@ -278,9 +257,9 @@ func (h *UserHandler) GetUserCredentials(
 	req *connect.Request[pb.GetUserCredentialsRequest],
 ) (*connect.Response[pb.GetUserCredentialsResponse], error) {
 	// Get requesting user from context
-	requestingUser, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := mappers.ParseUUID(req.Msg.Id)
@@ -291,10 +270,7 @@ func (h *UserHandler) GetUserCredentials(
 	// First get the user to check permissions
 	user, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	// Check permission to read this user
@@ -304,10 +280,7 @@ func (h *UserHandler) GetUserCredentials(
 
 	creds, err := h.service.GetUserCredentials(ctx, id)
 	if err != nil {
-		if errors.Is(err, repositories.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.GetUserCredentialsResponse{

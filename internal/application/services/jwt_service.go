@@ -54,8 +54,15 @@ func (s *JWTService) GenerateOperatorJWT(ctx context.Context, operator *entities
 	return token, nil
 }
 
-// GenerateAccountJWT generates an account JWT signed by the operator
-func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.Account, operator *entities.Operator) (string, error) {
+// GenerateAccountJWT generates an account JWT signed by the operator.
+//
+// Each scoped signing key in scopedKeys is declared as a NATS scoped signer in the
+// account's `signing_keys` claim, with its pub/sub allow/deny lists and response
+// permission carried as the scope template. Without this, NATS rejects every user
+// JWT signed by a scoped key as "Authorization Violation" because the signing key
+// is not recognised by the account. Pass nil/empty scopedKeys for the simple case
+// where only the account's own key signs users.
+func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.Account, operator *entities.Operator, scopedKeys []*entities.ScopedSigningKey) (string, error) {
 	// Decrypt the operator's seed (operator signs the account JWT)
 	operatorSeedBytes, err := s.encryptor.Decrypt(ctx, operator.EncryptedSeed)
 	if err != nil {
@@ -74,13 +81,37 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 	// Configure JetStream limits if enabled
 	if account.JetStreamEnabled {
 		claims.Limits.JetStreamLimits = jwt.JetStreamLimits{
-			MemoryStorage:  account.JetStreamMaxMemory,
-			DiskStorage:    account.JetStreamMaxStorage,
-			Streams:        account.JetStreamMaxStreams,
-			Consumer:       account.JetStreamMaxConsumers,
+			MemoryStorage:        account.JetStreamMaxMemory,
+			DiskStorage:          account.JetStreamMaxStorage,
+			Streams:              account.JetStreamMaxStreams,
+			Consumer:             account.JetStreamMaxConsumers,
 			MemoryMaxStreamBytes: -1,
 			DiskMaxStreamBytes:   -1,
 		}
+	}
+
+	// Register each scoped signing key as a NATS scoped signer. `AddScopedSigner`
+	// embeds the template (pub/sub permissions + response limits) into the account
+	// JWT so NATS can apply them to any user JWT signed by that key.
+	for _, sk := range scopedKeys {
+		if sk == nil {
+			continue
+		}
+		scope := jwt.NewUserScope()
+		scope.Key = sk.PublicKey
+		scope.Role = sk.Name
+		scope.Description = sk.Description
+		scope.Template.Pub.Allow = sk.PubAllow
+		scope.Template.Pub.Deny = sk.PubDeny
+		scope.Template.Sub.Allow = sk.SubAllow
+		scope.Template.Sub.Deny = sk.SubDeny
+		if sk.ResponseMaxMsgs > 0 || sk.ResponseTTL > 0 {
+			scope.Template.Resp = &jwt.ResponsePermission{
+				MaxMsgs: sk.ResponseMaxMsgs,
+				Expires: sk.ResponseTTL,
+			}
+		}
+		claims.SigningKeys.AddScopedSigner(scope)
 	}
 
 	// Encode and sign the JWT with operator key
@@ -116,19 +147,12 @@ func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, a
 		// Set issuer account
 		claims.IssuerAccount = account.PublicKey
 
-		// Apply permissions from scoped signing key
-		claims.Pub.Allow = scopedKey.PubAllow
-		claims.Pub.Deny = scopedKey.PubDeny
-		claims.Sub.Allow = scopedKey.SubAllow
-		claims.Sub.Deny = scopedKey.SubDeny
-
-		// Apply response permissions
-		if scopedKey.ResponseMaxMsgs > 0 || scopedKey.ResponseTTL > 0 {
-			claims.Resp = &jwt.ResponsePermission{
-				MaxMsgs: scopedKey.ResponseMaxMsgs,
-				Expires: scopedKey.ResponseTTL,
-			}
-		}
+		// NATS requires scoped users to have completely empty UserPermissionLimits
+		// (`UserScope.ValidateScopedSigner` -> `HasEmptyPermissions`, which does a
+		// reflect.DeepEqual against the zero value). `NewUserClaims` pre-fills
+		// NatsLimits with NoLimit sentinels, so we have to clear them explicitly.
+		// `SetScoped(true)` zeroes the embedded UserPermissionLimits in one shot.
+		claims.SetScoped(true)
 	} else {
 		// Sign with account key directly
 		accountSeedBytes, err := s.encryptor.Decrypt(ctx, account.EncryptedSeed)

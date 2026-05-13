@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -84,8 +85,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("auth.token_expiry", "24h")
 	v.SetDefault("auth.casbin_model_path", "./config/casbin_model.conf")
 	v.SetDefault("auth.casbin_policy_path", "./config/casbin_policy.csv")
-	v.SetDefault("jetstream_defaults.max_memory", 1073741824)    // 1GB
-	v.SetDefault("jetstream_defaults.max_storage", 10737418240)  // 10GB
+	v.SetDefault("jetstream_defaults.max_memory", 1073741824)   // 1GB
+	v.SetDefault("jetstream_defaults.max_storage", 10737418240) // 10GB
 	v.SetDefault("jetstream_defaults.max_streams", 10)
 	v.SetDefault("jetstream_defaults.max_consumers", 100)
 
@@ -95,7 +96,8 @@ func Load(configPath string) (*Config, error) {
 
 	// Read config file
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
 			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
 		// Config file not found is acceptable, we'll use defaults
