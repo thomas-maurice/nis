@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,21 +22,22 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 )
 
 // ExportService provides business logic for exporting and importing operators
 type ExportService struct {
-	operatorRepo    repositories.OperatorRepository
-	accountRepo     repositories.AccountRepository
-	userRepo        repositories.UserRepository
-	scopedKeyRepo   repositories.ScopedSigningKeyRepository
-	clusterRepo     repositories.ClusterRepository
-	operatorService *OperatorService
-	accountService  *AccountService
-	userService     *UserService
+	operatorRepo     repositories.OperatorRepository
+	accountRepo      repositories.AccountRepository
+	userRepo         repositories.UserRepository
+	scopedKeyRepo    repositories.ScopedSigningKeyRepository
+	clusterRepo      repositories.ClusterRepository
+	operatorService  *OperatorService
+	accountService   *AccountService
+	userService      *UserService
 	scopedKeyService *ScopedSigningKeyService
-	clusterService  *ClusterService
-	encryptor       encryption.Encryptor
+	clusterService   *ClusterService
+	encryptor        encryption.Encryptor
 }
 
 // NewExportService creates a new export service
@@ -69,13 +71,13 @@ func NewExportService(
 
 // ExportedOperator represents a complete export of an operator and all its data
 type ExportedOperator struct {
-	Version     string                       `json:"version"`
-	ExportedAt  time.Time                    `json:"exported_at"`
-	Operator    *ExportedOperatorData        `json:"operator"`
-	Accounts    []*ExportedAccountData       `json:"accounts"`
-	ScopedKeys  []*ExportedScopedKeyData     `json:"scoped_keys"`
-	Users       []*ExportedUserData          `json:"users"`
-	Clusters    []*ExportedClusterData       `json:"clusters,omitempty"`
+	Version    string                   `json:"version"`
+	ExportedAt time.Time                `json:"exported_at"`
+	Operator   *ExportedOperatorData    `json:"operator"`
+	Accounts   []*ExportedAccountData   `json:"accounts"`
+	ScopedKeys []*ExportedScopedKeyData `json:"scoped_keys"`
+	Users      []*ExportedUserData      `json:"users"`
+	Clusters   []*ExportedClusterData   `json:"clusters,omitempty"`
 }
 
 // ExportedOperatorData contains operator data including encrypted seed
@@ -93,20 +95,20 @@ type ExportedOperatorData struct {
 
 // ExportedAccountData contains account data
 type ExportedAccountData struct {
-	ID                    uuid.UUID     `json:"id"`
-	OperatorID            uuid.UUID     `json:"operator_id"`
-	Name                  string        `json:"name"`
-	Description           string        `json:"description"`
-	PublicKey             string        `json:"public_key"`
-	EncryptedSeed         string        `json:"encrypted_seed"`
-	JetStreamEnabled      bool          `json:"jetstream_enabled"`
-	JetStreamMaxMemory    int64         `json:"jetstream_max_memory"`
-	JetStreamMaxStorage   int64         `json:"jetstream_max_storage"`
-	JetStreamMaxStreams   int64         `json:"jetstream_max_streams"`
-	JetStreamMaxConsumers int64         `json:"jetstream_max_consumers"`
-	JWT                   string        `json:"jwt"`
-	CreatedAt             time.Time     `json:"created_at"`
-	UpdatedAt             time.Time     `json:"updated_at"`
+	ID                    uuid.UUID `json:"id"`
+	OperatorID            uuid.UUID `json:"operator_id"`
+	Name                  string    `json:"name"`
+	Description           string    `json:"description"`
+	PublicKey             string    `json:"public_key"`
+	EncryptedSeed         string    `json:"encrypted_seed"`
+	JetStreamEnabled      bool      `json:"jetstream_enabled"`
+	JetStreamMaxMemory    int64     `json:"jetstream_max_memory"`
+	JetStreamMaxStorage   int64     `json:"jetstream_max_storage"`
+	JetStreamMaxStreams   int64     `json:"jetstream_max_streams"`
+	JetStreamMaxConsumers int64     `json:"jetstream_max_consumers"`
+	JWT                   string    `json:"jwt"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 // ExportedScopedKeyData contains scoped signing key data
@@ -129,29 +131,29 @@ type ExportedScopedKeyData struct {
 
 // ExportedUserData contains user data
 type ExportedUserData struct {
-	ID                  uuid.UUID  `json:"id"`
-	AccountID           uuid.UUID  `json:"account_id"`
-	Name                string     `json:"name"`
-	Description         string     `json:"description"`
-	PublicKey           string     `json:"public_key"`
-	EncryptedSeed       string     `json:"encrypted_seed"`
-	JWT                 string     `json:"jwt"`
-	ScopedSigningKeyID  *uuid.UUID `json:"scoped_signing_key_id,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	ID                 uuid.UUID  `json:"id"`
+	AccountID          uuid.UUID  `json:"account_id"`
+	Name               string     `json:"name"`
+	Description        string     `json:"description"`
+	PublicKey          string     `json:"public_key"`
+	EncryptedSeed      string     `json:"encrypted_seed"`
+	JWT                string     `json:"jwt"`
+	ScopedSigningKeyID *uuid.UUID `json:"scoped_signing_key_id,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // ExportedClusterData contains cluster data
 type ExportedClusterData struct {
-	ID                   uuid.UUID `json:"id"`
-	OperatorID           uuid.UUID `json:"operator_id"`
-	Name                 string    `json:"name"`
-	Description          string    `json:"description"`
-	ServerURLs           []string  `json:"server_urls"`
-	SystemAccountPubKey  string    `json:"system_account_pub_key"`
-	EncryptedCreds       string    `json:"encrypted_creds"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                  uuid.UUID `json:"id"`
+	OperatorID          uuid.UUID `json:"operator_id"`
+	Name                string    `json:"name"`
+	Description         string    `json:"description"`
+	ServerURLs          []string  `json:"server_urls"`
+	SystemAccountPubKey string    `json:"system_account_pub_key"`
+	EncryptedCreds      string    `json:"encrypted_creds"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // ExportOperator exports an operator and all its associated data
@@ -333,7 +335,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 
 	// Check if operator with this name already exists
 	existing, err := s.operatorRepo.GetByName(ctx, exported.Operator.Name)
-	if err != nil && err != repositories.ErrNotFound {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return fmt.Errorf("failed to check existing operator: %w", err)
 	}
 	if existing != nil {
@@ -820,9 +822,9 @@ func (s *ExportService) ensureSystemUser(ctx context.Context, operatorID uuid.UU
 		}
 
 		userReq := CreateUserRequest{
-			AccountID:         sysAccount.ID,
-			Name:              "system",
-			Description:       "System user for operator management",
+			AccountID:          sysAccount.ID,
+			Name:               "system",
+			Description:        "System user for operator management",
 			ScopedSigningKeyID: scopedKeyID,
 		}
 
@@ -836,7 +838,8 @@ func (s *ExportService) ensureSystemUser(ctx context.Context, operatorID uuid.UU
 	if err := s.updateClustersWithSystemUser(ctx, operatorID, systemUser.ID); err != nil {
 		// Log but don't fail - credentials can be set later
 		// This is not critical for the import to succeed
-		fmt.Printf("Warning: failed to update cluster credentials: %v\n", err)
+		logging.LogFromContext(ctx).Warn("failed to update cluster credentials after NSC import",
+			"operator_id", operatorID, "error", err)
 	}
 
 	return nil

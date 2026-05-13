@@ -1,7 +1,6 @@
 package grpc
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -9,12 +8,12 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/handlers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	httpInterface "github.com/thomas-maurice/nis/internal/interfaces/http"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // ServerConfig contains configuration for the gRPC server
@@ -26,9 +25,9 @@ type ServerConfig struct {
 
 // Server wraps the HTTP server for gRPC/ConnectRPC
 type Server struct {
-	config      ServerConfig
-	httpServer  *http.Server
-	mux         *http.ServeMux
+	config     ServerConfig
+	httpServer *http.Server
+	mux        *http.ServeMux
 }
 
 // NewServer creates a new gRPC server with all handlers wired up
@@ -98,9 +97,9 @@ func NewServer(
 				// Otherwise serve the UI
 				httpInterface.NewSPAHandler(uiFS).ServeHTTP(w, r)
 			})
-			fmt.Println("UI enabled and will be served at /")
+			logging.GetLogger().Info("UI enabled and will be served at /")
 		} else {
-			fmt.Printf("Warning: Failed to load UI filesystem: %v\n", err)
+			logging.GetLogger().Warn("failed to load UI filesystem", "error", err)
 		}
 	}
 
@@ -123,12 +122,12 @@ func NewServer(
 
 // Start starts the gRPC server
 func (s *Server) Start() error {
-	fmt.Printf("Starting gRPC server on %s\n", s.config.Address)
+	logging.GetLogger().Info("starting gRPC server", "address", s.config.Address)
 	return s.httpServer.ListenAndServe()
 }
 
 // Shutdown gracefully shuts down the gRPC server
 func (s *Server) Shutdown() error {
-	fmt.Println("Shutting down gRPC server...")
+	logging.GetLogger().Info("shutting down gRPC server")
 	return s.httpServer.Close()
 }

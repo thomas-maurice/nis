@@ -2,14 +2,15 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // UserHandler implements the UserService gRPC service
@@ -53,10 +54,10 @@ func (h *UserHandler) CreateUser(
 	}
 
 	user, err := h.service.CreateUser(ctx, services.CreateUserRequest{
-		AccountID:           accountID,
-		Name:                req.Msg.Name,
-		Description:         req.Msg.Description,
-		ScopedSigningKeyID:  scopedKeyID,
+		AccountID:          accountID,
+		Name:               req.Msg.Name,
+		Description:        req.Msg.Description,
+		ScopedSigningKeyID: scopedKeyID,
 	})
 	if err != nil {
 		return nil, err
@@ -85,7 +86,7 @@ func (h *UserHandler) GetUser(
 
 	user, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -124,7 +125,7 @@ func (h *UserHandler) GetUserByName(
 
 	user, err := h.service.GetUserByName(ctx, accountID, req.Msg.Name)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -203,7 +204,7 @@ func (h *UserHandler) UpdateUser(
 	// First get the user to check which account it belongs to
 	existingUser, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -219,7 +220,7 @@ func (h *UserHandler) UpdateUser(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -249,7 +250,7 @@ func (h *UserHandler) DeleteUser(
 	// First get the user to check which account it belongs to
 	existingUser, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -262,7 +263,7 @@ func (h *UserHandler) DeleteUser(
 
 	err = h.service.DeleteUser(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -290,7 +291,7 @@ func (h *UserHandler) GetUserCredentials(
 	// First get the user to check permissions
 	user, err := h.service.GetUser(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -303,7 +304,7 @@ func (h *UserHandler) GetUserCredentials(
 
 	creds, err := h.service.GetUserCredentials(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err

@@ -1,4 +1,4 @@
-.PHONY: generate build build-ui build-server build-cli build-all test lint clean migrate-up migrate-down run run-demo run-stop run-clean run-status run-logs run-logs-nats run-logs-pg serve-local run-dev install-cli install-ui generate-key generate-jwt-secret generate-encryption-key docker-build docker-run docker-stop docker-logs help
+.PHONY: generate build build-ui build-server build-cli build-all test test-e2e lint clean migrate-up migrate-down run run-demo run-stop run-clean run-status run-logs run-logs-nats run-logs-pg serve-local run-dev install-cli install-ui generate-key generate-jwt-secret generate-encryption-key docker-build docker-run docker-stop docker-logs help
 
 # Version from git tags (override with: make build-all VERSION=1.2.3)
 VERSION ?= $(shell git describe --tags --always --dirty)
@@ -37,6 +37,14 @@ build-all: build-server build-cli
 # Run all tests
 test:
 	go test -v -race -coverprofile=coverage.out ./...
+
+# Run end-to-end suite. Boots a fresh NIS, a real NATS in Docker, exercises the
+# identity flow over Connect-RPC, and asserts NATS-side permissions. Behind a
+# build tag so it stays out of `make test`. Required after any refactor that
+# touches services / handlers / NATS plumbing — CI runs it on every PR.
+test-e2e: build-server
+	@echo "==> Running e2e suite (requires docker daemon)..."
+	go test -tags=e2e -v -timeout=10m ./tests/e2e/...
 
 # Run linter
 lint:

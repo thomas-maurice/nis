@@ -151,8 +151,11 @@ Via flags:
 ```bash
 make build-all    # Server + CLI + UI
 make build-ui     # UI only
-go test ./...     # Run tests
+make test         # Unit + integration tests
+make test-e2e     # End-to-end suite (boots NIS + real NATS in Docker, asserts permissions)
 ```
+
+`make test-e2e` is the regression net for refactors of the server, services, NATS plumbing, persistence, or encryption layers. CI runs it on every PR; run it locally after non-trivial server-side changes. Requires the Docker daemon for the NATS container; uses random TCP ports so it can run alongside `make run`.
 
 Convenience targets:
 

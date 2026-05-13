@@ -2,16 +2,17 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // ClusterHandler implements the ClusterService gRPC service
@@ -96,7 +97,7 @@ func (h *ClusterHandler) GetCluster(
 
 	cluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -125,7 +126,7 @@ func (h *ClusterHandler) GetClusterByName(
 
 	cluster, err := h.service.GetClusterByName(ctx, req.Msg.Name)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -154,7 +155,7 @@ func (h *ClusterHandler) ListClusters(
 
 	// If operator_id is empty, list all clusters across all operators (filtered by permissions)
 	if req.Msg.OperatorId == "" {
-		clusters, err := h.service.ListAllClusters(ctx, mappers.ProtoToListOptions(req.Msg.Options))
+		clusters, err := h.service.ListClusters(ctx, mappers.ProtoToListOptions(req.Msg.Options))
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +212,7 @@ func (h *ClusterHandler) UpdateCluster(
 	// First get the cluster to check which operator it belongs to
 	existingCluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -233,7 +234,7 @@ func (h *ClusterHandler) UpdateCluster(
 
 	cluster, err := h.service.UpdateCluster(ctx, id, updateReq)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -263,7 +264,7 @@ func (h *ClusterHandler) UpdateClusterCredentials(
 	// First get the cluster to check which operator it belongs to
 	existingCluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -283,7 +284,7 @@ func (h *ClusterHandler) UpdateClusterCredentials(
 
 	cluster, err := h.service.UpdateClusterCredentials(ctx, id, systemAccountUserID)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -313,7 +314,7 @@ func (h *ClusterHandler) DeleteCluster(
 	// First get the cluster to check which operator it belongs to
 	existingCluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -326,7 +327,7 @@ func (h *ClusterHandler) DeleteCluster(
 
 	err = h.service.DeleteCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -354,7 +355,7 @@ func (h *ClusterHandler) GetClusterCredentials(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -367,7 +368,7 @@ func (h *ClusterHandler) GetClusterCredentials(
 
 	creds, err := h.service.GetClusterCredentials(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -407,7 +408,7 @@ func (h *ClusterHandler) SyncCluster(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -463,7 +464,7 @@ func (h *ClusterHandler) ListResolverAccounts(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, clusterID)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -503,7 +504,7 @@ func (h *ClusterHandler) DeleteResolverAccount(
 	// First get the cluster to check which operator it belongs to
 	cluster, err := h.service.GetCluster(ctx, clusterID)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err

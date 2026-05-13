@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/nats"
 )
 
@@ -50,7 +52,7 @@ type CreateClusterRequest struct {
 	Description         string
 	ServerURLs          []string
 	OperatorID          uuid.UUID
-	SystemAccountPubKey string   // Optional
+	SystemAccountPubKey string     // Optional
 	SystemAccountUserID *uuid.UUID // Optional - if provided, generates encrypted creds
 	SkipVerifyTLS       bool
 }
@@ -78,7 +80,7 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 
 	// Check if cluster with this name already exists
 	existing, err := s.repo.GetByName(ctx, req.Name)
-	if err != nil && err != repositories.ErrNotFound {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing cluster: %w", err)
 	}
 	if existing != nil {
@@ -128,7 +130,8 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 			if err != nil {
 				// Log but don't fail cluster creation if credentials can't be set
 				// Credentials can be set manually later
-				fmt.Printf("Warning: failed to set automatic cluster credentials: %v\n", err)
+				logging.LogFromContext(ctx).Warn("failed to set automatic cluster credentials",
+					"cluster", cluster.Name, "error", err)
 			}
 		}
 	}
@@ -148,11 +151,6 @@ func (s *ClusterService) GetClusterByName(ctx context.Context, name string) (*en
 
 // ListClusters retrieves all clusters with pagination
 func (s *ClusterService) ListClusters(ctx context.Context, opts repositories.ListOptions) ([]*entities.Cluster, error) {
-	return s.repo.List(ctx, opts)
-}
-
-// ListAllClusters lists all clusters across all operators
-func (s *ClusterService) ListAllClusters(ctx context.Context, opts repositories.ListOptions) ([]*entities.Cluster, error) {
 	return s.repo.List(ctx, opts)
 }
 
@@ -183,7 +181,7 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 	if req.Name != nil && *req.Name != cluster.Name {
 		// Check if new name is already taken
 		existing, err := s.repo.GetByName(ctx, *req.Name)
-		if err != nil && err != repositories.ErrNotFound {
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("failed to check existing cluster: %w", err)
 		}
 		if existing != nil && existing.ID != id {
@@ -314,25 +312,35 @@ type SyncError struct {
 	Error            string
 }
 
+// openManagedCluster fetches a cluster, decrypts its system credentials, and opens a NATS
+// connection. Returns the live client and the cluster entity. Caller MUST close the client.
+func (s *ClusterService) openManagedCluster(ctx context.Context, id uuid.UUID) (*nats.Client, *entities.Cluster, error) {
+	cluster, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get cluster: %w", err)
+	}
+	if cluster.EncryptedCreds == "" {
+		return nil, nil, fmt.Errorf("cluster has no system account credentials configured")
+	}
+	credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to decrypt credentials: %w", err)
+	}
+	client, err := nats.NewClientFromCreds(cluster.ServerURLs, string(credsBytes), cluster.SkipVerifyTLS)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
+	}
+	return client, cluster, nil
+}
+
 // SyncCluster pushes all account JWTs for the operator to the NATS cluster resolver
 // If prune is true, it also removes accounts from the resolver that are not in the database
 func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bool) (*SyncResult, error) {
-	// Get cluster
-	cluster, err := s.repo.GetByID(ctx, id)
+	natsClient, cluster, err := s.openManagedCluster(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %w", err)
+		return nil, err
 	}
-
-	if cluster.EncryptedCreds == "" {
-		return nil, fmt.Errorf("cluster has no system account credentials configured")
-	}
-
-	// Decrypt credentials
-	credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt credentials: %w", err)
-	}
-	creds := string(credsBytes)
+	defer func() { _ = natsClient.Close() }()
 
 	// Get all accounts for this operator
 	accounts, err := s.accountRepo.ListByOperator(ctx, cluster.OperatorID, repositories.ListOptions{
@@ -342,13 +350,6 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bo
 	if err != nil {
 		return nil, fmt.Errorf("failed to list accounts: %w", err)
 	}
-
-	// Connect to NATS using cluster credentials
-	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
-	}
-	defer func() { _ = natsClient.Close() }()
 
 	result := &SyncResult{
 		Accounts:        make([]string, 0),
@@ -450,64 +451,27 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bo
 
 // ListResolverAccounts lists all account public keys currently on the NATS resolver
 func (s *ClusterService) ListResolverAccounts(ctx context.Context, clusterID uuid.UUID) ([]string, error) {
-	// Get cluster
-	cluster, err := s.repo.GetByID(ctx, clusterID)
+	natsClient, _, err := s.openManagedCluster(ctx, clusterID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	if cluster.EncryptedCreds == "" {
-		return nil, fmt.Errorf("cluster has no system account credentials configured")
-	}
-
-	// Decrypt credentials
-	credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt credentials: %w", err)
-	}
-	creds := string(credsBytes)
-
-	// Connect to NATS using cluster credentials
-	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS cluster: %w", err)
+		return nil, err
 	}
 	defer func() { _ = natsClient.Close() }()
 
-	// List accounts from resolver
 	return natsClient.ListAccountsFromResolver(ctx)
 }
 
 // DeleteResolverAccount removes an account from the NATS resolver
 func (s *ClusterService) DeleteResolverAccount(ctx context.Context, clusterID uuid.UUID, publicKey string) error {
-	// Get cluster
-	cluster, err := s.repo.GetByID(ctx, clusterID)
+	natsClient, cluster, err := s.openManagedCluster(ctx, clusterID)
 	if err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
+		return err
 	}
-
-	if cluster.EncryptedCreds == "" {
-		return fmt.Errorf("cluster has no system account credentials configured")
-	}
+	defer func() { _ = natsClient.Close() }()
 
 	// Safety check: don't allow deleting the system account
 	if publicKey == cluster.SystemAccountPubKey {
 		return fmt.Errorf("cannot delete system account from resolver")
 	}
-
-	// Decrypt credentials
-	credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
-	if err != nil {
-		return fmt.Errorf("failed to decrypt credentials: %w", err)
-	}
-	creds := string(credsBytes)
-
-	// Connect to NATS using cluster credentials
-	natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
-	if err != nil {
-		return fmt.Errorf("failed to connect to NATS cluster: %w", err)
-	}
-	defer func() { _ = natsClient.Close() }()
 
 	// Get the operator to sign the delete claim
 	operator, err := s.operatorRepo.GetByID(ctx, cluster.OperatorID)
@@ -525,13 +489,6 @@ func (s *ClusterService) DeleteResolverAccount(ctx context.Context, clusterID uu
 	return natsClient.DeleteAccountJWT(ctx, deleteClaimJWT)
 }
 
-// connectToCluster creates a NATS client connection using credentials
-func (s *ClusterService) connectToCluster(serverURLs []string, creds string, skipVerifyTLS bool) (*nats.Client, error) {
-	// Use the NATS client from infrastructure package
-	// It now supports credentials from content directly
-	return nats.NewClientFromCreds(serverURLs, creds, skipVerifyTLS)
-}
-
 // CheckClusterHealth checks if a cluster is reachable and updates its health status
 func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) error {
 	cluster, err := s.repo.GetByID(ctx, id)
@@ -545,19 +502,12 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 
 	// Try to connect to the cluster
 	if cluster.EncryptedCreds != "" {
-		credsBytes, err := s.encryptor.Decrypt(ctx, cluster.EncryptedCreds)
-		if err != nil {
-			healthErr = fmt.Sprintf("failed to decrypt credentials: %v", err)
+		natsClient, _, connErr := s.openManagedCluster(ctx, id)
+		if connErr != nil {
+			healthErr = connErr.Error()
 		} else {
-			creds := string(credsBytes)
-			natsClient, err := s.connectToCluster(cluster.ServerURLs, creds, cluster.SkipVerifyTLS)
-			if err != nil {
-				healthErr = fmt.Sprintf("failed to connect: %v", err)
-			} else {
-				// Successfully connected
-				healthy = true
-				_ = natsClient.Close()
-			}
+			healthy = true
+			_ = natsClient.Close()
 		}
 	} else {
 		healthErr = "no credentials configured"

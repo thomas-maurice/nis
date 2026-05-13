@@ -15,6 +15,7 @@ import (
 
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	grpcServer "github.com/thomas-maurice/nis/internal/interfaces/grpc"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
@@ -91,14 +92,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = repoFactory.Close() }()
 
+	logger := logging.GetLogger()
+
 	// Run migrations if enabled
 	migrationsDone := false
 	if autoMigrate {
-		fmt.Println("Running database migrations...")
+		logger.Info("running database migrations")
 		if err := repoFactory.Migrate(ctx); err != nil {
 			return fmt.Errorf("failed to run migrations: %w", err)
 		}
-		fmt.Println("Migrations completed successfully")
+		logger.Info("migrations completed successfully")
 		migrationsDone = true
 	} else {
 		// Assume migrations are done if auto-migrate is disabled
@@ -227,14 +230,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// Do an initial health check after 5 seconds
 		time.Sleep(5 * time.Second)
 		if err := clusterService.CheckAllClustersHealth(ctx); err != nil {
-			fmt.Printf("Health check error: %v\n", err)
+			logger.Error("health check error", "error", err)
 		}
 
 		for {
 			select {
 			case <-ticker.C:
 				if err := clusterService.CheckAllClustersHealth(ctx); err != nil {
-					fmt.Printf("Health check error: %v\n", err)
+					logger.Error("health check error", "error", err)
 				}
 			case <-ctx.Done():
 				return
@@ -245,8 +248,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start server in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
-		fmt.Printf("Starting NATS Identity Service on %s\n", address)
-		fmt.Println("Cluster health checks will run every 60 seconds")
+		logger.Info("starting NATS Identity Service",
+			"address", address, "health_check_interval", "60s")
 		if err := server.Start(); err != nil {
 			errChan <- err
 		}
@@ -255,7 +258,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Wait for shutdown signal or error
 	select {
 	case <-sigChan:
-		fmt.Println("\nReceived shutdown signal, gracefully shutting down...")
+		logger.Info("received shutdown signal, gracefully shutting down")
 		cancel()
 		return server.Shutdown()
 	case err := <-errChan:
@@ -300,7 +303,8 @@ func initEncryptionService() (encryption.Encryptor, error) {
 			return nil, fmt.Errorf("failed to create encryptor: %w", err)
 		}
 
-		fmt.Printf("Loaded %d encryption key(s) from config (current: %s)\n", len(keys), currentKeyID)
+		logging.GetLogger().Info("loaded encryption keys from config",
+			"count", len(keys), "current_key_id", currentKeyID)
 		return encryptor, nil
 	}
 
@@ -333,19 +337,12 @@ func initEncryptionService() (encryption.Encryptor, error) {
 		return nil, fmt.Errorf("failed to create encryptor: %w", err)
 	}
 
-	fmt.Printf("Using encryption key with ID: %s\n", keyID)
+	logging.GetLogger().Info("using encryption key", "key_id", keyID)
 	return encryptor, nil
 }
 
 func initCasbin() (*casbin.Enforcer, error) {
-	// Load Casbin model and policy from embedded files in services package
-	modelPath := "internal/application/services/casbin_model.conf"
-	policyPath := "internal/application/services/casbin_policy.csv"
-
-	enforcer, err := casbin.NewEnforcer(modelPath, policyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Casbin enforcer: %w", err)
-	}
-
-	return enforcer, nil
+	// Model and policy are embedded in the services package via //go:embed,
+	// so this works regardless of the binary's launch directory.
+	return services.NewCasbinEnforcer()
 }

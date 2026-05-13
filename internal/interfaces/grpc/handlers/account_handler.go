@@ -2,15 +2,16 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // AccountHandler implements the AccountService gRPC service
@@ -52,14 +53,14 @@ func (h *AccountHandler) CreateAccount(
 		mappers.ProtoToJetStreamLimits(req.Msg.JetstreamLimits)
 
 	account, err := h.service.CreateAccount(ctx, services.CreateAccountRequest{
-		OperatorID:              operatorID,
-		Name:                    req.Msg.Name,
-		Description:             req.Msg.Description,
-		JetStreamEnabled:        enabled,
-		JetStreamMaxMemory:      maxMem,
-		JetStreamMaxStorage:     maxStor,
-		JetStreamMaxStreams:     maxStr,
-		JetStreamMaxConsumers:   maxCons,
+		OperatorID:            operatorID,
+		Name:                  req.Msg.Name,
+		Description:           req.Msg.Description,
+		JetStreamEnabled:      enabled,
+		JetStreamMaxMemory:    maxMem,
+		JetStreamMaxStorage:   maxStor,
+		JetStreamMaxStreams:   maxStr,
+		JetStreamMaxConsumers: maxCons,
 	})
 	if err != nil {
 		return nil, err
@@ -93,7 +94,7 @@ func (h *AccountHandler) GetAccount(
 
 	account, err := h.service.GetAccount(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -122,7 +123,7 @@ func (h *AccountHandler) GetAccountByName(
 
 	account, err := h.service.GetAccountByName(ctx, operatorID, req.Msg.Name)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -196,7 +197,7 @@ func (h *AccountHandler) UpdateAccount(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -228,7 +229,7 @@ func (h *AccountHandler) UpdateJetStreamLimits(
 		MaxConsumers: maxCons,
 	})
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -251,7 +252,7 @@ func (h *AccountHandler) DeleteAccount(
 
 	err = h.service.DeleteAccount(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err

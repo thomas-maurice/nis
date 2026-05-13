@@ -2,16 +2,17 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // AuthHandler implements the AuthService gRPC service
@@ -110,7 +111,7 @@ func (h *AuthHandler) CreateAPIUser(
 		AccountID:  accountID,
 	}, requestingUser)
 	if err != nil {
-		if err == repositories.ErrAlreadyExists {
+		if errors.Is(err, repositories.ErrAlreadyExists) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
@@ -139,7 +140,7 @@ func (h *AuthHandler) GetAPIUser(
 
 	user, err := h.service.GetAPIUser(ctx, id, requestingUser)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
@@ -163,7 +164,7 @@ func (h *AuthHandler) GetAPIUserByUsername(
 
 	user, err := h.service.GetAPIUserByUsername(ctx, req.Msg.Username, requestingUser)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
@@ -215,7 +216,7 @@ func (h *AuthHandler) UpdateAPIUserPassword(
 		Password: req.Msg.Password,
 	}, requestingUser)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
@@ -269,7 +270,7 @@ func (h *AuthHandler) UpdateAPIUserPermissions(
 		AccountID:  accountID,
 	}, requestingUser)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
@@ -298,7 +299,7 @@ func (h *AuthHandler) DeleteAPIUser(
 
 	err = h.service.DeleteAPIUser(ctx, id, requestingUser)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)

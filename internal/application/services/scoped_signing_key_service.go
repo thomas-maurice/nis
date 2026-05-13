@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -60,7 +61,7 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 
 	// Check if scoped key with this name already exists for this account
 	existing, err := s.repo.GetByName(ctx, req.AccountID, req.Name)
-	if err != nil && err != repositories.ErrNotFound {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing scoped signing key: %w", err)
 	}
 	if existing != nil {
@@ -156,7 +157,7 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 	if req.Name != nil && *req.Name != scopedKey.Name {
 		// Check if new name is already taken for this account
 		existing, err := s.repo.GetByName(ctx, scopedKey.AccountID, *req.Name)
-		if err != nil && err != repositories.ErrNotFound {
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("failed to check existing scoped signing key: %w", err)
 		}
 		if existing != nil && existing.ID != id {

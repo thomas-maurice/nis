@@ -2,26 +2,27 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // OperatorHandler implements the OperatorService gRPC service
 type OperatorHandler struct {
-	service    *services.OperatorService
+	service     *services.OperatorService
 	permService *services.PermissionService
 }
 
 // NewOperatorHandler creates a new OperatorHandler
 func NewOperatorHandler(service *services.OperatorService, permService *services.PermissionService) nisv1connect.OperatorServiceHandler {
 	return &OperatorHandler{
-		service:    service,
+		service:     service,
 		permService: permService,
 	}
 }
@@ -68,7 +69,7 @@ func (h *OperatorHandler) GetOperator(
 
 	operator, err := h.service.GetOperator(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -92,7 +93,7 @@ func (h *OperatorHandler) GetOperatorByName(
 
 	operator, err := h.service.GetOperatorByName(ctx, req.Msg.Name)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -161,7 +162,7 @@ func (h *OperatorHandler) UpdateOperator(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -195,7 +196,7 @@ func (h *OperatorHandler) SetSystemAccount(
 
 	operator, err := h.service.SetSystemAccount(ctx, id, req.Msg.SystemAccountPubKey)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -229,7 +230,7 @@ func (h *OperatorHandler) DeleteOperator(
 
 	err = h.service.DeleteOperator(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -261,7 +262,7 @@ func (h *OperatorHandler) GenerateInclude(
 
 	config, err := h.service.GenerateInclude(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err

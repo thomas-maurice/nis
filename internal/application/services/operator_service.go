@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -59,7 +60,7 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 
 	// Check if operator with this name already exists
 	existing, err := s.repo.GetByName(ctx, req.Name)
-	if err != nil && err != repositories.ErrNotFound {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing operator: %w", err)
 	}
 	if existing != nil {
@@ -204,7 +205,7 @@ func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req 
 	if req.Name != nil && *req.Name != operator.Name {
 		// Check if new name is already taken
 		existing, err := s.repo.GetByName(ctx, *req.Name)
-		if err != nil && err != repositories.ErrNotFound {
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("failed to check existing operator: %w", err)
 		}
 		if existing != nil && existing.ID != id {

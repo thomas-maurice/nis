@@ -2,16 +2,17 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"connectrpc.com/connect"
+	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
-	pb "github.com/thomas-maurice/nis/gen/nis/v1"
-	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 )
 
 // ScopedSigningKeyHandler implements the ScopedSigningKeyService gRPC service
@@ -90,7 +91,7 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKey(
 
 	key, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -129,7 +130,7 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKeyByName(
 
 	key, err := h.service.GetScopedSigningKeyByName(ctx, accountID, req.Msg.Name)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -208,7 +209,7 @@ func (h *ScopedSigningKeyHandler) UpdateScopedSigningKey(
 	// First get the key to check which account it belongs to
 	existingKey, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -224,7 +225,7 @@ func (h *ScopedSigningKeyHandler) UpdateScopedSigningKey(
 		Description: req.Msg.Description,
 	})
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -264,7 +265,7 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 	// First get the key to check which account it belongs to
 	existingKey, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err
@@ -277,7 +278,7 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 
 	err = h.service.DeleteScopedSigningKey(ctx, id)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, err

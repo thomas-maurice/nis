@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,15 +11,16 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 )
 
 // AccountService provides business logic for account management
 type AccountService struct {
-	repo             repositories.AccountRepository
-	operatorRepo     repositories.OperatorRepository
-	scopedKeyRepo    repositories.ScopedSigningKeyRepository
-	jwtService       *JWTService
-	encryptor        encryption.Encryptor
+	repo          repositories.AccountRepository
+	operatorRepo  repositories.OperatorRepository
+	scopedKeyRepo repositories.ScopedSigningKeyRepository
+	jwtService    *JWTService
+	encryptor     encryption.Encryptor
 }
 
 // NewAccountService creates a new account service
@@ -65,7 +67,7 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 
 	// Check if account with this name already exists for this operator
 	existing, err := s.repo.GetByName(ctx, req.OperatorID, req.Name)
-	if err != nil && err != repositories.ErrNotFound {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing account: %w", err)
 	}
 	if existing != nil {
@@ -118,12 +120,14 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 	if err != nil {
 		// Rollback account creation if signing key creation fails
 		if deleteErr := s.repo.Delete(ctx, account.ID); deleteErr != nil {
-			fmt.Printf("Error: failed to rollback account creation after signing key failure: %v\n", deleteErr)
+			logging.LogFromContext(ctx).Error("failed to rollback account creation after signing key failure",
+				"account", account.Name, "error", deleteErr)
 		}
 		return nil, fmt.Errorf("failed to create default scoped signing key for account: %w", err)
 	}
 
-	fmt.Printf("Created account '%s' with default scoped signing key '%s'\n", account.Name, defaultKey.Name)
+	logging.LogFromContext(ctx).Info("created account with default scoped signing key",
+		"account", account.Name, "scoped_key", defaultKey.Name)
 
 	return account, nil
 }
@@ -150,12 +154,12 @@ func (s *AccountService) createDefaultScopedSigningKey(ctx context.Context, acco
 		Description:     "Default scoped signing key with unlimited account permissions",
 		EncryptedSeed:   encryptedSeed,
 		PublicKey:       pubKey,
-		PubAllow:        []string{},          // Empty = allow all
+		PubAllow:        []string{}, // Empty = allow all
 		PubDeny:         []string{},
-		SubAllow:        []string{},          // Empty = allow all
+		SubAllow:        []string{}, // Empty = allow all
 		SubDeny:         []string{},
-		ResponseMaxMsgs: 0,                   // 0 = unlimited
-		ResponseTTL:     0,                   // 0 = unlimited
+		ResponseMaxMsgs: 0, // 0 = unlimited
+		ResponseTTL:     0, // 0 = unlimited
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
@@ -212,7 +216,7 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 	if req.Name != nil && *req.Name != account.Name {
 		// Check if new name is already taken for this operator
 		existing, err := s.repo.GetByName(ctx, account.OperatorID, *req.Name)
-		if err != nil && err != repositories.ErrNotFound {
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("failed to check existing account: %w", err)
 		}
 		if existing != nil && existing.ID != id {

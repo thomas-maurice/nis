@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,11 +15,11 @@ import (
 
 // UserService provides business logic for user management
 type UserService struct {
-	repo              repositories.UserRepository
-	accountRepo       repositories.AccountRepository
-	scopedKeyRepo     repositories.ScopedSigningKeyRepository
-	jwtService        *JWTService
-	encryptor         encryption.Encryptor
+	repo          repositories.UserRepository
+	accountRepo   repositories.AccountRepository
+	scopedKeyRepo repositories.ScopedSigningKeyRepository
+	jwtService    *JWTService
+	encryptor     encryption.Encryptor
 }
 
 // NewUserService creates a new user service
@@ -61,7 +62,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*e
 
 	// Check if user with this name already exists for this account
 	existing, err := s.repo.GetByName(ctx, req.AccountID, req.Name)
-	if err != nil && err != repositories.ErrNotFound {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing user: %w", err)
 	}
 	if existing != nil {
@@ -169,7 +170,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 	if req.Name != nil && *req.Name != user.Name {
 		// Check if new name is already taken for this account
 		existing, err := s.repo.GetByName(ctx, user.AccountID, *req.Name)
-		if err != nil && err != repositories.ErrNotFound {
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("failed to check existing user: %w", err)
 		}
 		if existing != nil && existing.ID != id {

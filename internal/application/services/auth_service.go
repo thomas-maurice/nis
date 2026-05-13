@@ -2,14 +2,15 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthService handles authentication and authorization
@@ -67,7 +68,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 	// Get user by username
 	user, err := s.apiUserRepo.GetByUsername(ctx, req.Username)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("invalid username or password")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -123,7 +124,7 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (*e
 
 	user, err := s.apiUserRepo.GetByID(ctx, userID)
 	if err != nil {
-		if err == repositories.ErrNotFound {
+		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
