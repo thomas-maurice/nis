@@ -14,23 +14,54 @@ NIS manages the complete lifecycle of NATS JWT authentication:
 
 ## Quick Start
 
-### Docker Compose (PostgreSQL)
+### One-command dev stack (`make run`)
+
+The fastest path from a clean checkout to a working stack. Requires Docker and Go 1.25+.
 
 ```bash
-# Start all services (NIS + PostgreSQL + NATS)
+make run
+# Builds NIS, starts Postgres + NATS in Docker, runs NIS on the host pointing at
+# both, creates an admin user. UI at http://localhost:8080 (admin / admin123).
+
+make run-demo
+# Same as above, plus: creates a demo operator, restarts NATS with JWT auth on,
+# registers a demo cluster/account/user, syncs JWTs, and writes a credentials
+# file to .run/app-user.creds. Verify NATS works:
+nats --creds=.run/app-user.creds --server=nats://localhost:4222 rtt
+```
+
+Lifecycle:
+
+```bash
+make run-status   # show what's running
+make run-logs     # tail NIS server log (run-logs-nats / run-logs-pg for the containers)
+make run-stop     # stop server + remove containers (keeps Postgres data volume)
+make run-clean    # full wipe (containers + Postgres volume + ./.run/)
+```
+
+Local state (pid file, server log, generated NATS config, resolver/jetstream dirs, creds) lives in `./.run/` and is gitignored. Postgres data lives in the Docker volume `nis_dev_pg_data`. Override defaults via env: `RUN_PG_PORT`, `RUN_PG_PASS`, `RUN_JWT_SECRET`, `RUN_ENC_KEY` (see `Makefile`).
+
+### Docker Compose (all-in-Docker, SQLite)
+
+```bash
+# Start all services (NIS + NATS, SQLite-backed)
 docker-compose up -d
 
 # Access UI at http://localhost:8080
-# Login: admin/admin123 (created automatically)
+# Login: admin/admin123 (created by the nis-setup container)
 
 # Stop all services
 docker-compose down
 ```
 
+For a Postgres-backed compose stack, use `example/docker-compose.yml`.
+
 ### Binary
 
 ```bash
 ./nis serve --jwt-secret "min-32-bytes" --encryption-key "exactly-32-bytes"
+./nis user create admin --password admin123 --role admin
+./nisctl login http://localhost:8080 -u admin -p admin123
 ./nisctl operator create my-operator
 ./nisctl account create my-account --operator my-operator
 ./nisctl user create my-user --operator my-operator --account my-account
@@ -122,6 +153,16 @@ make build-all    # Server + CLI + UI
 make build-ui     # UI only
 go test ./...     # Run tests
 ```
+
+Convenience targets:
+
+| Target | What it does |
+|---|---|
+| `make run` | Full dev stack: Postgres + NATS (Docker) + NIS (host) + admin user |
+| `make run-demo` | `run` + JWT bootstrap (operator, demo cluster/account/user, creds file) |
+| `make run-stop` / `run-clean` | Stop / wipe the dev stack |
+| `make serve-local` | Legacy host-only server, SQLite, hardcoded dev secrets |
+| `make docker-build` / `docker-run` / `docker-stop` | Single-container Docker image lifecycle |
 
 ## Production
 

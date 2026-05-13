@@ -38,6 +38,7 @@ Thumbs.db
 *.db-shm
 *.db-wal
 /data/
+/.run/
 
 # Logs
 *.log
