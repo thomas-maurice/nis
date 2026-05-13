@@ -6,17 +6,11 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/thomas-maurice/nis/internal/config"
 	"github.com/thomas-maurice/nis/migrations"
 )
 
 func TestNewDB_SQLite(t *testing.T) {
-	cfg := config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   ":memory:",
-	}
-
-	db, err := NewDB(cfg)
+	db, err := NewDB("sqlite", ":memory:")
 	require.NoError(t, err)
 	require.NotNil(t, db)
 
@@ -32,13 +26,7 @@ func TestNewDB_SQLite(t *testing.T) {
 }
 
 func TestMigrations(t *testing.T) {
-	// Create in-memory SQLite database
-	cfg := config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   ":memory:",
-	}
-
-	db, err := NewDB(cfg)
+	db, err := NewDB("sqlite", ":memory:")
 	require.NoError(t, err)
 	defer func() { _ = Close(db) }()
 
@@ -101,23 +89,14 @@ func TestMigrations(t *testing.T) {
 }
 
 func TestNewDB_InvalidDriver(t *testing.T) {
-	cfg := config.DatabaseConfig{
-		Driver: "invalid",
-	}
-
-	db, err := NewDB(cfg)
+	db, err := NewDB("invalid", "")
 	assert.Error(t, err)
 	assert.Nil(t, db)
 	assert.Contains(t, err.Error(), "unsupported database driver")
 }
 
 func TestNewDB_SQLite_MissingPath(t *testing.T) {
-	cfg := config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   "",
-	}
-
-	db, err := NewDB(cfg)
+	db, err := NewDB("sqlite", "")
 	assert.Error(t, err)
 	assert.Nil(t, db)
 	assert.Contains(t, err.Error(), "SQLite path is required")

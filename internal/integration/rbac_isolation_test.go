@@ -81,22 +81,9 @@ func (s *RBACIsolationTestSuite) SetupSuite() {
 
 	// Initialize business services
 	// Create accountService first (required by operatorService)
-	s.accountService = services.NewAccountService(
-		repoFactory.AccountRepository(),
-		repoFactory.OperatorRepository(),
-		repoFactory.ScopedSigningKeyRepository(),
-		s.jwtService,
-		encryptor,
-	)
+	s.accountService = services.NewAccountService(repoFactory, s.jwtService, encryptor)
 
-	s.operatorService = services.NewOperatorService(
-		repoFactory.OperatorRepository(),
-		repoFactory.AccountRepository(),
-		repoFactory.UserRepository(),
-		s.accountService,
-		s.jwtService,
-		encryptor,
-	)
+	s.operatorService = services.NewOperatorService(repoFactory, s.accountService, s.jwtService, encryptor)
 
 	s.userService = services.NewUserService(
 		repoFactory.UserRepository(),

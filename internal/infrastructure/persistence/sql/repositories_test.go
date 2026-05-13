@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/thomas-maurice/nis/internal/config"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/migrations"
@@ -30,12 +29,7 @@ type RepositoryTestSuite struct {
 
 func (s *RepositoryTestSuite) SetupSuite() {
 	// Create in-memory SQLite database
-	cfg := config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   ":memory:",
-	}
-
-	db, err := NewDB(cfg)
+	db, err := NewDB("sqlite", ":memory:")
 	require.NoError(s.T(), err)
 	s.db = db
 

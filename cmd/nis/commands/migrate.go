@@ -44,17 +44,21 @@ func init() {
 	migrateCmd.AddCommand(migrateDownCmd)
 	migrateCmd.AddCommand(migrateStatusCmd)
 
-	// Database flags for migrate commands
+	// Database flags for migrate commands. Wired into viper via
+	// applyFlagOverrides in each RunE (see viper_overrides.go).
 	for _, cmd := range []*cobra.Command{migrateUpCmd, migrateDownCmd, migrateStatusCmd} {
 		cmd.Flags().String("db-driver", "sqlite", "database driver (sqlite or postgres)")
 		cmd.Flags().String("db-dsn", "nis.db", "database connection string")
-
-		_ = viper.BindPFlag("database.driver", cmd.Flags().Lookup("db-driver"))
-		_ = viper.BindPFlag("database.dsn", cmd.Flags().Lookup("db-dsn"))
 	}
 }
 
+var migrateFlagMapping = map[string]string{
+	"db-driver": "database.driver",
+	"db-dsn":    "database.dsn",
+}
+
 func runMigrateUp(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, migrateFlagMapping)
 	repoFactory, err := createRepositoryFactory()
 	if err != nil {
 		return err
@@ -77,6 +81,7 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 }
 
 func runMigrateDown(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, migrateFlagMapping)
 	repoFactory, err := createRepositoryFactory()
 	if err != nil {
 		return err
@@ -100,6 +105,7 @@ func runMigrateDown(cmd *cobra.Command, args []string) error {
 }
 
 func runMigrateStatus(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, migrateFlagMapping)
 	repoFactory, err := createRepositoryFactory()
 	if err != nil {
 		return err

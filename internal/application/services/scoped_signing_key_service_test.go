@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/thomas-maurice/nis/internal/config"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 	"github.com/thomas-maurice/nis/migrations"
 	"gorm.io/gorm"
@@ -38,10 +38,7 @@ func (s *ScopedSigningKeyServiceTestSuite) SetupSuite() {
 	s.ctx = context.Background()
 
 	// Create in-memory database
-	db, err := sql.NewDB(config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   ":memory:",
-	})
+	db, err := sql.NewDB("sqlite", ":memory:")
 	require.NoError(s.T(), err)
 	s.db = db
 
@@ -70,9 +67,11 @@ func (s *ScopedSigningKeyServiceTestSuite) SetupSuite() {
 	s.userRepo = sql.NewUserRepo(s.db)
 	s.scopedSigningKeyRepo = sql.NewScopedSigningKeyRepo(s.db)
 
-	s.accountService = NewAccountService(s.accountRepo, s.operatorRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
-	s.operatorService = NewOperatorService(s.operatorRepo, s.accountRepo, s.userRepo, s.accountService, s.jwtService, s.encryptor)
-	s.scopedKeyService = NewScopedSigningKeyService(s.scopedSigningKeyRepo, s.accountRepo, s.operatorRepo, s.jwtService, s.encryptor)
+	factory := persistence.NewSQLRepositoryFactoryFromDB(s.db)
+
+	s.accountService = NewAccountService(factory, s.jwtService, s.encryptor)
+	s.operatorService = NewOperatorService(factory, s.accountService, s.jwtService, s.encryptor)
+	s.scopedKeyService = NewScopedSigningKeyService(factory, s.jwtService, s.encryptor)
 }
 
 func (s *ScopedSigningKeyServiceTestSuite) TearDownSuite() {

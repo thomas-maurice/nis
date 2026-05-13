@@ -107,16 +107,19 @@ Operator JWT (root of trust)
 
 ## Configuration
 
+Precedence (high → low): **explicit flag > env var > config file > built-in default.** See `config.example.yaml` for a fully-annotated reference of every key the server reads.
+
 Via config file (`config.yaml`):
 
 ```yaml
 server:
-  host: "0.0.0.0"
-  port: 8080
+  address: ":8080"
+  enable_ui: true
 
 database:
   driver: "sqlite"
-  path: "./nis.db"
+  dsn: "./nis.db"            # filesystem path for sqlite, libpq DSN for postgres
+  auto_migrate: true
 
 encryption:
   current_key_id: "default"
@@ -125,8 +128,8 @@ encryption:
       key: "base64-encoded-32-byte-key"
 
 auth:
-  jwt_secret: "your-secret"
-  token_expiry: "24h"
+  jwt_secret: "min-32-bytes"
+  jwt_ttl: "24h"
 ```
 
 Via flags:
@@ -139,12 +142,39 @@ Via flags:
   --encryption-key "your-key"
 ```
 
+Via env vars (dot → underscore, uppercased):
+
+```bash
+DATABASE_DSN="host=localhost port=5432 user=nis password=... dbname=nis sslmode=disable" \
+DATABASE_DRIVER=postgres \
+AUTH_JWT_SECRET="min-32-bytes" \
+ENCRYPTION_KEY="exactly-32-bytes-..............." \
+./nis serve
+```
+
 ## Use Cases
 
 **Multi-tenant SaaS** - Isolate customers with separate accounts
 **Microservices** - Per-service credentials with scoped permissions
 **Development** - Quickly provision test credentials
 **Production** - Centralized credential management with encryption
+
+## Export & Import
+
+Operators (and everything underneath — accounts, users, scoped signing keys, clusters) can be backed up to and restored from a single file. Both **YAML** (default) and **JSON** are supported.
+
+```bash
+# Export. --format defaults to yaml.
+nisctl export operator my-operator --include-secrets -o backup.yaml
+nisctl export operator my-operator --include-secrets --format json -o backup.json
+
+# Import. Format is auto-detected from the file contents — no flag needed,
+# the same command handles either encoding.
+nisctl export import backup.yaml
+nisctl export import backup.json
+```
+
+NSC migration is the other direction: `nisctl export import-nsc <archive> <operator-name>` ingests a tar/zip of an existing `~/.nsc/stores` tree. The whole import runs in a single database transaction, so a mid-import failure rolls every partial write back instead of leaving orphan accounts behind.
 
 ## Build
 
@@ -252,9 +282,7 @@ open http://localhost:16686
 
 **Configuration**
 
-Tracing options can be set via flag, env var (`NIS_TRACING_*` once viper
-prefix is in play, or use the documented `--tracing-*` flags), or
-`config.yaml`:
+Tracing options can be set via flag, env var (`TRACING_ENABLED`, `TRACING_ENDPOINT`, `TRACING_INSECURE`, `TRACING_SAMPLE_RATIO`, `TRACING_SERVICE_NAME`), or `config.yaml`:
 
 | Flag | Default | Notes |
 |---|---|---|

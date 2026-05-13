@@ -8,9 +8,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
+
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
 
 // UserService provides business logic for user management
@@ -49,19 +51,34 @@ type CreateUserRequest struct {
 
 // CreateUser creates a new user with generated keys and JWT
 func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*entities.User, error) {
+	return s.createUserWith(ctx, s.repo, s.accountRepo, s.scopedKeyRepo, req)
+}
+
+// CreateUserTx is the tx-aware variant of CreateUser. Callers already running
+// inside another service's factory.WithTx block should use this so the
+// account/scoped-key lookups see uncommitted writes from the surrounding tx,
+// and the user.Create participates in the same rollback boundary.
+func (s *UserService) CreateUserTx(ctx context.Context, tx persistence.RepositoryFactory, req CreateUserRequest) (*entities.User, error) {
+	return s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), req)
+}
+
+// createUserWith is the shared body. It takes the three repos as parameters so
+// the public method and the *Tx variant can hand it either the global repos or
+// tx-scoped ones without duplicating logic.
+func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository, req CreateUserRequest) (*entities.User, error) {
 	// Validate request
 	if req.Name == "" {
 		return nil, fmt.Errorf("user name is required")
 	}
 
 	// Get account
-	account, err := s.accountRepo.GetByID(ctx, req.AccountID)
+	account, err := accountRepo.GetByID(ctx, req.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account: %w", err)
 	}
 
 	// Check if user with this name already exists for this account
-	existing, err := s.repo.GetByName(ctx, req.AccountID, req.Name)
+	existing, err := userRepo.GetByName(ctx, req.AccountID, req.Name)
 	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing user: %w", err)
 	}
@@ -72,7 +89,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*e
 	// If scoped signing key is provided, get it and validate it belongs to this account
 	var scopedKey *entities.ScopedSigningKey
 	if req.ScopedSigningKeyID != nil {
-		scopedKey, err = s.scopedKeyRepo.GetByID(ctx, *req.ScopedSigningKeyID)
+		scopedKey, err = scopedKeyRepo.GetByID(ctx, *req.ScopedSigningKeyID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get scoped signing key: %w", err)
 		}
@@ -114,7 +131,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*e
 	user.JWT = jwt
 
 	// Save to repository
-	if err := s.repo.Create(ctx, user); err != nil {
+	if err := userRepo.Create(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 

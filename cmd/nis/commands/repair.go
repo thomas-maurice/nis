@@ -35,17 +35,21 @@ func init() {
 	rootCmd.AddCommand(repairCmd)
 	repairCmd.AddCommand(repairSigningKeysCmd)
 
-	// Database flags
+	// Database flags. Wired into viper via applyFlagOverrides in RunE.
 	repairSigningKeysCmd.Flags().String("db-driver", "sqlite", "database driver (sqlite or postgres)")
 	repairSigningKeysCmd.Flags().String("db-dsn", "nis.db", "database connection string")
 	repairSigningKeysCmd.Flags().String("encryption-key", "", "encryption key for sensitive data")
+}
 
-	_ = viper.BindPFlag("database.driver", repairSigningKeysCmd.Flags().Lookup("db-driver"))
-	_ = viper.BindPFlag("database.dsn", repairSigningKeysCmd.Flags().Lookup("db-dsn"))
-	_ = viper.BindPFlag("encryption.key", repairSigningKeysCmd.Flags().Lookup("encryption-key"))
+var repairFlagMapping = map[string]string{
+	"db-driver":      "database.driver",
+	"db-dsn":         "database.dsn",
+	"encryption-key": "encryption.key",
 }
 
 func runRepairSigningKeys(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, repairFlagMapping)
+
 	dbDriver := viper.GetString("database.driver")
 	dbDSN := viper.GetString("database.dsn")
 

@@ -99,7 +99,7 @@
             v-model="pubAllowText"
             class="form-control"
             rows="2"
-            placeholder="events.>\ndata.>"
+            :placeholder="`events.>\ndata.>`"
           ></textarea>
           <div class="form-text">One subject per line. Use '>' for wildcards.</div>
         </div>
@@ -123,7 +123,7 @@
             v-model="subAllowText"
             class="form-control"
             rows="2"
-            placeholder="events.>\nresponses.>"
+            :placeholder="`events.>\nresponses.>`"
           ></textarea>
           <div class="form-text">One subject per line.</div>
         </div>
@@ -162,12 +162,15 @@ const formData = ref({})
 const saving = ref(false)
 const formError = ref('')
 
+// Keep raw newlines while typing — filter empty lines only at submit.
+// Filtering on every keystroke would strip the trailing "\n" the user
+// just inserted with Enter, making it impossible to start a new line.
 const pubAllowText = computed({
   get() {
     return formData.value.pubAllow?.join('\n') || ''
   },
   set(value) {
-    formData.value.pubAllow = value.split('\n').filter(s => s.trim() !== '')
+    formData.value.pubAllow = value.split('\n')
   }
 })
 
@@ -176,7 +179,7 @@ const pubDenyText = computed({
     return formData.value.pubDeny?.join('\n') || ''
   },
   set(value) {
-    formData.value.pubDeny = value.split('\n').filter(s => s.trim() !== '')
+    formData.value.pubDeny = value.split('\n')
   }
 })
 
@@ -185,7 +188,7 @@ const subAllowText = computed({
     return formData.value.subAllow?.join('\n') || ''
   },
   set(value) {
-    formData.value.subAllow = value.split('\n').filter(s => s.trim() !== '')
+    formData.value.subAllow = value.split('\n')
   }
 })
 
@@ -194,7 +197,7 @@ const subDenyText = computed({
     return formData.value.subDeny?.join('\n') || ''
   },
   set(value) {
-    formData.value.subDeny = value.split('\n').filter(s => s.trim() !== '')
+    formData.value.subDeny = value.split('\n')
   }
 })
 
@@ -294,15 +297,16 @@ const handleSubmit = async (data) => {
         description: data.description
       })
     } else {
+      const trim = (arr) => (arr || []).map(s => s.trim()).filter(s => s !== '')
       await apiClient.post('/nis.v1.ScopedSigningKeyService/CreateScopedSigningKey', {
         accountId: data.accountId,
         name: data.name,
         description: data.description,
         permissions: {
-          pubAllow: data.pubAllow || [],
-          pubDeny: data.pubDeny || [],
-          subAllow: data.subAllow || [],
-          subDeny: data.subDeny || []
+          pubAllow: trim(data.pubAllow),
+          pubDeny: trim(data.pubDeny),
+          subAllow: trim(data.subAllow),
+          subDeny: trim(data.subDeny)
         }
       })
     }

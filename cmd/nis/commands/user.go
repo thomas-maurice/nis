@@ -7,7 +7,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -49,17 +48,22 @@ func init() {
 	userCreateCmd.Flags().String("role", "operator-admin", "role for the user (admin, operator-admin, account-admin)")
 	_ = userCreateCmd.MarkFlagRequired("password")
 
-	// Database flags for user commands
+	// Database flags for user commands. Wired into viper via
+	// applyFlagOverrides in each RunE (see viper_overrides.go).
 	for _, cmd := range []*cobra.Command{userCreateCmd, userListCmd} {
 		cmd.Flags().String("db-driver", "sqlite", "database driver (sqlite or postgres)")
 		cmd.Flags().String("db-dsn", "nis.db", "database connection string")
-
-		_ = viper.BindPFlag("database.driver", cmd.Flags().Lookup("db-driver"))
-		_ = viper.BindPFlag("database.dsn", cmd.Flags().Lookup("db-dsn"))
 	}
 }
 
+var userCmdFlagMapping = map[string]string{
+	"db-driver": "database.driver",
+	"db-dsn":    "database.dsn",
+}
+
 func runUserCreate(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, userCmdFlagMapping)
+
 	username := args[0]
 	password, _ := cmd.Flags().GetString("password")
 	roleStr, _ := cmd.Flags().GetString("role")
@@ -114,6 +118,8 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runUserList(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, userCmdFlagMapping)
+
 	// Create repository factory and connect
 	repoFactory, err := createRepositoryFactory()
 	if err != nil {

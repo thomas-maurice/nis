@@ -8,35 +8,36 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
+
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
 
-// AccountService provides business logic for account management
+// AccountService provides business logic for account management.
+//
+// Multi-write methods (CreateAccount, UpdateAccount, UpdateJetStreamLimits)
+// run inside a single repository-level transaction via factory.WithTx, so
+// partial failures don't leave half-created accounts or accounts whose JWT
+// references a scoped key that wasn't actually persisted.
 type AccountService struct {
-	repo          repositories.AccountRepository
-	operatorRepo  repositories.OperatorRepository
-	scopedKeyRepo repositories.ScopedSigningKeyRepository
-	jwtService    *JWTService
-	encryptor     encryption.Encryptor
+	factory    persistence.RepositoryFactory
+	jwtService *JWTService
+	encryptor  encryption.Encryptor
 }
 
-// NewAccountService creates a new account service
+// NewAccountService creates a new account service.
 func NewAccountService(
-	repo repositories.AccountRepository,
-	operatorRepo repositories.OperatorRepository,
-	scopedKeyRepo repositories.ScopedSigningKeyRepository,
+	factory persistence.RepositoryFactory,
 	jwtService *JWTService,
 	encryptor encryption.Encryptor,
 ) *AccountService {
 	return &AccountService{
-		repo:          repo,
-		operatorRepo:  operatorRepo,
-		scopedKeyRepo: scopedKeyRepo,
-		jwtService:    jwtService,
-		encryptor:     encryptor,
+		factory:    factory,
+		jwtService: jwtService,
+		encryptor:  encryptor,
 	}
 }
 
@@ -52,21 +53,42 @@ type CreateAccountRequest struct {
 	JetStreamMaxConsumers int64
 }
 
-// CreateAccount creates a new account with generated keys and JWT
+// CreateAccount creates a new account with generated keys and JWT. It opens a
+// transaction; nested service calls (e.g. OperatorService creating $SYS) must
+// use createAccountTx and pass the surrounding tx-scoped factory instead.
 func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountRequest) (*entities.Account, error) {
-	// Validate request
+	var account *entities.Account
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		a, e := s.createAccountTx(ctx, tx, req)
+		account = a
+		return e
+	})
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
+// createAccountTx is the transactional body of CreateAccount. The caller is
+// responsible for the surrounding factory.WithTx; calling this with a non-tx
+// factory still works but loses the atomic-rollback guarantee.
+func (s *AccountService) createAccountTx(ctx context.Context, tx persistence.RepositoryFactory, req CreateAccountRequest) (*entities.Account, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("account name is required")
 	}
 
+	accountRepo := tx.AccountRepository()
+	operatorRepo := tx.OperatorRepository()
+	scopedKeyRepo := tx.ScopedSigningKeyRepository()
+
 	// Get operator to sign the account JWT
-	operator, err := s.operatorRepo.GetByID(ctx, req.OperatorID)
+	operator, err := operatorRepo.GetByID(ctx, req.OperatorID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get operator: %w", err)
 	}
 
 	// Check if account with this name already exists for this operator
-	existing, err := s.repo.GetByName(ctx, req.OperatorID, req.Name)
+	existing, err := accountRepo.GetByName(ctx, req.OperatorID, req.Name)
 	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, fmt.Errorf("failed to check existing account: %w", err)
 	}
@@ -122,16 +144,13 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 	account.JWT = jwt
 
 	// Save account first so the scoped key's FK to accounts(id) is satisfied.
-	if err := s.repo.Create(ctx, account); err != nil {
+	if err := accountRepo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("failed to create account: %w", err)
 	}
 
-	if err := s.scopedKeyRepo.Create(ctx, defaultKey); err != nil {
-		// Rollback the account so we don't leave a half-created one.
-		if deleteErr := s.repo.Delete(ctx, account.ID); deleteErr != nil {
-			logging.LogFromContext(ctx).Error("failed to rollback account creation after signing key failure",
-				"account", account.Name, "error", deleteErr)
-		}
+	if err := scopedKeyRepo.Create(ctx, defaultKey); err != nil {
+		// Tx rollback (handled by WithTx in the caller) reverts the account
+		// row. No manual cleanup needed — that's the whole point of A1.
 		return nil, fmt.Errorf("failed to create default scoped signing key for account: %w", err)
 	}
 
@@ -177,27 +196,27 @@ func (s *AccountService) buildDefaultScopedSigningKey(ctx context.Context, accou
 
 // GetAccount retrieves an account by ID
 func (s *AccountService) GetAccount(ctx context.Context, id uuid.UUID) (*entities.Account, error) {
-	return s.repo.GetByID(ctx, id)
+	return s.factory.AccountRepository().GetByID(ctx, id)
 }
 
 // GetAccountByName retrieves an account by operator ID and name
 func (s *AccountService) GetAccountByName(ctx context.Context, operatorID uuid.UUID, name string) (*entities.Account, error) {
-	return s.repo.GetByName(ctx, operatorID, name)
+	return s.factory.AccountRepository().GetByName(ctx, operatorID, name)
 }
 
 // GetAccountByPublicKey retrieves an account by public key
 func (s *AccountService) GetAccountByPublicKey(ctx context.Context, publicKey string) (*entities.Account, error) {
-	return s.repo.GetByPublicKey(ctx, publicKey)
+	return s.factory.AccountRepository().GetByPublicKey(ctx, publicKey)
 }
 
 // ListAccountsByOperator retrieves all accounts for an operator with pagination
 func (s *AccountService) ListAccountsByOperator(ctx context.Context, operatorID uuid.UUID, opts repositories.ListOptions) ([]*entities.Account, error) {
-	return s.repo.ListByOperator(ctx, operatorID, opts)
+	return s.factory.AccountRepository().ListByOperator(ctx, operatorID, opts)
 }
 
 // ListAllAccounts lists all accounts across all operators
 func (s *AccountService) ListAllAccounts(ctx context.Context, opts repositories.ListOptions) ([]*entities.Account, error) {
-	return s.repo.List(ctx, opts)
+	return s.factory.AccountRepository().List(ctx, opts)
 }
 
 // UpdateAccountRequest contains the fields that can be updated
@@ -208,64 +227,76 @@ type UpdateAccountRequest struct {
 
 // UpdateAccount updates an account's metadata and regenerates JWT
 func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req UpdateAccountRequest) (*entities.Account, error) {
-	// Get existing account
-	account, err := s.repo.GetByID(ctx, id)
+	var account *entities.Account
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		accountRepo := tx.AccountRepository()
+		operatorRepo := tx.OperatorRepository()
+		scopedKeyRepo := tx.ScopedSigningKeyRepository()
+
+		// Get existing account
+		acc, err := accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		// Update fields if provided
+		updated := false
+		if req.Name != nil && *req.Name != acc.Name {
+			// Check if new name is already taken for this operator
+			existing, err := accountRepo.GetByName(ctx, acc.OperatorID, *req.Name)
+			if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+				return fmt.Errorf("failed to check existing account: %w", err)
+			}
+			if existing != nil && existing.ID != id {
+				return repositories.ErrAlreadyExists
+			}
+			acc.Name = *req.Name
+			updated = true
+		}
+
+		if req.Description != nil && *req.Description != acc.Description {
+			acc.Description = *req.Description
+			updated = true
+		}
+
+		if !updated {
+			account = acc
+			return nil
+		}
+
+		acc.UpdatedAt = time.Now()
+
+		// Get operator to sign the updated JWT
+		operator, err := operatorRepo.GetByID(ctx, acc.OperatorID)
+		if err != nil {
+			return fmt.Errorf("failed to get operator: %w", err)
+		}
+
+		// Fetch existing scoped signing keys so the regenerated JWT continues to declare
+		// them as authorised signers. Skipping this would invalidate every user signed
+		// by a scoped key as soon as the account is updated.
+		scopedKeys, err := scopedKeyRepo.ListByAccount(ctx, acc.ID, repositories.ListOptions{Limit: 1000})
+		if err != nil {
+			return fmt.Errorf("failed to list scoped signing keys: %w", err)
+		}
+
+		// Regenerate JWT with updated metadata
+		jwt, err := s.jwtService.GenerateAccountJWT(ctx, acc, operator, scopedKeys)
+		if err != nil {
+			return fmt.Errorf("failed to regenerate account JWT: %w", err)
+		}
+		acc.JWT = jwt
+
+		// Save changes
+		if err := accountRepo.Update(ctx, acc); err != nil {
+			return fmt.Errorf("failed to update account: %w", err)
+		}
+		account = acc
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Update fields if provided
-	updated := false
-	if req.Name != nil && *req.Name != account.Name {
-		// Check if new name is already taken for this operator
-		existing, err := s.repo.GetByName(ctx, account.OperatorID, *req.Name)
-		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-			return nil, fmt.Errorf("failed to check existing account: %w", err)
-		}
-		if existing != nil && existing.ID != id {
-			return nil, repositories.ErrAlreadyExists
-		}
-		account.Name = *req.Name
-		updated = true
-	}
-
-	if req.Description != nil && *req.Description != account.Description {
-		account.Description = *req.Description
-		updated = true
-	}
-
-	if !updated {
-		return account, nil
-	}
-
-	account.UpdatedAt = time.Now()
-
-	// Get operator to sign the updated JWT
-	operator, err := s.operatorRepo.GetByID(ctx, account.OperatorID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get operator: %w", err)
-	}
-
-	// Fetch existing scoped signing keys so the regenerated JWT continues to declare
-	// them as authorised signers. Skipping this would invalidate every user signed
-	// by a scoped key as soon as the account is updated.
-	scopedKeys, err := s.scopedKeyRepo.ListByAccount(ctx, account.ID, repositories.ListOptions{Limit: 1000})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list scoped signing keys: %w", err)
-	}
-
-	// Regenerate JWT with updated metadata
-	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys)
-	if err != nil {
-		return nil, fmt.Errorf("failed to regenerate account JWT: %w", err)
-	}
-	account.JWT = jwt
-
-	// Save changes
-	if err := s.repo.Update(ctx, account); err != nil {
-		return nil, fmt.Errorf("failed to update account: %w", err)
-	}
-
 	return account, nil
 }
 
@@ -280,58 +311,71 @@ type UpdateJetStreamLimitsRequest struct {
 
 // UpdateJetStreamLimits updates JetStream limits and regenerates JWT
 func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID, req UpdateJetStreamLimitsRequest) (*entities.Account, error) {
-	// Get existing account
-	account, err := s.repo.GetByID(ctx, id)
+	var account *entities.Account
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		accountRepo := tx.AccountRepository()
+		operatorRepo := tx.OperatorRepository()
+		scopedKeyRepo := tx.ScopedSigningKeyRepository()
+
+		acc, err := accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		// Update JetStream configuration
+		acc.JetStreamEnabled = req.Enabled
+		acc.JetStreamMaxMemory = req.MaxMemory
+		acc.JetStreamMaxStorage = req.MaxStorage
+		acc.JetStreamMaxStreams = req.MaxStreams
+		acc.JetStreamMaxConsumers = req.MaxConsumers
+		acc.UpdatedAt = time.Now()
+
+		// Get operator to sign the updated JWT
+		operator, err := operatorRepo.GetByID(ctx, acc.OperatorID)
+		if err != nil {
+			return fmt.Errorf("failed to get operator: %w", err)
+		}
+
+		// Fetch existing scoped signing keys so the regenerated JWT continues to declare
+		// them as authorised signers (see UpdateAccount).
+		scopedKeys, err := scopedKeyRepo.ListByAccount(ctx, acc.ID, repositories.ListOptions{Limit: 1000})
+		if err != nil {
+			return fmt.Errorf("failed to list scoped signing keys: %w", err)
+		}
+
+		// Regenerate JWT with new JetStream limits
+		jwt, err := s.jwtService.GenerateAccountJWT(ctx, acc, operator, scopedKeys)
+		if err != nil {
+			return fmt.Errorf("failed to regenerate account JWT: %w", err)
+		}
+		acc.JWT = jwt
+
+		// Save changes
+		if err := accountRepo.Update(ctx, acc); err != nil {
+			return fmt.Errorf("failed to update account: %w", err)
+		}
+		account = acc
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Update JetStream configuration
-	account.JetStreamEnabled = req.Enabled
-	account.JetStreamMaxMemory = req.MaxMemory
-	account.JetStreamMaxStorage = req.MaxStorage
-	account.JetStreamMaxStreams = req.MaxStreams
-	account.JetStreamMaxConsumers = req.MaxConsumers
-	account.UpdatedAt = time.Now()
-
-	// Get operator to sign the updated JWT
-	operator, err := s.operatorRepo.GetByID(ctx, account.OperatorID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get operator: %w", err)
-	}
-
-	// Fetch existing scoped signing keys so the regenerated JWT continues to declare
-	// them as authorised signers (see UpdateAccount).
-	scopedKeys, err := s.scopedKeyRepo.ListByAccount(ctx, account.ID, repositories.ListOptions{Limit: 1000})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list scoped signing keys: %w", err)
-	}
-
-	// Regenerate JWT with new JetStream limits
-	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys)
-	if err != nil {
-		return nil, fmt.Errorf("failed to regenerate account JWT: %w", err)
-	}
-	account.JWT = jwt
-
-	// Save changes
-	if err := s.repo.Update(ctx, account); err != nil {
-		return nil, fmt.Errorf("failed to update account: %w", err)
-	}
-
 	return account, nil
 }
 
 // DeleteAccount deletes an account and all associated data (cascades to users)
 func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error {
+	accountRepo := s.factory.AccountRepository()
+	operatorRepo := s.factory.OperatorRepository()
+
 	// Check if account exists
-	account, err := s.repo.GetByID(ctx, id)
+	account, err := accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
 	// Check if this account is a system account for any operator
-	operator, err := s.operatorRepo.GetByID(ctx, account.OperatorID)
+	operator, err := operatorRepo.GetByID(ctx, account.OperatorID)
 	if err != nil {
 		return fmt.Errorf("failed to get operator: %w", err)
 	}
@@ -340,6 +384,6 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error 
 		return fmt.Errorf("cannot delete system account: this account is designated as the system account for operator '%s'", operator.Name)
 	}
 
-	// Delete account (cascades to users and scoped signing keys)
-	return s.repo.Delete(ctx, id)
+	// Delete account (cascades to users and scoped signing keys at FK level)
+	return accountRepo.Delete(ctx, id)
 }

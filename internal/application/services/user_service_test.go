@@ -8,9 +8,9 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/thomas-maurice/nis/internal/config"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 	"github.com/thomas-maurice/nis/migrations"
 	"gorm.io/gorm"
@@ -34,10 +34,7 @@ func (s *UserServiceTestSuite) SetupSuite() {
 	s.ctx = context.Background()
 
 	// Create in-memory database
-	db, err := sql.NewDB(config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   ":memory:",
-	})
+	db, err := sql.NewDB("sqlite", ":memory:")
 	require.NoError(s.T(), err)
 	s.db = db
 
@@ -68,23 +65,11 @@ func (s *UserServiceTestSuite) SetupSuite() {
 	// Create services
 	jwtService := NewJWTService(s.encryptor)
 
-	// Create accountService first (required by operatorService)
-	s.accountService = NewAccountService(
-		s.accountRepo,
-		s.operatorRepo,
-		s.scopedKeyRepo,
-		jwtService,
-		s.encryptor,
-	)
+	factory := persistence.NewSQLRepositoryFactoryFromDB(s.db)
 
-	s.operatorService = NewOperatorService(
-		s.operatorRepo,
-		s.accountRepo,
-		s.userRepo,
-		s.accountService,
-		jwtService,
-		s.encryptor,
-	)
+	// Create accountService first (required by operatorService)
+	s.accountService = NewAccountService(factory, jwtService, s.encryptor)
+	s.operatorService = NewOperatorService(factory, s.accountService, jwtService, s.encryptor)
 
 	s.userService = NewUserService(
 		s.userRepo,

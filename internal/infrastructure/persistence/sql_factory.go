@@ -43,6 +43,17 @@ func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
 	}, nil
 }
 
+// NewSQLRepositoryFactoryFromDB wraps an already-open *gorm.DB in a RepositoryFactory.
+// Used by tests that bring their own connection (e.g. in-memory SQLite); production
+// code calls NewRepositoryFactory(Config) and then Connect() instead.
+func NewSQLRepositoryFactoryFromDB(db *gorm.DB) RepositoryFactory {
+	sqlDB, _ := db.DB()
+	return &sqlRepositoryFactory{
+		gormDB: db,
+		sqlDB:  sqlDB,
+	}
+}
+
 func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
 	// Open GORM connection
 	var gormDB *gorm.DB
@@ -84,6 +95,17 @@ func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
 	// Test the connection
 	if err := sqlDB.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// SQLite serialises writes at the engine level. Allowing multiple Go-side
+	// connections lets two writes race for the engine lock and surfaces as
+	// `database is locked` under any contention. The unit-test path in
+	// internal/infrastructure/persistence/sql/db.go has always pinned to 1
+	// connection; this is the production-path equivalent. Once we wrap multi-
+	// step writes in a single tx (A1), the lock-contention window grew enough
+	// that not pinning here would be flaky.
+	if f.config.Driver == "sqlite" {
+		sqlDB.SetMaxOpenConns(1)
 	}
 
 	f.sqlDB = sqlDB
@@ -273,4 +295,25 @@ func (f *sqlRepositoryFactory) APIUserRepository() repositories.APIUserRepositor
 		f.apiUserRepo = sqlRepo.NewAPIUserRepo(f.gormDB)
 	}
 	return f.apiUserRepo
+}
+
+// WithTx runs fn inside a GORM transaction. The factory passed to fn hands out
+// fresh repos bound to the tx's *gorm.DB, so any read or write goes through the
+// transaction. GORM commits when fn returns nil, rolls back on error or panic.
+//
+// Anything that escapes the database (NATS publishes, file writes, network
+// calls) must NOT happen inside fn — they can't be rolled back, and a failure
+// after them would leave external state ahead of the DB.
+func (f *sqlRepositoryFactory) WithTx(ctx context.Context, fn func(tx RepositoryFactory) error) error {
+	if f.gormDB == nil {
+		return fmt.Errorf("database not connected")
+	}
+	return f.gormDB.WithContext(ctx).Transaction(func(txDB *gorm.DB) error {
+		txFactory := &sqlRepositoryFactory{
+			config: f.config,
+			gormDB: txDB,
+			sqlDB:  f.sqlDB, // shared; tx scope doesn't replace the connection pool
+		}
+		return fn(txFactory)
+	})
 }

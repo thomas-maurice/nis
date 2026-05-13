@@ -31,6 +31,15 @@ type RepositoryFactory interface {
 	// Inventory returns aggregate counts for the entity tables. Used by the metrics
 	// refresh loop to populate domain gauges without paying COUNT(*) on every Prom scrape.
 	Inventory(ctx context.Context) (Inventory, error)
+
+	// WithTx runs fn inside a database transaction. The factory passed to fn hands
+	// out repositories backed by that transaction — every read/write through tx-
+	// scoped repos sees the same uncommitted state. The tx commits when fn
+	// returns nil, rolls back on a non-nil error or a panic.
+	//
+	// Side-effects that can't be rolled back (e.g. NATS pushes) MUST happen AFTER
+	// WithTx returns, never inside fn. See PROPOSALS.md A1.
+	WithTx(ctx context.Context, fn func(tx RepositoryFactory) error) error
 }
 
 // Inventory is a snapshot of entity counts surfaced as Prometheus gauges.

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -48,13 +47,24 @@ func (h *ExportHandler) ExportOperator(
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	data, err := h.service.ExportOperatorJSON(ctx, operatorID, req.Msg.IncludeSecrets)
+	// Empty format → JSON, preserving pre-yaml behaviour for older clients.
+	format := services.ExportFormat(req.Msg.Format)
+	if format == "" {
+		format = services.FormatJSON
+	}
+
+	data, err := h.service.ExportOperatorBytes(ctx, operatorID, req.Msg.IncludeSecrets, format)
 	if err != nil {
+		// Unsupported format becomes InvalidArgument; everything else stays as-is.
+		if format != services.FormatJSON && format != services.FormatYAML {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, err
 	}
 
 	return connect.NewResponse(&pb.ExportOperatorResponse{
-		Data: data,
+		Data:   data,
+		Format: string(format),
 	}), nil
 }
 
@@ -74,14 +84,16 @@ func (h *ExportHandler) ImportOperator(
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only admins can import operators"))
 	}
 
-	// Parse the data to get the operator name before importing
-	var exported services.ExportedOperator
-	if err := json.Unmarshal(req.Msg.Data, &exported); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("failed to parse export data: %w", err))
+	// Parse first (auto-detects JSON or YAML) so we can echo the operator ID
+	// back in the response.
+	exported, err := services.ParseExport(req.Msg.Data)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	// Import the operator
-	if err := h.service.ImportOperatorJSON(ctx, req.Msg.Data, req.Msg.RegenerateIds); err != nil {
+	// Import the operator. ImportOperatorBytes re-parses internally; the cost
+	// is negligible vs. the dozens of writes that follow.
+	if err := h.service.ImportOperatorBytes(ctx, req.Msg.Data, req.Msg.RegenerateIds); err != nil {
 		return nil, err
 	}
 

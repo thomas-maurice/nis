@@ -27,8 +27,12 @@ type ExportOperatorRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OperatorId     string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
 	IncludeSecrets bool                   `protobuf:"varint,2,opt,name=include_secrets,json=includeSecrets,proto3" json:"include_secrets,omitempty"` // Whether to include encrypted seeds
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Output encoding. "json" (default if unset) or "yaml". Older clients that
+	// leave this empty continue to receive JSON-encoded data — same on-wire shape
+	// as before yaml support was added.
+	Format        string `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExportOperatorRequest) Reset() {
@@ -75,10 +79,20 @@ func (x *ExportOperatorRequest) GetIncludeSecrets() bool {
 	return false
 }
 
+func (x *ExportOperatorRequest) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
 // ExportOperatorResponse is the response containing the exported operator data
 type ExportOperatorResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // JSON-encoded export data
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Data  []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // JSON- or YAML-encoded export data (per request format)
+	// Echoes back the format actually used, so a client that left format unset
+	// can still tell what encoding it got.
+	Format        string `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -120,11 +134,20 @@ func (x *ExportOperatorResponse) GetData() []byte {
 	return nil
 }
 
+func (x *ExportOperatorResponse) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
 // ImportOperatorRequest is the request to import an operator
 type ImportOperatorRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`                                         // JSON-encoded export data
-	RegenerateIds bool                   `protobuf:"varint,2,opt,name=regenerate_ids,json=regenerateIds,proto3" json:"regenerate_ids,omitempty"` // Whether to regenerate UUIDs (for copying)
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// JSON- or YAML-encoded export data. Format is auto-detected by peeking at
+	// the first non-whitespace byte: '{' or '[' is JSON, anything else is YAML.
+	Data          []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	RegenerateIds bool   `protobuf:"varint,2,opt,name=regenerate_ids,json=regenerateIds,proto3" json:"regenerate_ids,omitempty"` // Whether to regenerate UUIDs (for copying)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -320,13 +343,15 @@ var File_nis_v1_export_proto protoreflect.FileDescriptor
 
 const file_nis_v1_export_proto_rawDesc = "" +
 	"\n" +
-	"\x13nis/v1/export.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"a\n" +
+	"\x13nis/v1/export.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"y\n" +
 	"\x15ExportOperatorRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\x12'\n" +
-	"\x0finclude_secrets\x18\x02 \x01(\bR\x0eincludeSecrets\",\n" +
+	"\x0finclude_secrets\x18\x02 \x01(\bR\x0eincludeSecrets\x12\x16\n" +
+	"\x06format\x18\x03 \x01(\tR\x06format\"D\n" +
 	"\x16ExportOperatorResponse\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"R\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
+	"\x06format\x18\x02 \x01(\tR\x06format\"R\n" +
 	"\x15ImportOperatorRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12%\n" +
 	"\x0eregenerate_ids\x18\x02 \x01(\bR\rregenerateIds\"9\n" +

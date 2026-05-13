@@ -1,95 +1,63 @@
+# NIS configuration. Every key here is read by the running server.
+# Anything not listed here is not a recognised option — older revisions of
+# this file documented keys (database.path, jetstream_defaults, etc.) that the
+# binary never reads.
+#
+# Precedence (high → low): explicit flag > env var > this file > built-in default.
+# Env vars use SCREAMING_SNAKE_CASE with dots replaced by underscores —
+# `database.dsn` becomes `DATABASE_DSN`, `auth.jwt_secret` becomes `AUTH_JWT_SECRET`.
+
 server:
-  host: "0.0.0.0"
-  port: 8080
+  address: ":8080"     # listen address, host:port
+  enable_ui: true      # serve the embedded Vue UI at /
 
 database:
-  driver: "sqlite"  # or "postgres"
-  # For SQLite:
-  path: "./nis.db"
-  # For PostgreSQL:
-  # host: "localhost"
-  # port: 5432
-  # user: "nis"
-  # password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
-  # dbname: "nis"
-  # sslmode: "disable"
+  driver: "sqlite"     # "sqlite" or "postgres"
+  # SQLite: a filesystem path. Postgres: a libpq DSN.
+  #   sqlite:   ./nis.db
+  #   postgres: host=localhost port=5432 user=nis password=... dbname=nis sslmode=disable
+  dsn: "./nis.db"
+  auto_migrate: true   # apply embedded Goose migrations on startup; turn OFF in prod
 
 encryption:
-  # Encryption key rotation support
-  # You can define multiple encryption keys with IDs for seamless rotation
-
-  # The ID of the key to use for new encryptions
+  # Two ways to configure encryption. Use ONE of these, not both:
+  #
+  # (1) Multi-key (recommended for prod — supports key rotation). Each key is a
+  #     32-byte secret, base64 encoded. Generate one with:
+  #       openssl rand -base64 32
   current_key_id: "key-2025-01"
-
-  # List of encryption keys (all keys are available for decryption)
-  # This allows you to rotate keys without losing access to old encrypted data
-  # Generate new keys with: openssl rand -base64 32
   keys:
-    # Example: Old key (still needed to decrypt existing data)
-    # - id: "key-2024-12"
-    #   key: "GENERATE_WITH_openssl_rand_base64_32"
-
-    # Current key (used for new encryptions)
     - id: "key-2025-01"
-      key: "REPLACE_WITH_GENERATED_KEY"  # 32-byte key, base64 encoded
-
-  # Note: You can also use a single encryption key via command-line flag:
-  # --encryption-key (exactly 32 bytes) or environment variable ENCRYPTION_KEY
+      key: "REPLACE_WITH_GENERATED_KEY"
+    # Old key kept around so previously-encrypted data is still decryptable:
+    # - id: "key-2024-12"
+    #   key: "OLD_KEY_BASE64"
+  #
+  # (2) Single key (simple). Comment out the keys: block above and uncomment:
+  # key: "REPLACE_WITH_32_BYTE_KEY"     # raw 32 bytes, not base64
+  # key_id: "default"                   # arbitrary ID for this key
 
 auth:
-  # ECDSA private key for signing API JWTs (PEM format)
-  # Generate with: openssl ecparam -genkey -name prime256v1 -noout -out api_signing_key.pem
-  signing_key_path: "./keys/api_signing_key.pem"
-  token_expiry: "24h"
-
-  # JWT secret for API authentication (minimum 32 bytes recommended)
-  # This can also be provided via --jwt-secret flag or AUTH_JWT_SECRET environment variable
+  # Minimum 32 bytes recommended. Also settable via --jwt-secret or AUTH_JWT_SECRET.
   jwt_secret: "REPLACE_WITH_SECURE_JWT_SECRET_MIN_32_BYTES"
+  jwt_ttl: "24h"
 
-  # Casbin config paths
-  casbin_model_path: "./config/casbin_model.conf"
-  casbin_policy_path: "./config/casbin_policy.csv"
+metrics:
+  enabled: true        # exposes Prometheus /metrics and records OTel metrics
 
-# Default JetStream limits for new accounts
-jetstream_defaults:
-  max_memory: 1073741824      # 1GB
-  max_storage: 10737418240    # 10GB
-  max_streams: 10
-  max_consumers: 100
+tracing:
+  enabled: false                       # OTLP/gRPC exporter; off until a collector is reachable
+  endpoint: "localhost:4317"           # collector host:port
+  insecure: true                       # disable TLS for the OTLP connection
+  sample_ratio: 1.0                    # ParentBased(TraceIDRatio) sampler in [0, 1]
+  service_name: "nis"                  # service.name resource attribute
 
-# NATS connection settings (optional)
-nats:
-  url: "nats://localhost:4222"
-  # For authenticated connections:
-  # credentials_file: "/path/to/system.creds"
-  # Or provide credentials directly:
-  # username: "admin"
-  # password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
+log_level: "info"      # debug, info, warn, error
 
-# Database auto-migration
-# Set to true only for development. Use explicit migrations in production.
-auto_migrate: false
-
-# Logging configuration
-logging:
-  level: "info"  # debug, info, warn, error
-  format: "text"  # text or json
-
-# Key Rotation Workflow:
-# 1. Generate a new encryption key: openssl rand -base64 32
-# 2. Add the new key to the 'keys' list with a unique ID
-# 3. Update 'current_key_id' to point to the new key ID
-# 4. Restart the service - new data will be encrypted with the new key
-# 5. Old data remains decryptable with old keys
-# 6. Optional: Re-encrypt old data using the key rotation API
-#
-# Example multi-key configuration:
-# encryption:
-#   current_key_id: "key-2025-02"
-#   keys:
-#     - id: "key-2024-12"
-#       key: "GENERATE_WITH_openssl_rand_base64_32"
-#     - id: "key-2025-01"
-#       key: "GENERATE_WITH_openssl_rand_base64_32"
-#     - id: "key-2025-02"
-#       key: "GENERATE_WITH_openssl_rand_base64_32"
+# --- Key rotation workflow (encryption.keys) ---
+# 1. Generate a new key:  openssl rand -base64 32
+# 2. Append it to `keys:` with a fresh ID
+# 3. Update `current_key_id` to point at the new ID
+# 4. Restart NIS — new data uses the new key; old data still decrypts via old keys
+# 5. Optionally re-encrypt existing data via the rotation API
+# 6. Once nothing references the old key, remove it from the list

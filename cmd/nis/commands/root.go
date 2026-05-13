@@ -38,12 +38,14 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
 	rootCmd.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
-
-	// Bind flags to viper
-	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 }
 
 func initConfig() {
+	// Defaults first: they sit below env vars and config file in the
+	// precedence chain (viper.SetDefault > _nothing else_; env/config beat
+	// it; explicit flags applied via applyFlagOverrides beat env/config).
+	registerConfigDefaults()
+
 	if cfgFile != "" {
 		// Use config file from the flag
 		viper.SetConfigFile(cfgFile)
@@ -62,5 +64,14 @@ func initConfig() {
 	// If a config file is found, read it in
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	}
+
+	// Apply --log-level if explicitly passed. PersistentFlags belong to the
+	// root cmd, but cobra makes them visible on the subcommand's Flags() too,
+	// so RunE handlers can call applyFlagOverrides on their own cmd. Doing it
+	// here for log-level lets early-startup code read the right value without
+	// every subcommand having to remember.
+	if f := rootCmd.PersistentFlags().Lookup("log-level"); f != nil && f.Changed {
+		viper.Set("log_level", f.Value.String())
 	}
 }

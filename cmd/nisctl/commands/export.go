@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -26,9 +27,12 @@ var exportOperatorCmd = &cobra.Command{
 
 var importOperatorCmd = &cobra.Command{
 	Use:   "import FILE",
-	Short: "Import an operator from exported JSON file",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runImportOperator,
+	Short: "Import an operator from an exported YAML or JSON file",
+	Long: `Import an operator from a previously-exported file. Both YAML and JSON
+encodings are accepted; the format is auto-detected from the file contents
+(no --format flag needed).`,
+	Args: cobra.ExactArgs(1),
+	RunE: runImportOperator,
 }
 
 var importNSCCmd = &cobra.Command{
@@ -41,6 +45,7 @@ var importNSCCmd = &cobra.Command{
 var (
 	exportIncludeSecrets bool
 	exportOutput         string
+	exportFormat         string
 	importRegenerateIDs  bool
 )
 
@@ -53,6 +58,7 @@ func init() {
 
 	exportOperatorCmd.Flags().BoolVarP(&exportIncludeSecrets, "include-secrets", "s", false, "include encrypted seeds in export")
 	exportOperatorCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output file (default: stdout)")
+	exportOperatorCmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "export format: yaml or json")
 
 	importOperatorCmd.Flags().BoolVarP(&importRegenerateIDs, "regenerate-ids", "r", false, "regenerate UUIDs (for copying operators)")
 }
@@ -84,10 +90,22 @@ func runExportOperator(cmd *cobra.Command, args []string) error {
 		operatorID = getResp.Msg.Operator.Id
 	}
 
+	// Validate format flag early so a typo errors before the round-trip.
+	format := strings.ToLower(strings.TrimSpace(exportFormat))
+	switch format {
+	case "yaml", "yml":
+		format = "yaml"
+	case "json":
+		// keep as-is
+	default:
+		return fmt.Errorf("invalid --format %q: must be yaml or json", exportFormat)
+	}
+
 	// Export the operator
 	req := connect.NewRequest(&nisv1.ExportOperatorRequest{
 		OperatorId:     operatorID,
 		IncludeSecrets: exportIncludeSecrets,
+		Format:         format,
 	})
 
 	resp, err := GetClient().Export.ExportOperator(context.Background(), req)

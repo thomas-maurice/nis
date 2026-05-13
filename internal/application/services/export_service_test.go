@@ -9,9 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/thomas-maurice/nis/internal/config"
+	"gopkg.in/yaml.v3"
+
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 	"github.com/thomas-maurice/nis/migrations"
 	"gorm.io/gorm"
@@ -40,10 +42,7 @@ func (s *ExportServiceTestSuite) SetupSuite() {
 	s.ctx = context.Background()
 
 	// Create in-memory database
-	db, err := sql.NewDB(config.DatabaseConfig{
-		Driver: "sqlite",
-		Path:   ":memory:",
-	})
+	db, err := sql.NewDB("sqlite", ":memory:")
 	require.NoError(s.T(), err)
 	s.db = db
 
@@ -73,13 +72,16 @@ func (s *ExportServiceTestSuite) SetupSuite() {
 	s.scopedSigningKeyRepo = sql.NewScopedSigningKeyRepo(s.db)
 	s.clusterRepo = sql.NewClusterRepo(s.db)
 
+	factory := persistence.NewSQLRepositoryFactoryFromDB(s.db)
+
 	// Create services
-	s.accountService = NewAccountService(s.accountRepo, s.operatorRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
-	s.operatorService = NewOperatorService(s.operatorRepo, s.accountRepo, s.userRepo, s.accountService, s.jwtService, s.encryptor)
+	s.accountService = NewAccountService(factory, s.jwtService, s.encryptor)
+	s.operatorService = NewOperatorService(factory, s.accountService, s.jwtService, s.encryptor)
 	s.userService = NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
-	s.scopedKeyService = NewScopedSigningKeyService(s.scopedSigningKeyRepo, s.accountRepo, s.operatorRepo, s.jwtService, s.encryptor)
+	s.scopedKeyService = NewScopedSigningKeyService(factory, s.jwtService, s.encryptor)
 	s.clusterService = NewClusterService(s.clusterRepo, s.operatorRepo, s.accountRepo, s.userRepo, s.scopedSigningKeyRepo, s.encryptor, s.jwtService)
 	s.exportService = NewExportService(
+		factory,
 		s.operatorRepo,
 		s.accountRepo,
 		s.userRepo,
@@ -371,4 +373,165 @@ func (s *ExportServiceTestSuite) TestExportOutputStructure() {
 	assert.Contains(s.T(), operatorData, "jwt")
 	assert.Contains(s.T(), operatorData, "created_at")
 	assert.Contains(s.T(), operatorData, "updated_at")
+}
+
+// TestExportOperatorYAML asserts the YAML encoder produces parseable output
+// with the same field names as JSON. yaml.v3 defaults to lowercased Go field
+// names, which would diverge from JSON — the yaml struct tags I added are what
+// keep both encodings aligned.
+func (s *ExportServiceTestSuite) TestExportOperatorYAML() {
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{
+		Name: "YAML Export Operator",
+	})
+	require.NoError(s.T(), err)
+
+	data, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, true)
+	require.NoError(s.T(), err)
+	assert.NotEmpty(s.T(), data)
+	// First non-whitespace char must NOT be '{' — that would mean we accidentally
+	// produced JSON. The auto-detector relies on this.
+	assert.NotContains(s.T(), string(data[:5]), "{")
+
+	var exported ExportedOperator
+	err = yaml.Unmarshal(data, &exported)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "1.0", exported.Version)
+	assert.Equal(s.T(), "YAML Export Operator", exported.Operator.Name)
+	assert.NotEmpty(s.T(), exported.Operator.PublicKey)
+
+	// Field names should match JSON: yaml.Unmarshal should see snake_case keys
+	// at every nesting level. Cross-check by parsing as a generic map.
+	var raw map[string]any
+	require.NoError(s.T(), yaml.Unmarshal(data, &raw))
+	assert.Contains(s.T(), raw, "exported_at")
+	assert.Contains(s.T(), raw, "scoped_keys", "top-level key must be snake_case (regression: yaml.v3 would default to lowercased Go field name)")
+	op, ok := raw["operator"].(map[string]any)
+	require.True(s.T(), ok, "operator block missing or wrong type")
+	assert.Contains(s.T(), op, "public_key")
+	assert.Contains(s.T(), op, "system_account_pub_key")
+}
+
+// TestExportYAMLAndImport verifies a full YAML round-trip through the service:
+// export → wipe DB → import → operator and its children come back intact.
+// This is the user-facing guarantee — "I can back up to a yaml file and
+// restore from it later" — so it needs an end-to-end test, not just an
+// encoder unit test.
+func (s *ExportServiceTestSuite) TestExportYAMLAndImport() {
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{
+		Name:        "YAML Roundtrip Operator",
+		Description: "Description with quote ' and dash - chars",
+	})
+	require.NoError(s.T(), err)
+
+	account, err := s.accountService.CreateAccount(s.ctx, CreateAccountRequest{
+		OperatorID: operator.ID,
+		Name:       "$SYS-like-tricky-name", // tricky in yaml; should round-trip
+	})
+	require.NoError(s.T(), err)
+	_ = account
+
+	data, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, true)
+	require.NoError(s.T(), err)
+
+	// Wipe everything.
+	s.db.Exec("DELETE FROM users")
+	s.db.Exec("DELETE FROM scoped_signing_keys")
+	s.db.Exec("DELETE FROM accounts")
+	s.db.Exec("DELETE FROM clusters")
+	s.db.Exec("DELETE FROM operators")
+
+	// Re-import the YAML bytes via the auto-detecting path.
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, data, true))
+
+	imported, err := s.operatorService.GetOperatorByName(s.ctx, "YAML Roundtrip Operator")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "Description with quote ' and dash - chars", imported.Description)
+
+	importedAccounts, err := s.accountService.ListAccountsByOperator(s.ctx, imported.ID, repositories.ListOptions{})
+	require.NoError(s.T(), err)
+	// The original create added "$SYS-like-tricky-name" + "$SYS" (auto-created).
+	// Two accounts total. The name with leading $ is the regression test for
+	// yaml's tendency to mishandle '$'-prefixed bare scalars.
+	names := make(map[string]bool)
+	for _, a := range importedAccounts {
+		names[a.Name] = true
+	}
+	assert.True(s.T(), names["$SYS-like-tricky-name"], "tricky $-prefixed name must round-trip through yaml")
+	assert.True(s.T(), names["$SYS"], "auto-created $SYS account must survive import")
+}
+
+// TestImportOperatorBytes_AutoDetect proves the format sniffer dispatches
+// correctly. Identical content, different encodings; both must produce the
+// same imported state.
+func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
+	// Build an export once.
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{
+		Name: "Format Detect Operator",
+	})
+	require.NoError(s.T(), err)
+
+	jsonData, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
+	require.NoError(s.T(), err)
+	yamlData, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, true)
+	require.NoError(s.T(), err)
+
+	// Wipe and import the JSON bytes.
+	s.db.Exec("DELETE FROM users")
+	s.db.Exec("DELETE FROM scoped_signing_keys")
+	s.db.Exec("DELETE FROM accounts")
+	s.db.Exec("DELETE FROM clusters")
+	s.db.Exec("DELETE FROM operators")
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, jsonData, true))
+	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
+	require.NoError(s.T(), err, "JSON auto-detect import failed")
+
+	// Wipe and import the YAML bytes.
+	s.db.Exec("DELETE FROM users")
+	s.db.Exec("DELETE FROM scoped_signing_keys")
+	s.db.Exec("DELETE FROM accounts")
+	s.db.Exec("DELETE FROM clusters")
+	s.db.Exec("DELETE FROM operators")
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, yamlData, true))
+	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
+	require.NoError(s.T(), err, "YAML auto-detect import failed")
+}
+
+// TestDetectExportFormat covers the byte sniffer in isolation. Cheap and
+// explicit — anyone touching the dispatcher should be able to read this.
+func TestDetectExportFormat(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  string
+		want   ExportFormat
+	}{
+		{"empty", "", ""},
+		{"whitespace only", "   \n\t  ", ""},
+		{"json object", `{"version":"1.0"}`, FormatJSON},
+		{"json with leading whitespace", "  \n  {\"v\":1}", FormatJSON},
+		{"json array", "[]", FormatJSON},
+		{"yaml plain", "version: 1.0\noperator: x", FormatYAML},
+		{"yaml with leading whitespace", "  \n  version: 1.0", FormatYAML},
+		{"yaml dash list", "- name: foo", FormatYAML},
+		{"yaml directive", "%YAML 1.2\n---\nx: y", FormatYAML},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := detectExportFormat([]byte(tc.input))
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestExportOperatorBytes_DefaultsToJSON locks down the back-compat promise
+// that empty format == JSON. If we ever want to flip the default, this test
+// has to be deliberately changed.
+func (s *ExportServiceTestSuite) TestExportOperatorBytes_DefaultsToJSON() {
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{
+		Name: "Default Format Operator",
+	})
+	require.NoError(s.T(), err)
+
+	data, err := s.exportService.ExportOperatorBytes(s.ctx, operator.ID, true, "")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), FormatJSON, detectExportFormat(data))
 }

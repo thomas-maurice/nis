@@ -69,28 +69,36 @@ func init() {
 	serveCmd.Flags().Float64("tracing-sample-ratio", 1.0, "TraceIDRatio sampler ratio in [0,1]")
 	serveCmd.Flags().String("tracing-service-name", "nis", "service.name OpenTelemetry resource attribute")
 
-	// Bind flags to viper
-	_ = viper.BindPFlag("server.address", serveCmd.Flags().Lookup("address"))
-	_ = viper.BindPFlag("database.driver", serveCmd.Flags().Lookup("db-driver"))
-	_ = viper.BindPFlag("database.dsn", serveCmd.Flags().Lookup("db-dsn"))
-	_ = viper.BindPFlag("encryption.key", serveCmd.Flags().Lookup("encryption-key"))
-	_ = viper.BindPFlag("encryption.key_id", serveCmd.Flags().Lookup("encryption-key-id"))
-	_ = viper.BindPFlag("auth.jwt_secret", serveCmd.Flags().Lookup("jwt-secret"))
-	_ = viper.BindPFlag("auth.jwt_ttl", serveCmd.Flags().Lookup("jwt-ttl"))
-	_ = viper.BindPFlag("database.auto_migrate", serveCmd.Flags().Lookup("auto-migrate"))
-	_ = viper.BindPFlag("server.enable_ui", serveCmd.Flags().Lookup("enable-ui"))
-	_ = viper.BindPFlag("metrics.enabled", serveCmd.Flags().Lookup("metrics-enabled"))
-	_ = viper.BindPFlag("tracing.enabled", serveCmd.Flags().Lookup("tracing-enabled"))
-	_ = viper.BindPFlag("tracing.endpoint", serveCmd.Flags().Lookup("tracing-endpoint"))
-	_ = viper.BindPFlag("tracing.insecure", serveCmd.Flags().Lookup("tracing-insecure"))
-	_ = viper.BindPFlag("tracing.sample_ratio", serveCmd.Flags().Lookup("tracing-sample-ratio"))
-	_ = viper.BindPFlag("tracing.service_name", serveCmd.Flags().Lookup("tracing-service-name"))
-
+	// Flags are wired into viper via applyFlagOverrides in runServe rather
+	// than viper.BindPFlag — see cmd/nis/commands/viper_overrides.go for why.
 	// Note: encryption-key and jwt-secret are NOT marked as required flags
-	// because they can be provided via config file or environment variables
+	// because they can be provided via config file or environment variables.
+}
+
+// serveFlagMapping maps cobra flag names to viper config keys for the serve
+// command. Flags listed here only override viper values when explicitly
+// passed (avoids the flag-default-shadows-config trap).
+var serveFlagMapping = map[string]string{
+	"address":               "server.address",
+	"db-driver":             "database.driver",
+	"db-dsn":                "database.dsn",
+	"encryption-key":        "encryption.key",
+	"encryption-key-id":     "encryption.key_id",
+	"jwt-secret":            "auth.jwt_secret",
+	"jwt-ttl":               "auth.jwt_ttl",
+	"auto-migrate":          "database.auto_migrate",
+	"enable-ui":             "server.enable_ui",
+	"metrics-enabled":       "metrics.enabled",
+	"tracing-enabled":       "tracing.enabled",
+	"tracing-endpoint":      "tracing.endpoint",
+	"tracing-insecure":      "tracing.insecure",
+	"tracing-sample-ratio":  "tracing.sample_ratio",
+	"tracing-service-name": "tracing.service_name",
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	applyFlagOverrides(cmd, serveFlagMapping)
+
 	// Get configuration from viper
 	address := viper.GetString("server.address")
 	dbDriver := viper.GetString("database.driver")
@@ -186,25 +194,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Initialize JWT service
 	jwtService := services.NewJWTService(encryptor)
 
-	// Initialize business services using repository factory
-	// Note: accountService must be created before operatorService because
-	// operator creation uses accountService to create the $SYS account
-	accountService := services.NewAccountService(
-		repoFactory.AccountRepository(),
-		repoFactory.OperatorRepository(),
-		repoFactory.ScopedSigningKeyRepository(),
-		jwtService,
-		encryptor,
-	)
+	// Initialize business services. The multi-write ones (Account, Operator,
+	// ScopedSigningKey) take the repository factory directly so they can open
+	// transactions via factory.WithTx for atomic multi-row work. Note:
+	// accountService must be created before operatorService because operator
+	// creation uses accountService.createAccountTx to create the $SYS account
+	// inside the same tx.
+	accountService := services.NewAccountService(repoFactory, jwtService, encryptor)
 
-	operatorService := services.NewOperatorService(
-		repoFactory.OperatorRepository(),
-		repoFactory.AccountRepository(),
-		repoFactory.UserRepository(),
-		accountService,
-		jwtService,
-		encryptor,
-	)
+	operatorService := services.NewOperatorService(repoFactory, accountService, jwtService, encryptor)
 
 	userService := services.NewUserService(
 		repoFactory.UserRepository(),
@@ -214,13 +212,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		encryptor,
 	)
 
-	scopedKeyService := services.NewScopedSigningKeyService(
-		repoFactory.ScopedSigningKeyRepository(),
-		repoFactory.AccountRepository(),
-		repoFactory.OperatorRepository(),
-		jwtService,
-		encryptor,
-	)
+	scopedKeyService := services.NewScopedSigningKeyService(repoFactory, jwtService, encryptor)
 
 	clusterService := services.NewClusterService(
 		repoFactory.ClusterRepository(),
@@ -239,6 +231,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	)
 
 	exportService := services.NewExportService(
+		repoFactory,
 		repoFactory.OperatorRepository(),
 		repoFactory.AccountRepository(),
 		repoFactory.UserRepository(),

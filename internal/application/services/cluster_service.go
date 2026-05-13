@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 	"github.com/thomas-maurice/nis/internal/infrastructure/nats"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
 
 // ClusterService provides business logic for cluster management
@@ -228,14 +230,26 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 
 // UpdateClusterCredentials updates the encrypted system account credentials
 func (s *ClusterService) UpdateClusterCredentials(ctx context.Context, id uuid.UUID, systemAccountUserID uuid.UUID) (*entities.Cluster, error) {
+	return s.updateClusterCredentialsWith(ctx, s.repo, s.userRepo, id, systemAccountUserID)
+}
+
+// UpdateClusterCredentialsTx is the tx-aware variant. Callers inside another
+// service's factory.WithTx pass the tx-scoped factory so the cluster update
+// participates in the surrounding rollback boundary. Used by
+// ExportService.ImportFromNSC.
+func (s *ClusterService) UpdateClusterCredentialsTx(ctx context.Context, tx persistence.RepositoryFactory, id uuid.UUID, systemAccountUserID uuid.UUID) (*entities.Cluster, error) {
+	return s.updateClusterCredentialsWith(ctx, tx.ClusterRepository(), tx.UserRepository(), id, systemAccountUserID)
+}
+
+func (s *ClusterService) updateClusterCredentialsWith(ctx context.Context, clusterRepo repositories.ClusterRepository, userRepo repositories.UserRepository, id uuid.UUID, systemAccountUserID uuid.UUID) (*entities.Cluster, error) {
 	// Get existing cluster
-	cluster, err := s.repo.GetByID(ctx, id)
+	cluster, err := clusterRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get system account user
-	user, err := s.userRepo.GetByID(ctx, systemAccountUserID)
+	user, err := userRepo.GetByID(ctx, systemAccountUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get system account user: %w", err)
 	}
@@ -256,7 +270,7 @@ func (s *ClusterService) UpdateClusterCredentials(ctx context.Context, id uuid.U
 	cluster.UpdatedAt = time.Now()
 
 	// Save changes
-	if err := s.repo.Update(ctx, cluster); err != nil {
+	if err := clusterRepo.Update(ctx, cluster); err != nil {
 		return nil, fmt.Errorf("failed to update cluster: %w", err)
 	}
 

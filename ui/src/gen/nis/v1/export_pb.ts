@@ -24,6 +24,15 @@ export class ExportOperatorRequest extends Message<ExportOperatorRequest> {
    */
   includeSecrets = false;
 
+  /**
+   * Output encoding. "json" (default if unset) or "yaml". Older clients that
+   * leave this empty continue to receive JSON-encoded data — same on-wire shape
+   * as before yaml support was added.
+   *
+   * @generated from field: string format = 3;
+   */
+  format = "";
+
   constructor(data?: PartialMessage<ExportOperatorRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -34,6 +43,7 @@ export class ExportOperatorRequest extends Message<ExportOperatorRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "include_secrets", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "format", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ExportOperatorRequest {
@@ -60,11 +70,19 @@ export class ExportOperatorRequest extends Message<ExportOperatorRequest> {
  */
 export class ExportOperatorResponse extends Message<ExportOperatorResponse> {
   /**
-   * JSON-encoded export data
+   * JSON- or YAML-encoded export data (per request format)
    *
    * @generated from field: bytes data = 1;
    */
   data = new Uint8Array(0);
+
+  /**
+   * Echoes back the format actually used, so a client that left format unset
+   * can still tell what encoding it got.
+   *
+   * @generated from field: string format = 2;
+   */
+  format = "";
 
   constructor(data?: PartialMessage<ExportOperatorResponse>) {
     super();
@@ -75,6 +93,7 @@ export class ExportOperatorResponse extends Message<ExportOperatorResponse> {
   static readonly typeName = "nis.v1.ExportOperatorResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "data", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
+    { no: 2, name: "format", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ExportOperatorResponse {
@@ -101,7 +120,8 @@ export class ExportOperatorResponse extends Message<ExportOperatorResponse> {
  */
 export class ImportOperatorRequest extends Message<ImportOperatorRequest> {
   /**
-   * JSON-encoded export data
+   * JSON- or YAML-encoded export data. Format is auto-detected by peeking at
+   * the first non-whitespace byte: '{' or '[' is JSON, anything else is YAML.
    *
    * @generated from field: bytes data = 1;
    */

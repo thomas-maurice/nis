@@ -25,7 +25,7 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | P10 |        |       |
 | P11 |        |       |
 | P12 |        |       |
-| A1  |        |       |
+| A1  | **Done 2026-05-13** | Repository factory gained `WithTx(ctx, fn func(tx RepositoryFactory) error) error` (GORM-backed). `OperatorService.CreateOperator` (4 writes incl. nested `$SYS` account create), `OperatorService.DeleteOperator` (operator → accounts → users cascade), `AccountService.CreateAccount` + Update + UpdateJetStreamLimits, and `ScopedSigningKeyService.Create`/Update/Delete (mutation + `regenerateAccountJWT`) all run inside a single tx so a partial failure rolls the whole tree back. Manual-rollback hacks removed (`account_service.go` 130-136, `scoped_signing_key_service.go` 149-153). Live `sqlRepositoryFactory.Connect` now sets `SetMaxOpenConns(1)` for SQLite so longer write txs don't deadlock with concurrent reads. NATS pushes stay outside the tx; the existing 60s cluster-sync loop reconciles any DB-ahead-of-resolver window. Regression coverage: 4 new tests in `internal/infrastructure/persistence/withtx_test.go` (commit/rollback/panic/intra-tx-read), plus 3 service-layer partial-failure tests in `internal/application/services/partial_failure_test.go` (CreateOperator, CreateScopedSigningKey, ImportFromNSC) backed by a fault-injecting encryptor that confirms no orphan rows survive. All existing unit + integration + e2e suites green. **2026-05-13 follow-up:** `ExportService.ImportFromNSC` is now also tx-wrapped — added `SetSystemAccountTx`/`CreateUserTx`/`UpdateClusterCredentialsTx` so its inner service calls participate in the import-level tx; archive extraction stays OUTSIDE the tx (filesystem state isn't rolled back; `defer os.RemoveAll` handles it). |
 | A2  |        |       |
 | A3  |        |       |
 | A4  |        |       |
@@ -33,10 +33,10 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | A6  |        |       |
 | A7  |        |       |
 | A8  | **Done 2026-05-13** | Prometheus `/metrics`, OTel tracing (off by default), `/livez` + `/readyz` (strict) + `/healthz` (back-compat). otelconnect interceptor + otelhttp middleware. Domain gauges via 60s refresh. Six new instrumentation sites. Full doc-triangle update incl. README OTel walkthrough. |
-| A9  |        |       |
+| A9  | **Done 2026-05-13** | Viper flag-default trap fixed via `applyFlagOverrides` (writes to viper only when flag explicitly passed). Dead `internal/config` package + `sql.NewDB(config.DatabaseConfig)` removed; tests migrated to `sql.NewDB(driver, dsn)`. `config.example.yaml` rewritten to match the live shape (was documenting `database.path`/etc., none of which the binary reads). Doc triangle updated; precedence is now flag > env > file > default. Regression test in `cmd/nis/commands/viper_overrides_test.go`. |
 | A10 |        |       |
 | A11 |        |       |
-| A12 |        |       |
+| A12 | **Partial Done 2026-05-13** | NSC import path (`ImportFromNSC` + 6 helpers, ~590 LOC) extracted to `import_nsc.go`. `export_service.go` down from 1089 to 493 LOC. Pure file split — methods stay on `*ExportService`, no API change, no behavior change. e2e green. Structural extraction into separate `Exporter` / `Importer` / `NSCImporter` types (needing new constructors and dependency wiring) deferred — that's a real design call. **2026-05-13 follow-up:** YAML support added end-to-end — `ExportOperatorYAML`/`ImportOperatorYAML` service methods, format-aware `ExportOperatorBytes`/`ImportOperatorBytes` with auto-detection by sniffing the first non-whitespace byte, proto `format` field on `ExportOperatorRequest/Response`, gRPC handler dispatch, `nisctl export operator --format yaml\|json` (default yaml). All 5 `Exported*` structs got `yaml:` tags alongside `json:` to keep field names identical across encodings (yaml.v3 defaults to lowercased Go names otherwise). Round-trip tests cover the JSON regression path, the YAML happy path, auto-detect, tricky `$SYS`-prefixed names, and back-compat default-to-JSON. The structural type extraction remains the only A12 item still outstanding. |
 | C1  | **Done 2026-05-13** | Dead cmds + `test-nats.go` removed. |
 | C2  | **Done 2026-05-13** | Stale top-level docs removed (IMPLEMENTATION/IMPROVEMENT/IMPROVEMENTS_IMPLEM/PROGRESS/STATUS/UI_IMPLEMENTATION.md). |
 | C3  | **Done 2026-05-13** | `repoErrToConnect(err)` and `authedUser(ctx)` helpers in `handlers/util.go`; applied across every handler via perl + goimports cleanup. `errorlint` (C14) prevents regressions. |
@@ -46,7 +46,7 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | C7  | **Done 2026-05-13** | `fmt.Printf`/`Println` removed from services, grpc/server.go, cmd/nis/serve.go; replaced with `logging.LogFromContext` / `logging.GetLogger`. |
 | C8  |        | **Deferred.** Full SQL-repo genericization is a focused refactor of its own. The agent-cited ~600 LOC savings overstate the win once per-resource methods (GetByName, ListBy<Parent>, GetByPublicKey) are excluded, while the risk on persistence layer is medium and is best done with its own review-agent pass. Leaving as a stand-alone follow-up. |
 | C9  | **Done 2026-05-13** | `PermissionService` rewritten around three helpers: `requireRole`, `ownsOperator`, `ownsAccount`. Can* methods are now 2–5 line compositions; the 517-line file is down to ~330 LOC with materially clearer scope semantics. RBAC isolation tests + integration tests still green. |
-| C10 | **Partial Done 2026-05-13** | Archive helpers (`extractArchive`, `extractZipFile`, `extractTar`) extracted to `archive.go`. `export_service.go` reduced from 1207 to ~1078 LOC. The full export/import/NSC-import split (A12) remains for a follow-up refactor PR. |
+| C10 | **Done 2026-05-13** | Archive helpers extracted to `archive.go` in first sub-round; NSC import path extracted to `import_nsc.go` later in the day (see A12). `export_service.go` now 493 LOC (was 1207). Further structural extraction into named types is the deferred part of A12, not C10. |
 | C11 | **Done 2026-05-13** | All six GORM repo `Update` methods now use `.Select("*").Omit("CreatedAt").Updates(model)` so zero-value field updates (e.g. clearing a description) actually persist. CreatedAt remains immutable. Caught no regressions in the test suite. |
 | C12 | **Done 2026-05-13** | Casbin model + policy embedded via `//go:embed` in `internal/application/services/casbin_embed.go`; `initCasbin` is now a 2-line passthrough. Side benefit: fixes the "running the binary outside the repo root breaks RBAC" gotcha. **Bonus 2026-05-13:** both files now have thorough explanatory comments suitable for newcomers — see the files. |
 | C13 | **Done 2026-05-13** | Bundled with C9. Admin-only Can*Operator / Can*Cluster methods now route through `requireRole(RoleAdmin)`; the `operatorID` params on `CanUpdateOperator`/`CanDeleteOperator` are explicitly retained for future operator-admin-self-update semantics (commented). |
@@ -67,6 +67,18 @@ Regression net: three new e2e sub-tests cover this surface and run in CI:
 - `ScopedKey_PubDenyEnforced` — user signed by a scoped key with `pub_deny=["secret.>"]` is permitted on `public.>` and denied on `secret.>`.
 - `SyncAfterMutation_NewScopeTakesEffect` — start permissive, mutate the scope to add `pub_deny`, sync, and confirm the new template applies on next connect.
 - `SyncAfterMutation_DeleteRevokesAccess` — delete a scoped key, sync, and confirm previously-issued user creds signed by that key are rejected by NATS.
+
+### UI1 — URGENT: Broken UI to setup permissions, impossible to use newlines  (FIXED 2026-05-13)
+
+Root cause: `SigningKeysView.vue` bound each pub/sub allow/deny textarea via a computed v-model whose **setter** ran `value.split('\n').filter(s => s.trim() !== '')` on every keystroke. Pressing Enter momentarily set the textarea value to `"foo\n"`; the setter split that into `["foo", ""]`, filtered the trailing empty element, leaving `["foo"]`; the getter re-joined to `"foo"` and Vue wrote that back to the DOM — silently swallowing the newline before the user could type the next line.
+
+Fix in `ui/src/views/SigningKeysView.vue`:
+
+1. Setters no longer filter — they just `value.split('\n')`. Empty lines survive while typing, so Enter behaves normally.
+2. `handleSubmit` now does the trim+filter once, at submit time, before sending the array to `CreateScopedSigningKey` (`map(trim).filter(!=='')`).
+3. Bonus: placeholders changed from `placeholder="events.>\ndata.>"` (HTML attribute, shows literal `\n`) to `:placeholder="`events.>\ndata.>`"` (JS template literal with a real newline) so the example renders as the two-line hint it was always meant to be.
+
+Note: the proposal mentioned "creating a user" but users don't have permission textareas — permissions live entirely on scoped signing keys; users inherit them via the assigned scoped key. Only `SigningKeysView.vue` needed the fix.
 
 ---
 

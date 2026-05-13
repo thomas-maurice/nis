@@ -3,37 +3,31 @@ package sql
 import (
 	"fmt"
 
-	"github.com/thomas-maurice/nis/internal/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// NewDB creates a new database connection based on configuration
-func NewDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
+// NewDB creates a new database connection. Used by the service-layer test
+// suites — production code uses persistence.NewRepositoryFactory instead.
+// driver is "sqlite" or "postgres"; for sqlite, dsn is a filesystem path
+// (or ":memory:"); for postgres, dsn is the connection string.
+func NewDB(driver, dsn string) (*gorm.DB, error) {
 	var dialector gorm.Dialector
 
-	switch cfg.Driver {
+	switch driver {
 	case "sqlite":
-		if cfg.Path == "" {
+		if dsn == "" {
 			return nil, fmt.Errorf("SQLite path is required")
 		}
-		dialector = sqlite.Open(cfg.Path + "?_foreign_keys=on")
+		dialector = sqlite.Open(dsn + "?_foreign_keys=on")
 
 	case "postgres":
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-			cfg.Host,
-			cfg.Port,
-			cfg.User,
-			cfg.Password,
-			cfg.DBName,
-			cfg.SSLMode,
-		)
 		dialector = postgres.Open(dsn)
 
 	default:
-		return nil, fmt.Errorf("unsupported database driver: %s", cfg.Driver)
+		return nil, fmt.Errorf("unsupported database driver: %s", driver)
 	}
 
 	db, err := gorm.Open(dialector, &gorm.Config{
@@ -44,7 +38,7 @@ func NewDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	}
 
 	// Enable foreign key constraints for SQLite on all connections
-	if cfg.Driver == "sqlite" {
+	if driver == "sqlite" {
 		// Set on the current connection
 		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
 			return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
