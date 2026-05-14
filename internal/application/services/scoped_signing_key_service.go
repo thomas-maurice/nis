@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -102,8 +103,9 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 		scopedKeyRepo := tx.ScopedSigningKeyRepository()
 		accountRepo := tx.AccountRepository()
 
-		// Get account to verify it exists
-		if _, err := accountRepo.GetByID(ctx, req.AccountID); err != nil {
+		// Get account to verify it exists and capture OperatorID for event emission
+		account, err := accountRepo.GetByID(ctx, req.AccountID)
+		if err != nil {
 			return fmt.Errorf("failed to get account: %w", err)
 		}
 
@@ -156,6 +158,17 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 		// account update we made — no manual cleanup needed.
 		if err := s.regenerateAccountJWTTx(ctx, tx, req.AccountID); err != nil {
 			return err
+		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeScopedKeyCreated,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &scopedKey.AccountID,
+			ResourceType: "scoped_key",
+			ResourceID:   scopedKey.ID.String(),
+			Payload:      map[string]any{"name": scopedKey.Name, "public_key": scopedKey.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit scoped_key.created: %w", err)
 		}
 
 		result = scopedKey
@@ -283,6 +296,21 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 			return err
 		}
 
+		account, err := tx.AccountRepository().GetByID(ctx, scopedKey.AccountID)
+		if err != nil {
+			return fmt.Errorf("emit scoped_key.updated: lookup account: %w", err)
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeScopedKeyUpdated,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &scopedKey.AccountID,
+			ResourceType: "scoped_key",
+			ResourceID:   scopedKey.ID.String(),
+			Payload:      map[string]any{"name": scopedKey.Name},
+		}); err != nil {
+			return fmt.Errorf("emit scoped_key.updated: %w", err)
+		}
+
 		result = scopedKey
 		return nil
 	})
@@ -310,6 +338,25 @@ func (s *ScopedSigningKeyService) DeleteScopedSigningKey(ctx context.Context, id
 
 		// Re-sign the account JWT so NATS stops trusting the deleted key as a signer.
 		// On failure, WithTx rolls back the delete itself — the key reappears.
-		return s.regenerateAccountJWTTx(ctx, tx, existing.AccountID)
+		if err := s.regenerateAccountJWTTx(ctx, tx, existing.AccountID); err != nil {
+			return err
+		}
+
+		account, err := tx.AccountRepository().GetByID(ctx, existing.AccountID)
+		if err != nil {
+			return fmt.Errorf("emit scoped_key.deleted: lookup account: %w", err)
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeScopedKeyDeleted,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &existing.AccountID,
+			ResourceType: "scoped_key",
+			ResourceID:   existing.ID.String(),
+			Payload:      map[string]any{"name": existing.Name, "public_key": existing.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit scoped_key.deleted: %w", err)
+		}
+
+		return nil
 	})
 }

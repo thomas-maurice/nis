@@ -29,12 +29,15 @@ type sqlRepositoryFactory struct {
 	sqlDB *sql.DB
 
 	// Repository instances (lazy-loaded)
-	operatorRepo         repositories.OperatorRepository
-	accountRepo          repositories.AccountRepository
-	userRepo             repositories.UserRepository
-	scopedSigningKeyRepo repositories.ScopedSigningKeyRepository
-	clusterRepo          repositories.ClusterRepository
-	apiUserRepo          repositories.APIUserRepository
+	operatorRepo                repositories.OperatorRepository
+	accountRepo                 repositories.AccountRepository
+	userRepo                    repositories.UserRepository
+	scopedSigningKeyRepo         repositories.ScopedSigningKeyRepository
+	clusterRepo                 repositories.ClusterRepository
+	apiUserRepo                 repositories.APIUserRepository
+	eventRepo                   repositories.EventRepository
+	webhookSubscriptionRepo     repositories.WebhookSubscriptionRepository
+	webhookDeliveryRepo         repositories.WebhookDeliveryRepository
 }
 
 func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
@@ -156,6 +159,9 @@ func (f *sqlRepositoryFactory) Inventory(ctx context.Context) (Inventory, error)
 	}
 	if err := db.Table("clusters").Where("healthy = ?", true).Count(&inv.ClustersHealthy).Error; err != nil {
 		return Inventory{}, fmt.Errorf("count healthy clusters: %w", err)
+	}
+	if err := db.Table("webhook_deliveries").Where("status = ?", "pending").Count(&inv.PendingDeliveries).Error; err != nil {
+		return Inventory{}, fmt.Errorf("count pending deliveries: %w", err)
 	}
 	return inv, nil
 }
@@ -295,6 +301,27 @@ func (f *sqlRepositoryFactory) APIUserRepository() repositories.APIUserRepositor
 		f.apiUserRepo = sqlRepo.NewAPIUserRepo(f.gormDB)
 	}
 	return f.apiUserRepo
+}
+
+func (f *sqlRepositoryFactory) EventRepository() repositories.EventRepository {
+	if f.eventRepo == nil {
+		f.eventRepo = sqlRepo.NewEventRepo(f.gormDB)
+	}
+	return f.eventRepo
+}
+
+func (f *sqlRepositoryFactory) WebhookSubscriptionRepository() repositories.WebhookSubscriptionRepository {
+	if f.webhookSubscriptionRepo == nil {
+		f.webhookSubscriptionRepo = sqlRepo.NewWebhookSubscriptionRepo(f.gormDB)
+	}
+	return f.webhookSubscriptionRepo
+}
+
+func (f *sqlRepositoryFactory) WebhookDeliveryRepository() repositories.WebhookDeliveryRepository {
+	if f.webhookDeliveryRepo == nil {
+		f.webhookDeliveryRepo = sqlRepo.NewWebhookDeliveryRepo(f.gormDB)
+	}
+	return f.webhookDeliveryRepo
 }
 
 // WithTx runs fn inside a GORM transaction. The factory passed to fn hands out

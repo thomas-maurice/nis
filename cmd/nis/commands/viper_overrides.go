@@ -45,4 +45,12 @@ func registerConfigDefaults() {
 	viper.SetDefault("tracing.sample_ratio", 1.0)
 	viper.SetDefault("tracing.service_name", "nis")
 	viper.SetDefault("log_level", "info")
+	viper.SetDefault("events.retention_days", 30)
+	viper.SetDefault("webhooks.succeeded_retention_days", 7)
+	viper.SetDefault("webhooks.poll_interval_seconds", 0)
+	viper.SetDefault("webhooks.delivery_timeout_seconds", 10)
+	viper.SetDefault("webhooks.max_attempts", 5)
+	viper.SetDefault("webhooks.backoff_base_seconds", 10)
+	viper.SetDefault("webhooks.backoff_cap_seconds", 600)
+	viper.SetDefault("webhooks.shutdown_timeout_seconds", 30)
 }

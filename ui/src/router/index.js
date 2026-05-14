@@ -81,6 +81,24 @@ const router = createRouter({
       name: 'api-users',
       component: () => import('@/views/ApiUsersView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/events',
+      name: 'events',
+      component: () => import('@/views/EventsView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/webhooks',
+      name: 'webhooks',
+      component: () => import('@/views/WebhooksView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/webhooks/:id',
+      name: 'webhook-detail',
+      component: () => import('@/views/WebhookDetailView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

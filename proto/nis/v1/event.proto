@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Event is one row from the audit log / event substrate.
+message Event {
+  string id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string type = 3;
+  string actor_type = 4;
+  string actor_id = 5;
+  string operator_id = 6;
+  string account_id = 7;
+  string resource_type = 8;
+  string resource_id = 9;
+  string payload_json = 10;
+}
+
+// EventFilter mirrors repositories.EventFilter for the wire.
+message EventFilter {
+  repeated string types = 1;
+  string resource_type = 2;
+  string resource_id = 3;
+  string operator_id = 4;
+  string account_id = 5;
+  google.protobuf.Timestamp since = 6;
+  google.protobuf.Timestamp until = 7;
+  int32 limit = 8;
+  string cursor = 9;
+}
+
+message ListEventsRequest {
+  EventFilter filter = 1;
+}
+
+message ListEventsResponse {
+  repeated Event events = 1;
+  string next_cursor = 2;
+}
+
+message GetEventRequest {
+  string id = 1;
+}
+
+message GetEventResponse {
+  Event event = 1;
+}
+
+// EventService reads from the audit log. Admin-only in v1.
+service EventService {
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc GetEvent(GetEventRequest) returns (GetEventResponse);
+}

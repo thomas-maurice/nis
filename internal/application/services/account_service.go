@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -154,8 +155,30 @@ func (s *AccountService) createAccountTx(ctx context.Context, tx persistence.Rep
 		return nil, fmt.Errorf("failed to create default scoped signing key for account: %w", err)
 	}
 
+	if err := events.EmitTx(ctx, tx, events.Event{
+		Type:         entities.EventTypeScopedKeyCreated,
+		OperatorID:   &account.OperatorID,
+		AccountID:    &account.ID,
+		ResourceType: "scoped_key",
+		ResourceID:   defaultKey.ID.String(),
+		Payload:      map[string]any{"name": defaultKey.Name, "public_key": defaultKey.PublicKey},
+	}); err != nil {
+		return nil, fmt.Errorf("emit scoped_key.created (default): %w", err)
+	}
+
 	logging.LogFromContext(ctx).Info("created account with default scoped signing key",
 		"account", account.Name, "scoped_key", defaultKey.Name)
+
+	if err := events.EmitTx(ctx, tx, events.Event{
+		Type:         entities.EventTypeAccountCreated,
+		OperatorID:   &account.OperatorID,
+		AccountID:    &account.ID,
+		ResourceType: "account",
+		ResourceID:   account.ID.String(),
+		Payload:      map[string]any{"name": account.Name, "public_key": account.PublicKey},
+	}); err != nil {
+		return nil, fmt.Errorf("emit account.created: %w", err)
+	}
 
 	return account, nil
 }
@@ -291,6 +314,18 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 		if err := accountRepo.Update(ctx, acc); err != nil {
 			return fmt.Errorf("failed to update account: %w", err)
 		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAccountUpdated,
+			OperatorID:   &acc.OperatorID,
+			AccountID:    &acc.ID,
+			ResourceType: "account",
+			ResourceID:   acc.ID.String(),
+			Payload:      map[string]any{"name": acc.Name},
+		}); err != nil {
+			return fmt.Errorf("emit account.updated: %w", err)
+		}
+
 		account = acc
 		return nil
 	})
@@ -354,6 +389,18 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 		if err := accountRepo.Update(ctx, acc); err != nil {
 			return fmt.Errorf("failed to update account: %w", err)
 		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAccountUpdated,
+			OperatorID:   &acc.OperatorID,
+			AccountID:    &acc.ID,
+			ResourceType: "account",
+			ResourceID:   acc.ID.String(),
+			Payload:      map[string]any{"name": acc.Name, "changed": []string{"jetstream_limits"}},
+		}); err != nil {
+			return fmt.Errorf("emit account.updated: %w", err)
+		}
+
 		account = acc
 		return nil
 	})
@@ -365,25 +412,42 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 
 // DeleteAccount deletes an account and all associated data (cascades to users)
 func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error {
-	accountRepo := s.factory.AccountRepository()
-	operatorRepo := s.factory.OperatorRepository()
+	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		accountRepo := tx.AccountRepository()
+		operatorRepo := tx.OperatorRepository()
 
-	// Check if account exists
-	account, err := accountRepo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
+		// Check if account exists
+		account, err := accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
 
-	// Check if this account is a system account for any operator
-	operator, err := operatorRepo.GetByID(ctx, account.OperatorID)
-	if err != nil {
-		return fmt.Errorf("failed to get operator: %w", err)
-	}
+		// Check if this account is a system account for any operator
+		operator, err := operatorRepo.GetByID(ctx, account.OperatorID)
+		if err != nil {
+			return fmt.Errorf("failed to get operator: %w", err)
+		}
 
-	if operator.SystemAccountPubKey == account.PublicKey {
-		return fmt.Errorf("cannot delete system account: this account is designated as the system account for operator '%s'", operator.Name)
-	}
+		if operator.SystemAccountPubKey == account.PublicKey {
+			return fmt.Errorf("cannot delete system account: this account is designated as the system account for operator '%s'", operator.Name)
+		}
 
-	// Delete account (cascades to users and scoped signing keys at FK level)
-	return accountRepo.Delete(ctx, id)
+		// Delete account (cascades to users and scoped signing keys at FK level)
+		if err := accountRepo.Delete(ctx, id); err != nil {
+			return err
+		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAccountDeleted,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &account.ID,
+			ResourceType: "account",
+			ResourceID:   account.ID.String(),
+			Payload:      map[string]any{"name": account.Name, "public_key": account.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit account.deleted: %w", err)
+		}
+
+		return nil
+	})
 }

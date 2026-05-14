@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -354,6 +355,183 @@ func APIUserModelFromEntity(e *entities.APIUser) *APIUserModel {
 		AccountID:    accountID,
 		CreatedAt:    e.CreatedAt,
 		UpdatedAt:    e.UpdatedAt,
+	}
+}
+
+// EventModel represents the GORM model for events
+type EventModel struct {
+	ID           string  `gorm:"primaryKey;type:text"`
+	OccurredAt   time.Time `gorm:"type:timestamp;not null;index"`
+	Type         string  `gorm:"type:text;not null;index"`
+	ActorType    string  `gorm:"type:text;not null"`
+	ActorID      *string `gorm:"type:text"`
+	OperatorID   *string `gorm:"type:text;index"`
+	AccountID    *string `gorm:"type:text"`
+	ResourceType string  `gorm:"type:text;not null"`
+	ResourceID   string  `gorm:"type:text;not null"`
+	Payload      *string `gorm:"type:text"`
+}
+
+func (EventModel) TableName() string {
+	return "events"
+}
+
+func (m *EventModel) ToEntity() *entities.Event {
+	e := &entities.Event{
+		ID:           uuid.MustParse(m.ID),
+		OccurredAt:   m.OccurredAt,
+		Type:         m.Type,
+		ActorType:    entities.ActorType(m.ActorType),
+		ResourceType: m.ResourceType,
+		ResourceID:   m.ResourceID,
+	}
+	if m.ActorID != nil {
+		id := uuid.MustParse(*m.ActorID)
+		e.ActorID = &id
+	}
+	if m.OperatorID != nil {
+		id := uuid.MustParse(*m.OperatorID)
+		e.OperatorID = &id
+	}
+	if m.AccountID != nil {
+		id := uuid.MustParse(*m.AccountID)
+		e.AccountID = &id
+	}
+	if m.Payload != nil {
+		e.Payload = json.RawMessage(*m.Payload)
+	}
+	return e
+}
+
+func EventModelFromEntity(e *entities.Event) *EventModel {
+	m := &EventModel{
+		ID:           e.ID.String(),
+		OccurredAt:   e.OccurredAt,
+		Type:         e.Type,
+		ActorType:    string(e.ActorType),
+		ResourceType: e.ResourceType,
+		ResourceID:   e.ResourceID,
+	}
+	if e.ActorID != nil {
+		id := e.ActorID.String()
+		m.ActorID = &id
+	}
+	if e.OperatorID != nil {
+		id := e.OperatorID.String()
+		m.OperatorID = &id
+	}
+	if e.AccountID != nil {
+		id := e.AccountID.String()
+		m.AccountID = &id
+	}
+	if len(e.Payload) > 0 {
+		s := string(e.Payload)
+		m.Payload = &s
+	}
+	return m
+}
+
+// WebhookSubscriptionModel represents the GORM model for webhook_subscriptions
+type WebhookSubscriptionModel struct {
+	ID              string `gorm:"primaryKey;type:text"`
+	OperatorID      string `gorm:"type:text;not null;index"`
+	Name            string `gorm:"type:text;not null"`
+	Description     string `gorm:"type:text"`
+	URL             string `gorm:"type:text;not null"`
+	EncryptedSecret string `gorm:"type:text;not null"`
+	EventTypes      string `gorm:"type:text;not null"` // JSON array
+	Enabled         bool   `gorm:"not null;index"`
+	DisabledReason  string `gorm:"type:text;not null;default:''"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+func (WebhookSubscriptionModel) TableName() string {
+	return "webhook_subscriptions"
+}
+
+func (m *WebhookSubscriptionModel) ToEntity() *entities.WebhookSubscription {
+	types, _ := entities.ParseEventTypesJSON(m.EventTypes)
+	return &entities.WebhookSubscription{
+		ID:              uuid.MustParse(m.ID),
+		OperatorID:      uuid.MustParse(m.OperatorID),
+		Name:            m.Name,
+		Description:     m.Description,
+		URL:             m.URL,
+		EncryptedSecret: m.EncryptedSecret,
+		EventTypes:      types,
+		Enabled:         m.Enabled,
+		DisabledReason:  m.DisabledReason,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+	}
+}
+
+func WebhookSubscriptionModelFromEntity(e *entities.WebhookSubscription) *WebhookSubscriptionModel {
+	eventTypes, _ := entities.EventTypesJSON(e.EventTypes)
+	return &WebhookSubscriptionModel{
+		ID:              e.ID.String(),
+		OperatorID:      e.OperatorID.String(),
+		Name:            e.Name,
+		Description:     e.Description,
+		URL:             e.URL,
+		EncryptedSecret: e.EncryptedSecret,
+		EventTypes:      eventTypes,
+		Enabled:         e.Enabled,
+		DisabledReason:  e.DisabledReason,
+		CreatedAt:       e.CreatedAt,
+		UpdatedAt:       e.UpdatedAt,
+	}
+}
+
+// WebhookDeliveryModel represents the GORM model for webhook_deliveries
+type WebhookDeliveryModel struct {
+	ID               string     `gorm:"primaryKey;type:text"`
+	SubscriptionID   string     `gorm:"type:text;not null;index"`
+	EventID          string     `gorm:"type:text;not null;index"`
+	Attempt          int        `gorm:"not null;default:0"`
+	Status           string     `gorm:"type:text;not null"`
+	NextAttemptAt    time.Time  `gorm:"type:timestamp;not null"`
+	LastError        string     `gorm:"type:text;not null;default:''"`
+	LastResponseCode int        `gorm:"not null;default:0"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	CompletedAt      *time.Time `gorm:"type:timestamp"`
+}
+
+func (WebhookDeliveryModel) TableName() string {
+	return "webhook_deliveries"
+}
+
+func (m *WebhookDeliveryModel) ToEntity() *entities.WebhookDelivery {
+	return &entities.WebhookDelivery{
+		ID:               uuid.MustParse(m.ID),
+		SubscriptionID:   uuid.MustParse(m.SubscriptionID),
+		EventID:          uuid.MustParse(m.EventID),
+		Attempt:          m.Attempt,
+		Status:           entities.DeliveryStatus(m.Status),
+		NextAttemptAt:    m.NextAttemptAt,
+		LastError:        m.LastError,
+		LastResponseCode: m.LastResponseCode,
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
+		CompletedAt:      m.CompletedAt,
+	}
+}
+
+func WebhookDeliveryModelFromEntity(e *entities.WebhookDelivery) *WebhookDeliveryModel {
+	return &WebhookDeliveryModel{
+		ID:               e.ID.String(),
+		SubscriptionID:   e.SubscriptionID.String(),
+		EventID:          e.EventID.String(),
+		Attempt:          e.Attempt,
+		Status:           string(e.Status),
+		NextAttemptAt:    e.NextAttemptAt,
+		LastError:        e.LastError,
+		LastResponseCode: e.LastResponseCode,
+		CreatedAt:        e.CreatedAt,
+		UpdatedAt:        e.UpdatedAt,
+		CompletedAt:      e.CompletedAt,
 	}
 }
 

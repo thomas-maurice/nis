@@ -59,6 +59,18 @@
               API Users
             </router-link>
           </li>
+          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
+            <router-link class="nav-link" to="/webhooks">
+              <font-awesome-icon :icon="['fas', 'webhook']" class="me-1" />
+              Webhooks
+            </router-link>
+          </li>
+          <li v-if="authStore.isAdmin" class="nav-item">
+            <router-link class="nav-link" to="/events">
+              <font-awesome-icon :icon="['fas', 'list-alt']" class="me-1" />
+              Events
+            </router-link>
+          </li>
         </ul>
 
         <ul class="navbar-nav">

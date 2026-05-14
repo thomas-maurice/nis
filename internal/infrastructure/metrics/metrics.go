@@ -132,6 +132,10 @@ type Recorder struct {
 	authRejections       metric.Int64Counter
 
 	httpDuration metric.Float64Histogram
+
+	webhookDeliveries        metric.Int64Counter
+	webhookDeliveryDuration  metric.Float64Histogram
+	eventsEmitted            metric.Int64Counter
 }
 
 func newRecorder(m metric.Meter) (*Recorder, error) {
@@ -174,6 +178,25 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 		"nis_http_server_duration_seconds",
 		metric.WithUnit("s"),
 		metric.WithDescription("Duration of non-RPC HTTP requests, labelled by path class, method, and status."),
+	); err != nil {
+		return nil, err
+	}
+	if r.webhookDeliveries, err = m.Int64Counter(
+		"nis_webhook_deliveries_total",
+		metric.WithDescription("Total webhook delivery attempts, labelled by status (succeeded/failed/dead_letter)."),
+	); err != nil {
+		return nil, err
+	}
+	if r.webhookDeliveryDuration, err = m.Float64Histogram(
+		"nis_webhook_delivery_duration_seconds",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time spent on a single webhook HTTP POST attempt."),
+	); err != nil {
+		return nil, err
+	}
+	if r.eventsEmitted, err = m.Int64Counter(
+		"nis_events_emitted_total",
+		metric.WithDescription("Total events emitted, labelled by type."),
 	); err != nil {
 		return nil, err
 	}
@@ -234,4 +257,24 @@ func (r *Recorder) recordHTTPDuration(ctx context.Context, seconds float64, path
 		attribute.String("method", method),
 		attribute.Int("status", status),
 	))
+}
+
+// RecordWebhookDelivery records the outcome of a single webhook delivery attempt.
+// status is one of "succeeded", "failed", "dead_letter".
+func (r *Recorder) RecordWebhookDelivery(ctx context.Context, status string, durationSeconds float64) {
+	if r == nil {
+		return
+	}
+	attrs := metric.WithAttributes(attribute.String("status", status))
+	r.webhookDeliveries.Add(ctx, 1, attrs)
+	r.webhookDeliveryDuration.Record(ctx, durationSeconds, attrs)
+}
+
+// RecordEventEmitted increments the events-emitted counter. eventType should be
+// one of the EventType* constants from entities (e.g. "account.created").
+func (r *Recorder) RecordEventEmitted(ctx context.Context, eventType string) {
+	if r == nil {
+		return
+	}
+	r.eventsEmitted.Add(ctx, 1, metric.WithAttributes(attribute.String("type", eventType)))
 }

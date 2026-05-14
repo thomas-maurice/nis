@@ -8,6 +8,8 @@ import { UserService } from '@/gen/nis/v1/user_connect'
 import { ClusterService } from '@/gen/nis/v1/cluster_connect'
 import { ScopedSigningKeyService } from '@/gen/nis/v1/scoped_key_connect'
 import { AuthService } from '@/gen/nis/v1/auth_connect'
+import { EventService } from '@/gen/nis/v1/event_connect'
+import { WebhookService } from '@/gen/nis/v1/webhook_connect'
 
 // Determine API base URL
 const API_BASE_URL = import.meta.env.DEV
@@ -39,3 +41,5 @@ export const userClient: PromiseClient<typeof UserService> = createPromiseClient
 export const clusterClient: PromiseClient<typeof ClusterService> = createPromiseClient(ClusterService, transport)
 export const scopedKeyClient: PromiseClient<typeof ScopedSigningKeyService> = createPromiseClient(ScopedSigningKeyService, transport)
 export const authClient: PromiseClient<typeof AuthService> = createPromiseClient(AuthService, transport)
+export const eventClient: PromiseClient<typeof EventService> = createPromiseClient(EventService, transport)
+export const webhookClient: PromiseClient<typeof WebhookService> = createPromiseClient(WebhookService, transport)

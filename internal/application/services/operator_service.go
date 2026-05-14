@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -166,6 +167,17 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 			return fmt.Errorf("failed to create system user: %w", err)
 		}
 
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeUserCreated,
+			OperatorID:   &operator.ID,
+			AccountID:    &sysAccount.ID,
+			ResourceType: "user",
+			ResourceID:   sysUser.ID.String(),
+			Payload:      map[string]any{"name": sysUser.Name, "public_key": sysUser.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit user.created (system): %w", err)
+		}
+
 		// Update operator with system account public key and regenerate JWT
 		operator.SystemAccountPubKey = sysAccount.PublicKey
 		operator.UpdatedAt = time.Now()
@@ -179,6 +191,16 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 		// Update operator with system account reference
 		if err := operatorRepo.Update(ctx, operator); err != nil {
 			return fmt.Errorf("failed to update operator with system account: %w", err)
+		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeOperatorCreated,
+			OperatorID:   &operator.ID,
+			ResourceType: "operator",
+			ResourceID:   operator.ID.String(),
+			Payload:      map[string]any{"name": operator.Name, "public_key": operator.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit operator.created: %w", err)
 		}
 
 		result = operator
@@ -218,53 +240,72 @@ type UpdateOperatorRequest struct {
 
 // UpdateOperator updates an operator's metadata (does not regenerate keys)
 func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req UpdateOperatorRequest) (*entities.Operator, error) {
-	repo := s.factory.OperatorRepository()
+	var result *entities.Operator
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		repo := tx.OperatorRepository()
 
-	// Get existing operator
-	operator, err := repo.GetByID(ctx, id)
+		// Get existing operator
+		operator, err := repo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		// Update fields if provided
+		updated := false
+		if req.Name != nil && *req.Name != operator.Name {
+			// Check if new name is already taken
+			existing, err := repo.GetByName(ctx, *req.Name)
+			if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+				return fmt.Errorf("failed to check existing operator: %w", err)
+			}
+			if existing != nil && existing.ID != id {
+				return repositories.ErrAlreadyExists
+			}
+			operator.Name = *req.Name
+			updated = true
+		}
+
+		if req.Description != nil && *req.Description != operator.Description {
+			operator.Description = *req.Description
+			updated = true
+		}
+
+		if !updated {
+			result = operator
+			return nil
+		}
+
+		operator.UpdatedAt = time.Now()
+
+		// Regenerate JWT with updated name
+		opJWT, err := s.jwtService.GenerateOperatorJWT(ctx, operator)
+		if err != nil {
+			return fmt.Errorf("failed to regenerate operator JWT: %w", err)
+		}
+		operator.JWT = opJWT
+
+		// Save changes
+		if err := repo.Update(ctx, operator); err != nil {
+			return fmt.Errorf("failed to update operator: %w", err)
+		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeOperatorUpdated,
+			OperatorID:   &operator.ID,
+			ResourceType: "operator",
+			ResourceID:   operator.ID.String(),
+			Payload:      map[string]any{"name": operator.Name},
+		}); err != nil {
+			return fmt.Errorf("emit operator.updated: %w", err)
+		}
+
+		result = operator
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Update fields if provided
-	updated := false
-	if req.Name != nil && *req.Name != operator.Name {
-		// Check if new name is already taken
-		existing, err := repo.GetByName(ctx, *req.Name)
-		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-			return nil, fmt.Errorf("failed to check existing operator: %w", err)
-		}
-		if existing != nil && existing.ID != id {
-			return nil, repositories.ErrAlreadyExists
-		}
-		operator.Name = *req.Name
-		updated = true
-	}
-
-	if req.Description != nil && *req.Description != operator.Description {
-		operator.Description = *req.Description
-		updated = true
-	}
-
-	if !updated {
-		return operator, nil
-	}
-
-	operator.UpdatedAt = time.Now()
-
-	// Regenerate JWT with updated name
-	opJWT, err := s.jwtService.GenerateOperatorJWT(ctx, operator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to regenerate operator JWT: %w", err)
-	}
-	operator.JWT = opJWT
-
-	// Save changes
-	if err := repo.Update(ctx, operator); err != nil {
-		return nil, fmt.Errorf("failed to update operator: %w", err)
-	}
-
-	return operator, nil
+	return result, nil
 }
 
 // SetSystemAccount sets or updates the system account for an operator
@@ -336,7 +377,8 @@ func (s *OperatorService) DeleteOperator(ctx context.Context, id uuid.UUID) erro
 		clusterRepo := tx.ClusterRepository()
 
 		// Check if operator exists (and fail fast if not)
-		if _, err := operatorRepo.GetByID(ctx, id); err != nil {
+		op, err := operatorRepo.GetByID(ctx, id)
+		if err != nil {
 			return err
 		}
 
@@ -382,7 +424,21 @@ func (s *OperatorService) DeleteOperator(ctx context.Context, id uuid.UUID) erro
 		}
 
 		// Finally delete the operator
-		return operatorRepo.Delete(ctx, id)
+		if err := operatorRepo.Delete(ctx, id); err != nil {
+			return err
+		}
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeOperatorDeleted,
+			OperatorID:   &id,
+			ResourceType: "operator",
+			ResourceID:   id.String(),
+			Payload:      map[string]any{"name": op.Name, "public_key": op.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit operator.deleted: %w", err)
+		}
+
+		return nil
 	})
 }
 

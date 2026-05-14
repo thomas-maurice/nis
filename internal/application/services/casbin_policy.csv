@@ -116,3 +116,28 @@ p, account-admin, user,     update
 
 # Clusters: read-only (they need to know where to point clients).
 p, account-admin, cluster,  read
+
+
+# ============================================================
+# Events (audit log) — admin-only in v1.
+# extractResourceAndAction maps EventService -> resource="event",
+# ListEvents/GetEvent -> action="read".
+# ============================================================
+p, admin, event, read
+
+
+# ============================================================
+# Webhook subscriptions and deliveries.
+# extractResourceAndAction maps WebhookService -> resource="webhook".
+# Create/Update/Delete map to their respective actions.
+# Get/List/Test all map to action="read" (extractAction default for
+# unknown prefixes like "test" is "read").
+# ============================================================
+p, admin, webhook,           create
+p, admin, webhook,           read
+p, admin, webhook,           update
+p, admin, webhook,           delete
+p, operator-admin, webhook,  create
+p, operator-admin, webhook,  read
+p, operator-admin, webhook,  update
+p, operator-admin, webhook,  delete

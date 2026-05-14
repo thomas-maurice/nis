@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -22,6 +23,7 @@ type UserService struct {
 	scopedKeyRepo repositories.ScopedSigningKeyRepository
 	jwtService    *JWTService
 	encryptor     encryption.Encryptor
+	factory       persistence.RepositoryFactory // optional; set via WithFactory for event emission
 }
 
 // NewUserService creates a new user service
@@ -41,6 +43,14 @@ func NewUserService(
 	}
 }
 
+// WithFactory attaches a repository factory to the service, enabling event emission.
+// Call this from serve.go after constructing the service. Tests that don't call this
+// will skip event emission (factory is nil).
+func (s *UserService) WithFactory(f persistence.RepositoryFactory) *UserService {
+	s.factory = f
+	return s
+}
+
 // CreateUserRequest contains the data needed to create a user
 type CreateUserRequest struct {
 	AccountID          uuid.UUID
@@ -51,7 +61,36 @@ type CreateUserRequest struct {
 
 // CreateUser creates a new user with generated keys and JWT
 func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*entities.User, error) {
-	return s.createUserWith(ctx, s.repo, s.accountRepo, s.scopedKeyRepo, req)
+	if s.factory == nil {
+		return s.createUserWith(ctx, s.repo, s.accountRepo, s.scopedKeyRepo, req)
+	}
+	var result *entities.User
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user, err := s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), req)
+		if err != nil {
+			return err
+		}
+		account, err := tx.AccountRepository().GetByID(ctx, user.AccountID)
+		if err != nil {
+			return fmt.Errorf("emit user.created: lookup account: %w", err)
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeUserCreated,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &user.AccountID,
+			ResourceType: "user",
+			ResourceID:   user.ID.String(),
+			Payload:      map[string]any{"name": user.Name, "public_key": user.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit user.created: %w", err)
+		}
+		result = user
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // CreateUserTx is the tx-aware variant of CreateUser. Callers already running
@@ -59,7 +98,25 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*e
 // account/scoped-key lookups see uncommitted writes from the surrounding tx,
 // and the user.Create participates in the same rollback boundary.
 func (s *UserService) CreateUserTx(ctx context.Context, tx persistence.RepositoryFactory, req CreateUserRequest) (*entities.User, error) {
-	return s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), req)
+	user, err := s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), req)
+	if err != nil {
+		return nil, err
+	}
+	account, err := tx.AccountRepository().GetByID(ctx, user.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("emit user.created: lookup account: %w", err)
+	}
+	if err := events.EmitTx(ctx, tx, events.Event{
+		Type:         entities.EventTypeUserCreated,
+		OperatorID:   &account.OperatorID,
+		AccountID:    &user.AccountID,
+		ResourceType: "user",
+		ResourceID:   user.ID.String(),
+		Payload:      map[string]any{"name": user.Name, "public_key": user.PublicKey},
+	}); err != nil {
+		return nil, fmt.Errorf("emit user.created: %w", err)
+	}
+	return user, nil
 }
 
 // createUserWith is the shared body. It takes the three repos as parameters so
@@ -176,65 +233,102 @@ type UpdateUserRequest struct {
 
 // UpdateUser updates a user's metadata and regenerates JWT
 func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*entities.User, error) {
-	// Get existing user
-	user, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update fields if provided
-	updated := false
-	if req.Name != nil && *req.Name != user.Name {
-		// Check if new name is already taken for this account
-		existing, err := s.repo.GetByName(ctx, user.AccountID, *req.Name)
-		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-			return nil, fmt.Errorf("failed to check existing user: %w", err)
+	updateFn := func(userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository) (*entities.User, error) {
+		// Get existing user
+		user, err := userRepo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
 		}
-		if existing != nil && existing.ID != id {
-			return nil, repositories.ErrAlreadyExists
+
+		// Update fields if provided
+		updated := false
+		if req.Name != nil && *req.Name != user.Name {
+			// Check if new name is already taken for this account
+			existing, err := userRepo.GetByName(ctx, user.AccountID, *req.Name)
+			if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+				return nil, fmt.Errorf("failed to check existing user: %w", err)
+			}
+			if existing != nil && existing.ID != id {
+				return nil, repositories.ErrAlreadyExists
+			}
+			user.Name = *req.Name
+			updated = true
 		}
-		user.Name = *req.Name
-		updated = true
-	}
 
-	if req.Description != nil && *req.Description != user.Description {
-		user.Description = *req.Description
-		updated = true
-	}
+		if req.Description != nil && *req.Description != user.Description {
+			user.Description = *req.Description
+			updated = true
+		}
 
-	if !updated {
+		if !updated {
+			return user, nil
+		}
+
+		user.UpdatedAt = time.Now()
+
+		// Get account and optional scoped key to regenerate JWT
+		account, err := accountRepo.GetByID(ctx, user.AccountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get account: %w", err)
+		}
+
+		var scopedKey *entities.ScopedSigningKey
+		if user.ScopedSigningKeyID != nil {
+			scopedKey, err = scopedKeyRepo.GetByID(ctx, *user.ScopedSigningKeyID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get scoped signing key: %w", err)
+			}
+		}
+
+		// Regenerate JWT with updated metadata
+		jwt, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to regenerate user JWT: %w", err)
+		}
+		user.JWT = jwt
+
+		// Save changes
+		if err := userRepo.Update(ctx, user); err != nil {
+			return nil, fmt.Errorf("failed to update user: %w", err)
+		}
+
 		return user, nil
 	}
 
-	user.UpdatedAt = time.Now()
-
-	// Get account and optional scoped key to regenerate JWT
-	account, err := s.accountRepo.GetByID(ctx, user.AccountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get account: %w", err)
+	if s.factory == nil {
+		return updateFn(s.repo, s.accountRepo, s.scopedKeyRepo)
 	}
 
-	var scopedKey *entities.ScopedSigningKey
-	if user.ScopedSigningKeyID != nil {
-		scopedKey, err = s.scopedKeyRepo.GetByID(ctx, *user.ScopedSigningKeyID)
+	var result *entities.User
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user, err := updateFn(tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository())
 		if err != nil {
-			return nil, fmt.Errorf("failed to get scoped signing key: %w", err)
+			return err
 		}
-	}
-
-	// Regenerate JWT with updated metadata
-	jwt, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey)
+		if user == nil {
+			return nil
+		}
+		account, err := tx.AccountRepository().GetByID(ctx, user.AccountID)
+		if err != nil {
+			return fmt.Errorf("emit user.updated: lookup account: %w", err)
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeUserUpdated,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &user.AccountID,
+			ResourceType: "user",
+			ResourceID:   user.ID.String(),
+			Payload:      map[string]any{"name": user.Name},
+		}); err != nil {
+			return fmt.Errorf("emit user.updated: %w", err)
+		}
+		result = user
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to regenerate user JWT: %w", err)
+		return nil, err
 	}
-	user.JWT = jwt
-
-	// Save changes
-	if err := s.repo.Update(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to update user: %w", err)
-	}
-
-	return user, nil
+	return result, nil
 }
 
 // GetUserCredentials returns the complete .creds file content for a user
@@ -251,23 +345,52 @@ func (s *UserService) GetUserCredentials(ctx context.Context, id uuid.UUID) (str
 
 // DeleteUser deletes a user
 func (s *UserService) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	// Check if user exists
-	user, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+	deleteFn := func(userRepo repositories.UserRepository, accountRepo repositories.AccountRepository) (*entities.User, *entities.Account, error) {
+		// Check if user exists
+		user, err := userRepo.GetByID(ctx, id)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Get the account to check if this is a system user
+		account, err := accountRepo.GetByID(ctx, user.AccountID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get account: %w", err)
+		}
+
+		// Check if this is the system user in the $SYS account
+		if account.Name == "$SYS" && user.Name == "system" {
+			return nil, nil, fmt.Errorf("cannot delete system user: this user is the system user in the $SYS account")
+		}
+
+		// Delete user
+		if err := userRepo.Delete(ctx, id); err != nil {
+			return nil, nil, err
+		}
+
+		return user, account, nil
+	}
+
+	if s.factory == nil {
+		_, _, err := deleteFn(s.repo, s.accountRepo)
 		return err
 	}
 
-	// Get the account to check if this is a system user
-	account, err := s.accountRepo.GetByID(ctx, user.AccountID)
-	if err != nil {
-		return fmt.Errorf("failed to get account: %w", err)
-	}
-
-	// Check if this is the system user in the $SYS account
-	if account.Name == "$SYS" && user.Name == "system" {
-		return fmt.Errorf("cannot delete system user: this user is the system user in the $SYS account")
-	}
-
-	// Delete user
-	return s.repo.Delete(ctx, id)
+	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user, account, err := deleteFn(tx.UserRepository(), tx.AccountRepository())
+		if err != nil {
+			return err
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeUserDeleted,
+			OperatorID:   &account.OperatorID,
+			AccountID:    &user.AccountID,
+			ResourceType: "user",
+			ResourceID:   user.ID.String(),
+			Payload:      map[string]any{"name": user.Name, "public_key": user.PublicKey},
+		}); err != nil {
+			return fmt.Errorf("emit user.deleted: %w", err)
+		}
+		return nil
+	})
 }

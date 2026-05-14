@@ -59,6 +59,8 @@ func NewServer(
 	clusterService *services.ClusterService,
 	authService *services.AuthService,
 	exportService *services.ExportService,
+	eventService *services.EventService,
+	webhookService *services.WebhookService,
 	permService *services.PermissionService,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
@@ -100,6 +102,12 @@ func NewServer(
 
 	exportHandler := handlers.NewExportHandler(exportService, permService)
 	mux.Handle(nisv1connect.NewExportServiceHandler(exportHandler, interceptorOption))
+
+	eventHandler := handlers.NewEventHandler(eventService)
+	mux.Handle(nisv1connect.NewEventServiceHandler(eventHandler, interceptorOption))
+
+	webhookHandler := handlers.NewWebhookHandler(webhookService, permService)
+	mux.Handle(nisv1connect.NewWebhookServiceHandler(webhookHandler, interceptorOption))
 
 	// /livez — process is alive. Always 200. Use this for k8s liveness probes.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
@@ -196,6 +204,8 @@ func NewServer(
 		nisv1connect.ClusterServiceName,
 		nisv1connect.AuthServiceName,
 		nisv1connect.ExportServiceName,
+		nisv1connect.EventServiceName,
+		nisv1connect.WebhookServiceName,
 	)
 	reflectV1Path, reflectV1Handler := grpcreflect.NewHandlerV1(reflector)
 	reflectV1AlphaPath, reflectV1AlphaHandler := grpcreflect.NewHandlerV1Alpha(reflector)

@@ -24,6 +24,8 @@ type Client struct {
 	Cluster           nisv1connect.ClusterServiceClient
 	Auth              nisv1connect.AuthServiceClient
 	Export            nisv1connect.ExportServiceClient
+	Event             nisv1connect.EventServiceClient
+	Webhook           nisv1connect.WebhookServiceClient
 }
 
 // NewClient creates a new NIS client with authentication
@@ -54,6 +56,8 @@ func NewClient(serverURL, token string) (*Client, error) {
 	client.Cluster = nisv1connect.NewClusterServiceClient(httpClient, serverURL)
 	client.Auth = nisv1connect.NewAuthServiceClient(httpClient, serverURL)
 	client.Export = nisv1connect.NewExportServiceClient(httpClient, serverURL)
+	client.Event = nisv1connect.NewEventServiceClient(httpClient, serverURL)
+	client.Webhook = nisv1connect.NewWebhookServiceClient(httpClient, serverURL)
 
 	return client, nil
 }

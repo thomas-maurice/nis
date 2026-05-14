@@ -80,6 +80,8 @@ type harness struct {
 	clusterCli  nisv1connect.ClusterServiceClient
 	keyCli      nisv1connect.ScopedSigningKeyServiceClient
 	exportCli   nisv1connect.ExportServiceClient
+	eventCli    nisv1connect.EventServiceClient
+	webhookCli  nisv1connect.WebhookServiceClient
 }
 
 // startStack is the canonical entry point for a test. It boots NIS, bootstraps
@@ -164,6 +166,9 @@ func (h *harness) start(t *testing.T) {
 	h.nisProcess = exec.Command(h.nisBin, "serve",
 		"--address", fmt.Sprintf("127.0.0.1:%d", h.nisPort),
 		"--enable-ui=false",
+		"--webhooks-poll-interval-seconds=1",
+		"--webhooks-backoff-base-seconds=1",
+		"--webhooks-backoff-cap-seconds=10",
 	)
 	h.nisProcess.Dir = h.workDir
 	h.nisProcess.Env = append(os.Environ(),
@@ -221,6 +226,8 @@ func (h *harness) start(t *testing.T) {
 	h.clusterCli = nisv1connect.NewClusterServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.keyCli = nisv1connect.NewScopedSigningKeyServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.exportCli = nisv1connect.NewExportServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.eventCli = nisv1connect.NewEventServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.webhookCli = nisv1connect.NewWebhookServiceClient(h.httpClient, h.serverURL, authOpt)
 }
 
 // startNATSForOperator pulls the NATS include config for operatorID from NIS,
@@ -419,6 +426,8 @@ type clientSet struct {
 	keyCli      nisv1connect.ScopedSigningKeyServiceClient
 	exportCli   nisv1connect.ExportServiceClient
 	authCli     nisv1connect.AuthServiceClient
+	eventCli    nisv1connect.EventServiceClient
+	webhookCli  nisv1connect.WebhookServiceClient
 }
 
 // loginAs authenticates as username/password and returns a clientSet whose
@@ -444,6 +453,8 @@ func (h *harness) loginAs(t *testing.T, username, password string) clientSet {
 		keyCli:      nisv1connect.NewScopedSigningKeyServiceClient(h.httpClient, h.serverURL, authOpt),
 		exportCli:   nisv1connect.NewExportServiceClient(h.httpClient, h.serverURL, authOpt),
 		authCli:     nisv1connect.NewAuthServiceClient(h.httpClient, h.serverURL, authOpt),
+		eventCli:    nisv1connect.NewEventServiceClient(h.httpClient, h.serverURL, authOpt),
+		webhookCli:  nisv1connect.NewWebhookServiceClient(h.httpClient, h.serverURL, authOpt),
 	}
 }
 

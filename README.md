@@ -96,6 +96,7 @@ Operator JWT (root of trust)
 - **Scoped Signing Keys** - Delegated JWT signing with pub/sub permissions
 - **JetStream Limits** - Per-account memory/storage quotas
 - **Role-Based Access** - Admin, operator-admin, account-admin roles
+- **Audit Log & Webhooks** - Every mutation recorded; HMAC-signed HTTP notifications
 - **Multi-Database** - SQLite (dev) or PostgreSQL (prod)
 - **Dark Mode UI** - Responsive Vue.js interface
 
@@ -197,6 +198,153 @@ Imports are atomic: the whole flow runs in a single database transaction, so a m
 
 **Deleting an operator** is refused while clusters are still attached to it. `clusters.operator_id` is `ON DELETE RESTRICT` because clusters model live NATS servers configured with the operator's JWT — a silent cascade would lose track of running infrastructure. Delete (or detach by deleting) every attached cluster first, then the operator delete will succeed. The error message names the offending clusters so you know which to clean up.
 
+## Events & Webhooks
+
+Every mutation through NIS (create/update/delete on operators, accounts, users, scoped keys, clusters; cluster sync; cluster health transitions) is appended to a durable **events table** in the same transaction as the state change. Operators can subscribe HTTP endpoints to receive HMAC-signed POSTs when events fire. Used for audit trails, Slack/PagerDuty notifications, downstream cache invalidation.
+
+### Event types
+
+| Type | Emitted on |
+|---|---|
+| `operator.created` / `operator.updated` / `operator.deleted` | Operator lifecycle |
+| `account.created` / `account.updated` / `account.deleted` | Account lifecycle (incl. JetStream limit changes) |
+| `user.created` / `user.updated` / `user.deleted` | User lifecycle |
+| `scoped_key.created` / `scoped_key.updated` / `scoped_key.deleted` | Signing-key lifecycle |
+| `cluster.created` / `cluster.updated` / `cluster.deleted` | Cluster lifecycle |
+| `cluster.synced` / `cluster.sync_failed` | Each `SyncCluster` call |
+| `cluster.health_changed` | The 60s probe sees a healthy→unhealthy or unhealthy→healthy transition |
+| `webhook.test` | Operator clicks "Send Test" on a subscription |
+
+Events carry `actor_type` (`user` for RPC-driven events, `system` for background ones), `actor_id` (the API user, when applicable), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
+
+The events table is **append-only**. Retention defaults to 30 days, configurable via `--events-retention-days` / `EVENTS_RETENTION_DAYS`. The audit log survives the deletion of the resources it references (operator_id is a soft scope, not an FK). FK CASCADE deletions inside the database (e.g. an operator delete that cascade-removes its $SYS account) emit only the top-level event — `operator.deleted` — not one event per cascaded row.
+
+### Browsing the log
+
+- UI: **Events** page (admin-only). Filter by type, operator, time window. Click a row for the full JSON payload.
+- CLI: `nisctl event list [--type ...] [--operator ...] [--since 24h] [--limit 50] [--cursor ...]`, `nisctl event get <id>`.
+- RPC: `EventService.ListEvents`, `EventService.GetEvent` (admin-only in v1; per-operator scoping is a v1.1 follow-up).
+
+### Webhook subscriptions
+
+Subscriptions are **operator-scoped**: an operator-admin creates and manages subscriptions for their own operator; admins can manage any operator's. The event-type filter is a list of strings (`["account.created", "user.deleted"]`); `["*"]` matches all events and is **admin-only**.
+
+```bash
+# Create a subscription
+nisctl webhook create \
+  --operator my-operator \
+  --name slack-acct-watcher \
+  --url https://hooks.slack.com/services/T.../B.../X \
+  --event-types account.created,account.deleted
+# ⇒ prints the HMAC secret ONCE. Save it.
+
+# List
+nisctl webhook list [--operator my-operator]
+
+# Trigger a one-shot test delivery
+nisctl webhook test <subscription-id>
+
+# See delivery history
+nisctl webhook deliveries <subscription-id>
+```
+
+UI: **Webhooks** page → "Create webhook" reveals the plaintext secret in a one-time modal; **Send Test** dispatches a `webhook.test` event scoped to the subscription so you can verify your receiver.
+
+### Delivery semantics
+
+- **At-least-once.** A delivery may be POSTed more than once; receivers must dedupe on `X-NIS-Delivery` (per-attempt unique) or `X-NIS-Event` (per-event unique).
+- **Retries.** A non-2xx response (or transport error) is retried with exponential backoff (base 10s, ×2, ±20% jitter, capped at 10min). After 5 failed attempts the delivery moves to `dead_letter` and stays in the history without further retries. The operator can re-enable a subscription that the worker auto-disabled (e.g. after encryption-key rotation broke the secret); the next future event will fan out as normal.
+- **Order is not guaranteed.** Two events for the same subscription may arrive out of order; use `occurred_at` from the body to sort.
+
+### Webhook HTTP contract
+
+Every POST carries `Content-Type: application/json` and these headers:
+
+| Header | Value |
+|---|---|
+| `X-NIS-Event` | Event type, e.g. `account.created` |
+| `X-NIS-Delivery` | Per-attempt UUID. Use for idempotency. |
+| `X-NIS-Subscription` | The subscription ID |
+| `X-NIS-Timestamp` | Unix seconds at dispatch time |
+| `X-NIS-Signature` | `sha256=<hex>` HMAC-SHA256 of `timestamp.body` using the shared secret |
+
+The body shape:
+
+```json
+{
+  "id": "evt-uuid",
+  "type": "account.created",
+  "occurred_at": "2026-05-14T10:30:00Z",
+  "actor_type": "user",
+  "actor_id": "api-user-uuid",
+  "operator_id": "op-uuid",
+  "account_id": "acct-uuid",
+  "resource_type": "account",
+  "resource_id": "acct-uuid",
+  "payload": { "name": "app-account", "public_key": "AB..." }
+}
+```
+
+### Verifying signatures (Go SDK)
+
+The `pkg/webhooks` package ships a verification helper. Import it in your receiver to avoid hand-rolling HMAC:
+
+```go
+import "github.com/thomas-maurice/nis/pkg/webhooks"
+
+func main() {
+    secret := []byte(os.Getenv("NIS_WEBHOOK_SECRET")) // the secret returned at create time
+    http.HandleFunc("/webhooks/nis", func(w http.ResponseWriter, r *http.Request) {
+        body, err := webhooks.Verify(r, secret, 0) // 0 = default 5min tolerance
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusUnauthorized)
+            return
+        }
+        defer body.Close()
+
+        var evt struct {
+            Type    string          `json:"type"`
+            Payload json.RawMessage `json:"payload"`
+        }
+        if err := json.NewDecoder(body).Decode(&evt); err != nil {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
+        log.Printf("got %s: %s", evt.Type, evt.Payload)
+        w.WriteHeader(http.StatusOK)
+    })
+    log.Fatal(http.ListenAndServe(":8081", nil))
+}
+```
+
+`webhooks.Verify` returns typed errors so you can distinguish replay attempts (`ErrTimestampSkew`), bad signatures (`ErrSignatureMismatch`), and missing/malformed headers. Check with `errors.Is`.
+
+### Verifying signatures (any language)
+
+The signature is `sha256=` + hex(HMAC-SHA256(secret, timestamp + "." + body)). Pseudocode:
+
+```python
+import hmac, hashlib
+expected = "sha256=" + hmac.new(secret, (timestamp + "." + body).encode(), hashlib.sha256).hexdigest()
+if not hmac.compare_digest(expected, sig_header):
+    raise Unauthorized()
+```
+
+Reject deliveries whose `X-NIS-Timestamp` is more than ~5 minutes off your clock to prevent replay.
+
+### Operational knobs
+
+| Flag / env / config key | Default | What it controls |
+|---|---|---|
+| `--events-retention-days` / `events.retention_days` | 30 | How long audit-log rows are kept; older rows are swept every 24h |
+| `--webhooks-succeeded-retention-days` / `webhooks.succeeded_retention_days` | 7 | Retention for `succeeded` delivery rows. `dead_letter` rows are never auto-deleted. |
+| `--webhooks-poll-interval-seconds` / `webhooks.poll_interval_seconds` | 0 (auto) | Delivery-worker poll cadence. 0 ⇒ 2s on Postgres, 10s on SQLite. |
+| `--webhooks-delivery-timeout-seconds` / `webhooks.delivery_timeout_seconds` | 10 | Per-POST timeout. |
+| `--webhooks-max-attempts` / `webhooks.max_attempts` | 5 | Deliveries become `dead_letter` after this many failed attempts. |
+| `--webhooks-backoff-base-seconds` / `webhooks.backoff_base_seconds` | 10 | Exponential backoff base. |
+| `--webhooks-backoff-cap-seconds` / `webhooks.backoff_cap_seconds` | 600 | Backoff cap. |
+| `--webhooks-shutdown-timeout-seconds` / `webhooks.shutdown_timeout_seconds` | 30 | Graceful drain of in-flight deliveries on SIGTERM. |
+
 ## Build
 
 ```bash
@@ -284,6 +432,9 @@ The interesting series:
 | `nis_cluster_health_check_failures_total` | counter | — | 60s loop saw a cluster fail to connect or lack credentials. |
 | `nis_encryption_failures_total` | counter | `op` | `op` is `encrypt` / `decrypt`. A decrypt-failure spike usually means a key-rotation problem — alert on this. |
 | `nis_auth_rejections_total` | counter | `reason` | RPC rejected by the auth interceptor. `reason` ∈ `missing_token`, `invalid_token`, `forbidden`. |
+| `nis_events_emitted_total` | counter | `type` | Events appended to the audit log, by event type (e.g. `account.created`). |
+| `nis_webhook_deliveries_total` | counter | `status` | Webhook deliveries by terminal status (`succeeded`/`failed`/`dead_letter`). |
+| `nis_webhook_delivery_duration_seconds` | histogram | — | Per-attempt POST latency. |
 
 Plus the standard `go_*` and `process_*` collectors (heap, goroutines, FDs, GC).
 

@@ -17,6 +17,9 @@ type RepositoryFactory interface {
 	ScopedSigningKeyRepository() repositories.ScopedSigningKeyRepository
 	ClusterRepository() repositories.ClusterRepository
 	APIUserRepository() repositories.APIUserRepository
+	EventRepository() repositories.EventRepository
+	WebhookSubscriptionRepository() repositories.WebhookSubscriptionRepository
+	WebhookDeliveryRepository() repositories.WebhookDeliveryRepository
 
 	// Database lifecycle methods
 	Connect(ctx context.Context) error
@@ -44,12 +47,13 @@ type RepositoryFactory interface {
 
 // Inventory is a snapshot of entity counts surfaced as Prometheus gauges.
 type Inventory struct {
-	Operators       int64
-	Accounts        int64
-	Users           int64
-	ScopedKeys      int64
-	Clusters        int64
-	ClustersHealthy int64
+	Operators        int64
+	Accounts         int64
+	Users            int64
+	ScopedKeys       int64
+	Clusters         int64
+	ClustersHealthy  int64
+	PendingDeliveries int64
 }
 
 // MigrationInfo represents information about a database migration

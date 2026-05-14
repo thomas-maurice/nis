@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -26,6 +27,7 @@ type ClusterService struct {
 	scopedKeyRepo repositories.ScopedSigningKeyRepository
 	encryptor     encryption.Encryptor
 	jwtService    *JWTService
+	factory       persistence.RepositoryFactory // optional; set via WithFactory for event emission
 }
 
 // NewClusterService creates a new cluster service
@@ -47,6 +49,14 @@ func NewClusterService(
 		encryptor:     encryptor,
 		jwtService:    jwtService,
 	}
+}
+
+// WithFactory attaches a repository factory to the service, enabling event emission.
+// Call this from serve.go after constructing the service. Tests that don't call this
+// will skip event emission (factory is nil).
+func (s *ClusterService) WithFactory(f persistence.RepositoryFactory) *ClusterService {
+	s.factory = f
+	return s
 }
 
 // CreateClusterRequest contains the data needed to create a cluster
@@ -139,6 +149,18 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 		}
 	}
 
+	if s.factory != nil {
+		if err := events.EmitSystem(ctx, s.factory, events.Event{
+			Type:         entities.EventTypeClusterCreated,
+			OperatorID:   &cluster.OperatorID,
+			ResourceType: "cluster",
+			ResourceID:   cluster.ID.String(),
+			Payload:      map[string]any{"name": cluster.Name, "urls": cluster.ServerURLs},
+		}); err != nil {
+			return nil, fmt.Errorf("emit cluster.created: %w", err)
+		}
+	}
+
 	return cluster, nil
 }
 
@@ -225,6 +247,18 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 		return nil, fmt.Errorf("failed to update cluster: %w", err)
 	}
 
+	if s.factory != nil {
+		if err := events.EmitSystem(ctx, s.factory, events.Event{
+			Type:         entities.EventTypeClusterUpdated,
+			OperatorID:   &cluster.OperatorID,
+			ResourceType: "cluster",
+			ResourceID:   cluster.ID.String(),
+			Payload:      map[string]any{"name": cluster.Name},
+		}); err != nil {
+			return nil, fmt.Errorf("emit cluster.updated: %w", err)
+		}
+	}
+
 	return cluster, nil
 }
 
@@ -238,7 +272,20 @@ func (s *ClusterService) UpdateClusterCredentials(ctx context.Context, id uuid.U
 // participates in the surrounding rollback boundary. Used by
 // ExportService.ImportFromNSC.
 func (s *ClusterService) UpdateClusterCredentialsTx(ctx context.Context, tx persistence.RepositoryFactory, id uuid.UUID, systemAccountUserID uuid.UUID) (*entities.Cluster, error) {
-	return s.updateClusterCredentialsWith(ctx, tx.ClusterRepository(), tx.UserRepository(), id, systemAccountUserID)
+	cluster, err := s.updateClusterCredentialsWith(ctx, tx.ClusterRepository(), tx.UserRepository(), id, systemAccountUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := events.EmitTx(ctx, tx, events.Event{
+		Type:         entities.EventTypeClusterUpdated,
+		OperatorID:   &cluster.OperatorID,
+		ResourceType: "cluster",
+		ResourceID:   cluster.ID.String(),
+		Payload:      map[string]any{"name": cluster.Name, "changed": []string{"credentials"}},
+	}); err != nil {
+		return nil, fmt.Errorf("emit cluster.updated: %w", err)
+	}
+	return cluster, nil
 }
 
 func (s *ClusterService) updateClusterCredentialsWith(ctx context.Context, clusterRepo repositories.ClusterRepository, userRepo repositories.UserRepository, id uuid.UUID, systemAccountUserID uuid.UUID) (*entities.Cluster, error) {
@@ -301,13 +348,29 @@ func (s *ClusterService) GetClusterCredentials(ctx context.Context, id uuid.UUID
 // DeleteCluster deletes a cluster
 func (s *ClusterService) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 	// Check if cluster exists
-	_, err := s.repo.GetByID(ctx, id)
+	cluster, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
 	// Delete cluster
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	if s.factory != nil {
+		if err := events.EmitSystem(ctx, s.factory, events.Event{
+			Type:         entities.EventTypeClusterDeleted,
+			OperatorID:   &cluster.OperatorID,
+			ResourceType: "cluster",
+			ResourceID:   cluster.ID.String(),
+			Payload:      map[string]any{"name": cluster.Name},
+		}); err != nil {
+			return fmt.Errorf("emit cluster.deleted: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // SyncResult contains the result of a sync operation
@@ -472,6 +535,18 @@ func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bo
 		}
 	}
 
+	if s.factory != nil {
+		if err := events.EmitSystem(ctx, s.factory, events.Event{
+			Type:         entities.EventTypeClusterSynced,
+			OperatorID:   &cluster.OperatorID,
+			ResourceType: "cluster",
+			ResourceID:   cluster.ID.String(),
+			Payload:      map[string]any{"name": cluster.Name, "synced_accounts": result.AccountsUpdated, "pruned": prune},
+		}); err != nil {
+			return nil, fmt.Errorf("emit cluster.synced: %w", err)
+		}
+	}
+
 	return result, nil
 }
 
@@ -522,6 +597,7 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
+	prevHealthy := cluster.Healthy
 	healthy := false
 	var healthErr string
 	now := time.Now()
@@ -549,6 +625,19 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 
 	if err := s.repo.Update(ctx, cluster); err != nil {
 		return fmt.Errorf("failed to update cluster health status: %w", err)
+	}
+
+	if s.factory != nil && healthy != prevHealthy {
+		payload := map[string]any{"name": cluster.Name, "healthy": healthy, "error": healthErr}
+		if err := events.EmitSystem(ctx, s.factory, events.Event{
+			Type:         entities.EventTypeClusterHealthChanged,
+			OperatorID:   &cluster.OperatorID,
+			ResourceType: "cluster",
+			ResourceID:   cluster.ID.String(),
+			Payload:      payload,
+		}); err != nil {
+			return fmt.Errorf("emit cluster.health_changed: %w", err)
+		}
 	}
 
 	return nil

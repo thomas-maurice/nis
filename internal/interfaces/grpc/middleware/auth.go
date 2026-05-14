@@ -8,6 +8,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/infrastructure/authctx"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 )
 
@@ -36,13 +37,13 @@ func NewAuthInterceptor(
 	}
 }
 
-// contextKey is the type for context keys to avoid collisions
-type contextKey string
+// contextKey aliases authctx.ContextKey so tests in this package can use the
+// unexported name (contextKey) to construct test keys without importing authctx.
+type contextKey = authctx.ContextKey
 
-const (
-	// UserContextKey is the context key for the authenticated user
-	UserContextKey contextKey = "user"
-)
+// UserContextKey re-exports authctx.UserContextKey so existing callers that
+// reference middleware.UserContextKey continue to work.
+var UserContextKey = authctx.UserContextKey
 
 // WrapUnary wraps a unary RPC with authentication
 func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
@@ -78,7 +79,7 @@ func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 
 		// Add user to context
-		ctx = context.WithValue(ctx, UserContextKey, user)
+		ctx = authctx.SetUser(ctx, user)
 
 		return next(ctx, req)
 	}
@@ -125,7 +126,7 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 		}
 
 		// Add user to context
-		ctx = context.WithValue(ctx, UserContextKey, user)
+		ctx = authctx.SetUser(ctx, user)
 
 		return next(ctx, conn)
 	}
@@ -203,8 +204,8 @@ func extractAction(method string) string {
 	return "read"
 }
 
-// GetUserFromContext retrieves the authenticated user from context
+// GetUserFromContext retrieves the authenticated user from context.
+// Deprecated: use authctx.GetUser directly. Kept for callers outside this package.
 func GetUserFromContext(ctx context.Context) (*entities.APIUser, bool) {
-	user, ok := ctx.Value(UserContextKey).(*entities.APIUser)
-	return user, ok
+	return authctx.GetUser(ctx)
 }

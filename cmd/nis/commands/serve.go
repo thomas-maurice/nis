@@ -69,6 +69,16 @@ func init() {
 	serveCmd.Flags().Float64("tracing-sample-ratio", 1.0, "TraceIDRatio sampler ratio in [0,1]")
 	serveCmd.Flags().String("tracing-service-name", "nis", "service.name OpenTelemetry resource attribute")
 
+	// Events + webhook worker flags.
+	serveCmd.Flags().Int("events-retention-days", 30, "retention for the events table; 0 disables cleanup")
+	serveCmd.Flags().Int("webhooks-succeeded-retention-days", 7, "retention for succeeded webhook_deliveries; dead-letter rows are never auto-deleted")
+	serveCmd.Flags().Int("webhooks-poll-interval-seconds", 0, "delivery worker poll cadence in seconds; 0 = auto (2s Postgres, 10s SQLite)")
+	serveCmd.Flags().Int("webhooks-delivery-timeout-seconds", 10, "per-POST HTTP timeout in seconds")
+	serveCmd.Flags().Int("webhooks-max-attempts", 5, "deliveries become dead_letter after this many failed attempts")
+	serveCmd.Flags().Int("webhooks-backoff-base-seconds", 10, "exponential-backoff base interval in seconds")
+	serveCmd.Flags().Int("webhooks-backoff-cap-seconds", 600, "exponential-backoff cap interval in seconds")
+	serveCmd.Flags().Int("webhooks-shutdown-timeout-seconds", 30, "graceful drain of in-flight deliveries on SIGTERM")
+
 	// Flags are wired into viper via applyFlagOverrides in runServe rather
 	// than viper.BindPFlag — see cmd/nis/commands/viper_overrides.go for why.
 	// Note: encryption-key and jwt-secret are NOT marked as required flags
@@ -93,7 +103,16 @@ var serveFlagMapping = map[string]string{
 	"tracing-endpoint":      "tracing.endpoint",
 	"tracing-insecure":      "tracing.insecure",
 	"tracing-sample-ratio":  "tracing.sample_ratio",
-	"tracing-service-name": "tracing.service_name",
+	"tracing-service-name":  "tracing.service_name",
+
+	"events-retention-days":             "events.retention_days",
+	"webhooks-succeeded-retention-days": "webhooks.succeeded_retention_days",
+	"webhooks-poll-interval-seconds":    "webhooks.poll_interval_seconds",
+	"webhooks-delivery-timeout-seconds": "webhooks.delivery_timeout_seconds",
+	"webhooks-max-attempts":             "webhooks.max_attempts",
+	"webhooks-backoff-base-seconds":     "webhooks.backoff_base_seconds",
+	"webhooks-backoff-cap-seconds":      "webhooks.backoff_cap_seconds",
+	"webhooks-shutdown-timeout-seconds": "webhooks.shutdown_timeout_seconds",
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -210,7 +229,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.ScopedSigningKeyRepository(),
 		jwtService,
 		encryptor,
-	)
+	).WithFactory(repoFactory)
 
 	scopedKeyService := services.NewScopedSigningKeyService(repoFactory, jwtService, encryptor)
 
@@ -222,7 +241,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.ScopedSigningKeyRepository(),
 		encryptor,
 		jwtService,
-	)
+	).WithFactory(repoFactory)
 
 	authService := services.NewAuthService(
 		repoFactory.APIUserRepository(),
@@ -244,6 +263,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		clusterService,
 		encryptor,
 	)
+
+	eventService := services.NewEventService(repoFactory)
+
+	webhookService := services.NewWebhookService(repoFactory, encryptor)
 
 	// Initialize permission service for scope-based access control
 	permissionService := services.NewPermissionService(
@@ -272,6 +295,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		clusterService,
 		authService,
 		exportService,
+		eventService,
+		webhookService,
 		permissionService,
 		authMiddleware,
 	)
@@ -313,6 +338,39 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if domainGauges != nil {
 		go domainGauges.RefreshLoop(ctx, 60*time.Second)
 	}
+
+	// Events retention worker.
+	retentionWorker := services.NewEventsRetentionWorker(
+		repoFactory,
+		viper.GetInt("events.retention_days"),
+		viper.GetInt("webhooks.succeeded_retention_days"),
+		24*time.Hour,
+	)
+	go retentionWorker.Run(ctx)
+
+	// Webhook delivery worker. Poll interval is auto-detected by DB driver when
+	// the flag is left at its default of 0.
+	pollInterval := time.Duration(viper.GetInt("webhooks.poll_interval_seconds")) * time.Second
+	if pollInterval == 0 {
+		pollInterval = 2 * time.Second
+		if dbDriver == "sqlite" {
+			pollInterval = 10 * time.Second
+		}
+	}
+	webhookWorker := services.NewWebhookDeliveryWorker(
+		repoFactory,
+		encryptor,
+		services.WebhookDeliveryWorkerConfig{
+			PollInterval:    pollInterval,
+			DeliveryTimeout: time.Duration(viper.GetInt("webhooks.delivery_timeout_seconds")) * time.Second,
+			MaxAttempts:     viper.GetInt("webhooks.max_attempts"),
+			BackoffBase:     time.Duration(viper.GetInt("webhooks.backoff_base_seconds")) * time.Second,
+			BackoffCap:      time.Duration(viper.GetInt("webhooks.backoff_cap_seconds")) * time.Second,
+			ShutdownTimeout: time.Duration(viper.GetInt("webhooks.shutdown_timeout_seconds")) * time.Second,
+			BatchSize:       50,
+		},
+	)
+	go webhookWorker.Run(ctx)
 
 	// Start server in a goroutine
 	errChan := make(chan error, 1)

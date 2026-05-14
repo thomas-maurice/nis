@@ -686,6 +686,85 @@ func TestCanManageAPIUsers(t *testing.T) {
 	}
 }
 
+// Test CanReadEvents
+func TestCanReadEvents_AdminAllowed_OthersDenied(t *testing.T) {
+	permService, _, _, _, operator1ID, _, account1ID, _ := setupPermissionTest()
+
+	tests := []struct {
+		name        string
+		apiUser     *entities.APIUser
+		expectError bool
+	}{
+		{
+			name:        "Admin allowed",
+			apiUser:     &entities.APIUser{Role: entities.RoleAdmin},
+			expectError: false,
+		},
+		{
+			name:        "Operator admin denied",
+			apiUser:     &entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID},
+			expectError: true,
+		},
+		{
+			name:        "Account admin denied",
+			apiUser:     &entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account1ID},
+			expectError: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := permService.CanReadEvents(tt.apiUser)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrPermissionDenied)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// Test CanCreateWebhookSubscription
+func TestCanCreateWebhookSubscription_AdminAlwaysAllowed(t *testing.T) {
+	permService, _, _, _, operator1ID, _, _, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	err := permService.CanCreateWebhookSubscription(ctx, &entities.APIUser{Role: entities.RoleAdmin}, operator1ID)
+	assert.NoError(t, err)
+}
+
+func TestCanCreateWebhookSubscription_OperatorAdminOwnOp_Allowed(t *testing.T) {
+	permService, _, _, _, operator1ID, _, _, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	err := permService.CanCreateWebhookSubscription(ctx,
+		&entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID},
+		operator1ID)
+	assert.NoError(t, err)
+}
+
+func TestCanCreateWebhookSubscription_OperatorAdminOtherOp_Denied(t *testing.T) {
+	permService, _, _, _, operator1ID, operator2ID, _, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	err := permService.CanCreateWebhookSubscription(ctx,
+		&entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID},
+		operator2ID)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrPermissionDenied)
+}
+
+func TestCanCreateWebhookSubscription_AccountAdmin_Denied(t *testing.T) {
+	permService, _, _, _, operator1ID, _, account1ID, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	err := permService.CanCreateWebhookSubscription(ctx,
+		&entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account1ID},
+		operator1ID)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrPermissionDenied)
+}
+
 // Test CanCreateCluster
 func TestCanCreateCluster(t *testing.T) {
 	permService, _, _, _, operator1ID, _, account1ID, _ := setupPermissionTest()

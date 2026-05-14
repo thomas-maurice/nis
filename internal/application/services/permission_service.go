@@ -419,3 +419,84 @@ func (s *PermissionService) CanManageScopedKeys(ctx context.Context, apiUser *en
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+// CanReadEvents: admin only in v1.
+func (s *PermissionService) CanReadEvents(apiUser *entities.APIUser) error {
+	return s.requireRole(apiUser, entities.RoleAdmin)
+}
+
+// ---------------------------------------------------------------------------
+// Webhook subscriptions
+// ---------------------------------------------------------------------------
+
+func (s *PermissionService) CanCreateWebhookSubscription(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if err := s.requireRole(apiUser, entities.RoleAdmin, entities.RoleOperatorAdmin); err != nil {
+		return err
+	}
+	if apiUser.Role == entities.RoleAdmin {
+		return nil
+	}
+	owns, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !owns {
+		return denyf("operator-admin can only create webhook subscriptions in their own operator")
+	}
+	return nil
+}
+
+func (s *PermissionService) CanReadWebhookSubscription(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if err := s.requireRole(apiUser, entities.RoleAdmin, entities.RoleOperatorAdmin); err != nil {
+		return err
+	}
+	if apiUser.Role == entities.RoleAdmin {
+		return nil
+	}
+	owns, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !owns {
+		return denyf("operator-admin can only read webhook subscriptions in their own operator")
+	}
+	return nil
+}
+
+func (s *PermissionService) CanUpdateWebhookSubscription(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if err := s.requireRole(apiUser, entities.RoleAdmin, entities.RoleOperatorAdmin); err != nil {
+		return err
+	}
+	if apiUser.Role == entities.RoleAdmin {
+		return nil
+	}
+	owns, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !owns {
+		return denyf("operator-admin can only update webhook subscriptions in their own operator")
+	}
+	return nil
+}
+
+func (s *PermissionService) CanDeleteWebhookSubscription(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if err := s.requireRole(apiUser, entities.RoleAdmin, entities.RoleOperatorAdmin); err != nil {
+		return err
+	}
+	if apiUser.Role == entities.RoleAdmin {
+		return nil
+	}
+	owns, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !owns {
+		return denyf("operator-admin can only delete webhook subscriptions in their own operator")
+	}
+	return nil
+}

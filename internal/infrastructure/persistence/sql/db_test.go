@@ -75,8 +75,8 @@ func TestMigrations(t *testing.T) {
 		assert.Equal(t, 1, count, "index %s should exist", index)
 	}
 
-	// Test migration down
-	err = goose.Down(sqlDB, ".")
+	// Roll back all migrations (one Down per migration, in reverse).
+	err = goose.DownTo(sqlDB, ".", 0)
 	require.NoError(t, err)
 
 	// Verify tables are dropped

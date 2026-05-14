@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+message WebhookSubscription {
+  string id = 1;
+  string operator_id = 2;
+  string name = 3;
+  string description = 4;
+  string url = 5;
+  repeated string event_types = 6;
+  bool enabled = 7;
+  string disabled_reason = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message WebhookDelivery {
+  string id = 1;
+  string subscription_id = 2;
+  string event_id = 3;
+  int32 attempt = 4;
+  string status = 5;
+  google.protobuf.Timestamp next_attempt_at = 6;
+  string last_error = 7;
+  int32 last_response_code = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp completed_at = 11;
+}
+
+message CreateWebhookSubscriptionRequest {
+  string operator_id = 1;
+  string name = 2;
+  string description = 3;
+  string url = 4;
+  repeated string event_types = 5;
+}
+
+message CreateWebhookSubscriptionResponse {
+  WebhookSubscription subscription = 1;
+  // secret is the plaintext HMAC key. Returned once on creation; never readable later.
+  string secret = 2;
+}
+
+message GetWebhookSubscriptionRequest {
+  string id = 1;
+}
+
+message GetWebhookSubscriptionResponse {
+  WebhookSubscription subscription = 1;
+}
+
+message ListWebhookSubscriptionsRequest {
+  string operator_id = 1;
+  ListOptions options = 2;
+}
+
+message ListWebhookSubscriptionsResponse {
+  repeated WebhookSubscription subscriptions = 1;
+}
+
+message UpdateWebhookSubscriptionRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string url = 4;
+  repeated string event_types = 5;
+  optional bool enabled = 6;
+}
+
+message UpdateWebhookSubscriptionResponse {
+  WebhookSubscription subscription = 1;
+}
+
+message DeleteWebhookSubscriptionRequest {
+  string id = 1;
+}
+
+message DeleteWebhookSubscriptionResponse {}
+
+message TestWebhookSubscriptionRequest {
+  string id = 1;
+}
+
+message TestWebhookSubscriptionResponse {
+  string delivery_id = 1;
+}
+
+message ListWebhookDeliveriesRequest {
+  string subscription_id = 1;
+  string status = 2;
+  ListOptions options = 3;
+}
+
+message ListWebhookDeliveriesResponse {
+  repeated WebhookDelivery deliveries = 1;
+}
+
+service WebhookService {
+  rpc CreateWebhookSubscription(CreateWebhookSubscriptionRequest) returns (CreateWebhookSubscriptionResponse);
+  rpc GetWebhookSubscription(GetWebhookSubscriptionRequest) returns (GetWebhookSubscriptionResponse);
+  rpc ListWebhookSubscriptions(ListWebhookSubscriptionsRequest) returns (ListWebhookSubscriptionsResponse);
+  rpc UpdateWebhookSubscription(UpdateWebhookSubscriptionRequest) returns (UpdateWebhookSubscriptionResponse);
+  rpc DeleteWebhookSubscription(DeleteWebhookSubscriptionRequest) returns (DeleteWebhookSubscriptionResponse);
+  rpc TestWebhookSubscription(TestWebhookSubscriptionRequest) returns (TestWebhookSubscriptionResponse);
+  rpc ListWebhookDeliveries(ListWebhookDeliveriesRequest) returns (ListWebhookDeliveriesResponse);
+}
