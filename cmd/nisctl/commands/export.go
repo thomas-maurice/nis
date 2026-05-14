@@ -46,7 +46,6 @@ var (
 	exportIncludeSecrets bool
 	exportOutput         string
 	exportFormat         string
-	importRegenerateIDs  bool
 )
 
 func init() {
@@ -59,8 +58,6 @@ func init() {
 	exportOperatorCmd.Flags().BoolVarP(&exportIncludeSecrets, "include-secrets", "s", false, "include encrypted seeds in export")
 	exportOperatorCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output file (default: stdout)")
 	exportOperatorCmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "export format: yaml or json")
-
-	importOperatorCmd.Flags().BoolVarP(&importRegenerateIDs, "regenerate-ids", "r", false, "regenerate UUIDs (for copying operators)")
 }
 
 func runExportOperator(cmd *cobra.Command, args []string) error {
@@ -139,10 +136,10 @@ func runImportOperator(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read import file: %w", err)
 	}
 
-	// Import the operator
+	// Import the operator. Format (json vs yaml) is auto-detected by the
+	// server from the file contents.
 	req := connect.NewRequest(&nisv1.ImportOperatorRequest{
-		Data:          data,
-		RegenerateIds: importRegenerateIDs,
+		Data: data,
 	})
 
 	resp, err := GetClient().Export.ImportOperator(context.Background(), req)

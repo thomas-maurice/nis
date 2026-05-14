@@ -138,6 +138,29 @@
           </div>
           <div class="modal-body">
             <div class="mb-3">
+              <label class="form-label">Format</label>
+              <div class="form-check">
+                <input
+                  id="formatYaml"
+                  v-model="exportFormat"
+                  class="form-check-input"
+                  type="radio"
+                  value="yaml"
+                />
+                <label class="form-check-label" for="formatYaml">YAML</label>
+              </div>
+              <div class="form-check">
+                <input
+                  id="formatJson"
+                  v-model="exportFormat"
+                  class="form-check-input"
+                  type="radio"
+                  value="json"
+                />
+                <label class="form-check-label" for="formatJson">JSON</label>
+              </div>
+            </div>
+            <div class="mb-3">
               <div class="form-check">
                 <input
                   id="includeSecrets"
@@ -185,6 +208,7 @@ const error = ref('')
 const config = ref('')
 const showExportModal = ref(false)
 const exportIncludeSecrets = ref(true)
+const exportFormat = ref('yaml') // matches nisctl default
 const exporting = ref(false)
 const exportError = ref('')
 const hasAdminAccount = ref(false)
@@ -350,6 +374,7 @@ const closeExportModal = () => {
   showExportModal.value = false
   exportError.value = ''
   exportIncludeSecrets.value = true
+  exportFormat.value = 'yaml'
 }
 
 const handleExport = async () => {
@@ -358,18 +383,25 @@ const handleExport = async () => {
   try {
     const response = await apiClient.post('/nis.v1.ExportService/ExportOperator', {
       operatorId: operator.value.id,
-      includeSecrets: exportIncludeSecrets.value
+      includeSecrets: exportIncludeSecrets.value,
+      format: exportFormat.value
     }, {
       responseType: 'json'
     })
 
-    // Convert the base64 data to a blob and download
-    const jsonData = atob(response.data.data)
-    const blob = new Blob([jsonData], { type: 'application/json' })
+    // The server echoes back the format it actually produced; trust that for
+    // the MIME type and file extension instead of guessing from the request.
+    const actualFormat = response.data.format || exportFormat.value
+    const mime = actualFormat === 'yaml' ? 'application/yaml' : 'application/json'
+    const ext = actualFormat === 'yaml' ? 'yaml' : 'json'
+
+    // Convert the base64 data to a blob and download.
+    const fileContent = atob(response.data.data)
+    const blob = new Blob([fileContent], { type: mime })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${operator.value.name}-export.json`
+    a.download = `${operator.value.name}-export.${ext}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

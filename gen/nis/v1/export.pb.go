@@ -147,7 +147,6 @@ type ImportOperatorRequest struct {
 	// JSON- or YAML-encoded export data. Format is auto-detected by peeking at
 	// the first non-whitespace byte: '{' or '[' is JSON, anything else is YAML.
 	Data          []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	RegenerateIds bool   `protobuf:"varint,2,opt,name=regenerate_ids,json=regenerateIds,proto3" json:"regenerate_ids,omitempty"` // Whether to regenerate UUIDs (for copying)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -187,13 +186,6 @@ func (x *ImportOperatorRequest) GetData() []byte {
 		return x.Data
 	}
 	return nil
-}
-
-func (x *ImportOperatorRequest) GetRegenerateIds() bool {
-	if x != nil {
-		return x.RegenerateIds
-	}
-	return false
 }
 
 // ImportOperatorResponse is the response from importing an operator
@@ -351,10 +343,9 @@ const file_nis_v1_export_proto_rawDesc = "" +
 	"\x06format\x18\x03 \x01(\tR\x06format\"D\n" +
 	"\x16ExportOperatorResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\"R\n" +
+	"\x06format\x18\x02 \x01(\tR\x06format\"+\n" +
 	"\x15ImportOperatorRequest\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\x12%\n" +
-	"\x0eregenerate_ids\x18\x02 \x01(\bR\rregenerateIds\"9\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"9\n" +
 	"\x16ImportOperatorResponse\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\"O\n" +

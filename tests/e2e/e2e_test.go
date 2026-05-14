@@ -14,6 +14,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -28,9 +29,11 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/nats-io/nats.go"
+	"gopkg.in/yaml.v3"
 
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/pkg/testutil"
 )
 
 const (
@@ -507,6 +510,283 @@ func TestE2E_FullLifecycle(t *testing.T) {
 			t.Fatalf("expected /metrics to contain nis_operators_total gauge. body sample: %q", bodyStr[:min(len(bodyStr), 400)])
 		}
 	})
+
+	// Export-side encoding checks. Cheap and don't disturb DB state, so
+	// they run before the destructive round-trip below. The point is to
+	// verify the YAML and JSON encoders both produce parseable output with
+	// the same snake_case field names — yaml.v3 defaults to lowercased Go
+	// field names otherwise (regression source for the explicit yaml: tags).
+	t.Run("Export_YAML_Encoding", func(t *testing.T) {
+		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId:     operatorID,
+			IncludeSecrets: true,
+			Format:         "yaml",
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator(yaml): %v", err)
+		}
+		if resp.Msg.Format != "yaml" {
+			t.Fatalf("format echo: got %q, want yaml", resp.Msg.Format)
+		}
+		body := resp.Msg.Data
+		if len(body) == 0 || body[0] == '{' || body[0] == '[' {
+			t.Fatalf("yaml bytes look like JSON: %q", string(body[:min(len(body), 80)]))
+		}
+		var doc map[string]any
+		if err := yaml.Unmarshal(body, &doc); err != nil {
+			t.Fatalf("decode yaml export: %v", err)
+		}
+		// Top-level snake_case keys must be present — this is the regression
+		// signal for the yaml struct-tag fix.
+		for _, key := range []string{"version", "exported_at", "operator", "accounts", "scoped_keys", "users"} {
+			if _, ok := doc[key]; !ok {
+				t.Fatalf("yaml export missing key %q. top-level keys: %v", key, mapKeys(doc))
+			}
+		}
+		op, ok := doc["operator"].(map[string]any)
+		if !ok {
+			t.Fatalf("operator block missing or wrong type")
+		}
+		for _, key := range []string{"public_key", "system_account_pub_key", "encrypted_seed"} {
+			if _, ok := op[key]; !ok {
+				t.Fatalf("yaml operator block missing key %q. keys: %v", key, mapKeys(op))
+			}
+		}
+	})
+
+	t.Run("Export_JSON_Encoding", func(t *testing.T) {
+		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId:     operatorID,
+			IncludeSecrets: true,
+			Format:         "json",
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator(json): %v", err)
+		}
+		if resp.Msg.Format != "json" {
+			t.Fatalf("format echo: got %q, want json", resp.Msg.Format)
+		}
+		body := resp.Msg.Data
+		if len(body) == 0 || body[0] != '{' {
+			t.Fatalf("json bytes don't start with '{': %q", string(body[:min(len(body), 80)]))
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(body, &doc); err != nil {
+			t.Fatalf("decode json export: %v", err)
+		}
+		for _, key := range []string{"version", "exported_at", "operator", "accounts", "scoped_keys", "users"} {
+			if _, ok := doc[key]; !ok {
+				t.Fatalf("json export missing key %q", key)
+			}
+		}
+	})
+
+	// Empty format must still produce JSON — back-compat for older clients
+	// that predate the format field. Locking this in as a test means flipping
+	// the default has to be a deliberate choice.
+	t.Run("Export_DefaultsToJSON_WhenFormatUnset", func(t *testing.T) {
+		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId:     operatorID,
+			IncludeSecrets: true,
+			// Format intentionally unset.
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator(default): %v", err)
+		}
+		if resp.Msg.Format != "json" {
+			t.Fatalf("default format should be json; got %q", resp.Msg.Format)
+		}
+		if len(resp.Msg.Data) == 0 || resp.Msg.Data[0] != '{' {
+			t.Fatalf("default-format bytes don't look like JSON")
+		}
+	})
+
+	// Build a synthetic NSC archive (operator + account + user) and import
+	// it through the gRPC endpoint. This is the "I'm migrating off
+	// `nsc`" user journey; the regression net here is that the entire
+	// import is tx-wrapped (A1 follow-up) so we don't end up with
+	// half-imported trees on failure.
+	t.Run("Import_FromNSC_MinimalArchive", func(t *testing.T) {
+		const importedName = "e2e-nsc-imported-operator"
+		archive := testutil.BuildMinimalNSCArchive(t, importedName, "nsc-account", "nsc-user")
+
+		resp, err := h.exportCli.ImportFromNSC(ctx, connect.NewRequest(&nisv1.ImportFromNSCRequest{
+			Data:         archive,
+			OperatorName: importedName,
+		}))
+		if err != nil {
+			t.Fatalf("ImportFromNSC: %v", err)
+		}
+		if resp.Msg.OperatorId == "" {
+			t.Fatal("ImportFromNSC returned empty operator id")
+		}
+
+		// Imported operator visible by name.
+		byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
+			Name: importedName,
+		}))
+		if err != nil {
+			t.Fatalf("GetOperatorByName after NSC import: %v", err)
+		}
+		if byName.Msg.Operator.Id != resp.Msg.OperatorId {
+			t.Fatalf("NSC import operator id mismatch: response %s vs by-name %s", resp.Msg.OperatorId, byName.Msg.Operator.Id)
+		}
+
+		// Imported account and user must be queryable through the API. The
+		// archive carries `nsc-account` and one user `nsc-user`.
+		accs, err := h.accountCli.ListAccounts(ctx, connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: byName.Msg.Operator.Id,
+		}))
+		if err != nil {
+			t.Fatalf("ListAccounts on NSC-imported operator: %v", err)
+		}
+		var nscAccountID string
+		for _, a := range accs.Msg.Accounts {
+			if a.Name == "nsc-account" {
+				nscAccountID = a.Id
+				break
+			}
+		}
+		if nscAccountID == "" {
+			names := []string{}
+			for _, a := range accs.Msg.Accounts {
+				names = append(names, a.Name)
+			}
+			t.Fatalf("imported NSC tree missing nsc-account; got accounts: %v", names)
+		}
+
+		users, err := h.userCli.ListUsers(ctx, connect.NewRequest(&nisv1.ListUsersRequest{
+			AccountId: nscAccountID,
+		}))
+		if err != nil {
+			t.Fatalf("ListUsers on NSC-imported account: %v", err)
+		}
+		foundUser := false
+		for _, u := range users.Msg.Users {
+			if u.Name == "nsc-user" {
+				foundUser = true
+				break
+			}
+		}
+		if !foundUser {
+			t.Fatalf("imported NSC tree missing nsc-user")
+		}
+	})
+
+	// Full export → wipe → import round-trip. This is THE user-facing
+	// promise: "I can back up an operator to a yaml file and restore it
+	// later if the DB is lost." It runs last because it deletes the
+	// e2e-operator (and its cluster + accounts + users + scoped keys),
+	// invalidating everything earlier sub-tests built.
+	//
+	// Procedure:
+	//   1. Export with secrets so the import can re-encrypt seeds.
+	//   2. Delete the cluster (FK constraint ON DELETE RESTRICT means
+	//      operator delete fails otherwise).
+	//   3. Delete the operator. A1's cascade removes accounts, users, and
+	//      scoped keys atomically.
+	//   4. Import the YAML bytes. Original IDs and names come back.
+	//   5. Verify operator + accounts + users are queryable again.
+	t.Run("ExportImport_FullRoundTrip", func(t *testing.T) {
+		// (1) Export.
+		exportResp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId:     operatorID,
+			IncludeSecrets: true,
+			Format:         "yaml",
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator: %v", err)
+		}
+		body := exportResp.Msg.Data
+
+		// Snapshot what we expect to see after restore.
+		accsBefore, err := h.accountCli.ListAccounts(ctx, connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: operatorID,
+		}))
+		if err != nil {
+			t.Fatalf("ListAccounts before wipe: %v", err)
+		}
+		expectedAccountNames := map[string]bool{}
+		for _, a := range accsBefore.Msg.Accounts {
+			expectedAccountNames[a.Name] = true
+		}
+		if !expectedAccountNames["e2e-account"] || !expectedAccountNames["$SYS"] {
+			t.Fatalf("pre-wipe snapshot missing expected accounts: %v", expectedAccountNames)
+		}
+
+		// (2) Delete the cluster — clusters.operator_id is ON DELETE RESTRICT.
+		if _, err := h.clusterCli.DeleteCluster(ctx, connect.NewRequest(&nisv1.DeleteClusterRequest{
+			Id: clusterID,
+		})); err != nil {
+			t.Fatalf("DeleteCluster: %v", err)
+		}
+
+		// (3) Delete the operator. Should cascade through accounts → users
+		// → scoped keys inside a single tx (A1).
+		if _, err := h.operatorCli.DeleteOperator(ctx, connect.NewRequest(&nisv1.DeleteOperatorRequest{
+			Id: operatorID,
+		})); err != nil {
+			t.Fatalf("DeleteOperator: %v", err)
+		}
+
+		// Sanity-check: operator really is gone.
+		_, err = h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
+			Name: "e2e-operator",
+		}))
+		if err == nil {
+			t.Fatal("operator should be gone after DeleteOperator")
+		}
+
+		// (4) Import the YAML backup. Import is always a faithful restore —
+		// UUIDs and NKey pubkeys come back unchanged.
+		importResp, err := h.exportCli.ImportOperator(ctx, connect.NewRequest(&nisv1.ImportOperatorRequest{
+			Data: body,
+		}))
+		if err != nil {
+			t.Fatalf("ImportOperator after wipe: %v", err)
+		}
+		if importResp.Msg.OperatorId != operatorID {
+			t.Fatalf("restored operator id changed: got %s, want %s", importResp.Msg.OperatorId, operatorID)
+		}
+
+		// (5) Verify the tree is back. Look up by name (same as before).
+		byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
+			Name: "e2e-operator",
+		}))
+		if err != nil {
+			t.Fatalf("GetOperatorByName after restore: %v", err)
+		}
+		if byName.Msg.Operator.Id != operatorID {
+			t.Fatalf("restored operator id mismatch: got %s, want %s", byName.Msg.Operator.Id, operatorID)
+		}
+
+		accsAfter, err := h.accountCli.ListAccounts(ctx, connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: operatorID,
+		}))
+		if err != nil {
+			t.Fatalf("ListAccounts after restore: %v", err)
+		}
+		actualNames := map[string]bool{}
+		for _, a := range accsAfter.Msg.Accounts {
+			actualNames[a.Name] = true
+		}
+		for name := range expectedAccountNames {
+			if !actualNames[name] {
+				t.Fatalf("restore missing account %q. got: %v", name, actualNames)
+			}
+		}
+	})
+}
+
+// mapKeys returns the keys of a generic map sorted for stable test output.
+// Used by the export-encoding sub-tests to surface a useful failure message
+// when an expected key is missing.
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // ----------------------------------------------------------------------------
@@ -538,6 +818,7 @@ type harness struct {
 	userCli     nisv1connect.UserServiceClient
 	clusterCli  nisv1connect.ClusterServiceClient
 	keyCli      nisv1connect.ScopedSigningKeyServiceClient
+	exportCli   nisv1connect.ExportServiceClient
 }
 
 func newHarness(t *testing.T) *harness {
@@ -656,6 +937,7 @@ func (h *harness) start(t *testing.T) {
 	h.userCli = nisv1connect.NewUserServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.clusterCli = nisv1connect.NewClusterServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.keyCli = nisv1connect.NewScopedSigningKeyServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.exportCli = nisv1connect.NewExportServiceClient(h.httpClient, h.serverURL, authOpt)
 }
 
 func (h *harness) startNATS(t *testing.T, confPath string) {

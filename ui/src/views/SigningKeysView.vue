@@ -12,12 +12,26 @@
       @delete="handleDelete"
       @select="handleSelect"
     >
+      <template #custom-actions="{ item }">
+        <button
+          class="btn btn-outline-secondary"
+          @click="handleSelect(item)"
+          title="View"
+        >
+          <font-awesome-icon :icon="['fas', 'eye']" />
+        </button>
+      </template>
+
       <template #cell-account="{ item }">
         {{ getAccountName(item.accountId) }}
       </template>
 
       <template #cell-operator="{ item }">
         {{ getOperatorName(item.accountId) }}
+      </template>
+
+      <template #cell-publicKey="{ item }">
+        <ClickablePubKey :pubkey="item.publicKey" truncate />
       </template>
 
       <template #cell-createdAt="{ item }">
@@ -96,7 +110,8 @@
           <label for="pubAllow" class="form-label">Publish Allow</label>
           <textarea
             id="pubAllow"
-            v-model="pubAllowText"
+            :value="(localFormData.pubAllow || []).join('\n')"
+            @input="localFormData.pubAllow = $event.target.value.split('\n')"
             class="form-control"
             rows="2"
             :placeholder="`events.>\ndata.>`"
@@ -108,7 +123,8 @@
           <label for="pubDeny" class="form-label">Publish Deny</label>
           <textarea
             id="pubDeny"
-            v-model="pubDenyText"
+            :value="(localFormData.pubDeny || []).join('\n')"
+            @input="localFormData.pubDeny = $event.target.value.split('\n')"
             class="form-control"
             rows="2"
             placeholder="_INBOX.>"
@@ -120,7 +136,8 @@
           <label for="subAllow" class="form-label">Subscribe Allow</label>
           <textarea
             id="subAllow"
-            v-model="subAllowText"
+            :value="(localFormData.subAllow || []).join('\n')"
+            @input="localFormData.subAllow = $event.target.value.split('\n')"
             class="form-control"
             rows="2"
             :placeholder="`events.>\nresponses.>`"
@@ -132,7 +149,8 @@
           <label for="subDeny" class="form-label">Subscribe Deny</label>
           <textarea
             id="subDeny"
-            v-model="subDenyText"
+            :value="(localFormData.subDeny || []).join('\n')"
+            @input="localFormData.subDeny = $event.target.value.split('\n')"
             class="form-control"
             rows="2"
           ></textarea>
@@ -144,11 +162,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import apiClient from '@/utils/api'
 import EntityList from '@/components/EntityList.vue'
 import EntityForm from '@/components/EntityForm.vue'
+import ClickablePubKey from '@/components/ClickablePubKey.vue'
 
 const router = useRouter()
 const signingKeys = ref([])
@@ -162,49 +181,17 @@ const formData = ref({})
 const saving = ref(false)
 const formError = ref('')
 
-// Keep raw newlines while typing — filter empty lines only at submit.
-// Filtering on every keystroke would strip the trailing "\n" the user
-// just inserted with Enter, making it impossible to start a new line.
-const pubAllowText = computed({
-  get() {
-    return formData.value.pubAllow?.join('\n') || ''
-  },
-  set(value) {
-    formData.value.pubAllow = value.split('\n')
-  }
-})
-
-const pubDenyText = computed({
-  get() {
-    return formData.value.pubDeny?.join('\n') || ''
-  },
-  set(value) {
-    formData.value.pubDeny = value.split('\n')
-  }
-})
-
-const subAllowText = computed({
-  get() {
-    return formData.value.subAllow?.join('\n') || ''
-  },
-  set(value) {
-    formData.value.subAllow = value.split('\n')
-  }
-})
-
-const subDenyText = computed({
-  get() {
-    return formData.value.subDeny?.join('\n') || ''
-  },
-  set(value) {
-    formData.value.subDeny = value.split('\n')
-  }
-})
+// Textareas bind directly to `localFormData.pub*` / `localFormData.sub*` in
+// the EntityForm slot so typing stays inside EntityForm's reactive scope.
+// Routing through a parent computed (which would mutate the outer formData)
+// trips EntityForm's deep watcher on initialData, which re-spreads the prop
+// over its internal state and wipes the operator/account dropdown selections.
 
 const columns = [
   { key: 'name', label: 'Name' },
   { key: 'account', label: 'Account' },
   { key: 'operator', label: 'Operator' },
+  { key: 'publicKey', label: 'Public Key' },
   { key: 'description', label: 'Description' },
   { key: 'createdAt', label: 'Created' }
 ]
@@ -271,9 +258,15 @@ const showCreateModal = () => {
 const showEditModal = (key) => {
   editingKey.value = key
   const account = accounts.value.find(a => a.id === key.accountId)
+  // Flatten the nested `permissions` object — the form's textarea bindings
+  // read `formData.pubAllow` etc. directly, not `formData.permissions.*`.
   formData.value = {
     ...key,
-    operatorId: account ? account.operatorId : ''
+    operatorId: account ? account.operatorId : '',
+    pubAllow: key.permissions?.pubAllow ? [...key.permissions.pubAllow] : [],
+    pubDeny: key.permissions?.pubDeny ? [...key.permissions.pubDeny] : [],
+    subAllow: key.permissions?.subAllow ? [...key.permissions.subAllow] : [],
+    subDeny: key.permissions?.subDeny ? [...key.permissions.subDeny] : []
   }
   showModal.value = true
   formError.value = ''
@@ -289,15 +282,27 @@ const closeModal = () => {
 const handleSubmit = async (data) => {
   saving.value = true
   formError.value = ''
+  const trim = (arr) => (arr || []).map(s => s.trim()).filter(s => s !== '')
   try {
     if (editingKey.value) {
+      // UpdateScopedSigningKey only accepts name/description per the proto.
+      // Permission lists go through a separate UpdatePermissions RPC — without
+      // this second call, edits silently drop pub/sub allow/deny changes.
       await apiClient.post('/nis.v1.ScopedSigningKeyService/UpdateScopedSigningKey', {
         id: editingKey.value.id,
         name: data.name,
         description: data.description
       })
+      await apiClient.post('/nis.v1.ScopedSigningKeyService/UpdatePermissions', {
+        id: editingKey.value.id,
+        permissions: {
+          pubAllow: trim(data.pubAllow),
+          pubDeny: trim(data.pubDeny),
+          subAllow: trim(data.subAllow),
+          subDeny: trim(data.subDeny)
+        }
+      })
     } else {
-      const trim = (arr) => (arr || []).map(s => s.trim()).filter(s => s !== '')
       await apiClient.post('/nis.v1.ScopedSigningKeyService/CreateScopedSigningKey', {
         accountId: data.accountId,
         name: data.name,
@@ -335,8 +340,7 @@ const handleDelete = async (key) => {
 }
 
 const handleSelect = (key) => {
-  // Navigate to detail view if implemented
-  // router.push(`/signing-keys/${key.id}`)
+  router.push(`/signing-keys/${key.id}`)
 }
 
 const formatDate = (dateStr) => {

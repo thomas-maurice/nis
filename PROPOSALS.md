@@ -36,7 +36,7 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | A9  | **Done 2026-05-13** | Viper flag-default trap fixed via `applyFlagOverrides` (writes to viper only when flag explicitly passed). Dead `internal/config` package + `sql.NewDB(config.DatabaseConfig)` removed; tests migrated to `sql.NewDB(driver, dsn)`. `config.example.yaml` rewritten to match the live shape (was documenting `database.path`/etc., none of which the binary reads). Doc triangle updated; precedence is now flag > env > file > default. Regression test in `cmd/nis/commands/viper_overrides_test.go`. |
 | A10 |        |       |
 | A11 |        |       |
-| A12 | **Partial Done 2026-05-13** | NSC import path (`ImportFromNSC` + 6 helpers, ~590 LOC) extracted to `import_nsc.go`. `export_service.go` down from 1089 to 493 LOC. Pure file split — methods stay on `*ExportService`, no API change, no behavior change. e2e green. Structural extraction into separate `Exporter` / `Importer` / `NSCImporter` types (needing new constructors and dependency wiring) deferred — that's a real design call. **2026-05-13 follow-up:** YAML support added end-to-end — `ExportOperatorYAML`/`ImportOperatorYAML` service methods, format-aware `ExportOperatorBytes`/`ImportOperatorBytes` with auto-detection by sniffing the first non-whitespace byte, proto `format` field on `ExportOperatorRequest/Response`, gRPC handler dispatch, `nisctl export operator --format yaml\|json` (default yaml). All 5 `Exported*` structs got `yaml:` tags alongside `json:` to keep field names identical across encodings (yaml.v3 defaults to lowercased Go names otherwise). Round-trip tests cover the JSON regression path, the YAML happy path, auto-detect, tricky `$SYS`-prefixed names, and back-compat default-to-JSON. The structural type extraction remains the only A12 item still outstanding. |
+| A12 | **Partial Done 2026-05-13** | NSC import path (`ImportFromNSC` + 6 helpers, ~590 LOC) extracted to `import_nsc.go`. `export_service.go` down from 1089 to 493 LOC. Pure file split — methods stay on `*ExportService`, no API change, no behavior change. e2e green. Structural extraction into separate `Exporter` / `Importer` / `NSCImporter` types (needing new constructors and dependency wiring) deferred — that's a real design call. **2026-05-13 follow-up:** YAML support added end-to-end — `ExportOperatorYAML`/`ImportOperatorYAML` service methods, format-aware `ExportOperatorBytes`/`ImportOperatorBytes` with auto-detection by sniffing the first non-whitespace byte, proto `format` field on `ExportOperatorRequest/Response`, gRPC handler dispatch, `nisctl export operator --format yaml\|json` (default yaml). All 5 `Exported*` structs got `yaml:` tags alongside `json:` to keep field names identical across encodings (yaml.v3 defaults to lowercased Go names otherwise). Round-trip tests cover the JSON regression path, the YAML happy path, auto-detect, tricky `$SYS`-prefixed names, and back-compat default-to-JSON. **2026-05-14 API simplification:** removed `regenerate_ids` from `ImportOperatorRequest` (reserved in proto), from all `ImportOperator*` service methods, and from `nisctl export import`. The flag only swapped UUIDs while leaving NKey public keys untouched — useless for cloning (pubkey collides with source) and useless for migration (NKeys carry over identity). Import is now strictly a faithful restore: same UUIDs, same NKeys, same JWTs, end state byte-identical to what was exported. A future "duplicate operator" feature, if it's ever needed, will be a separate operation that also mints fresh NKeys and re-signs the tree. The structural type extraction remains the only A12 item still outstanding. |
 | C1  | **Done 2026-05-13** | Dead cmds + `test-nats.go` removed. |
 | C2  | **Done 2026-05-13** | Stale top-level docs removed (IMPLEMENTATION/IMPROVEMENT/IMPROVEMENTS_IMPLEM/PROGRESS/STATUS/UI_IMPLEMENTATION.md). |
 | C3  | **Done 2026-05-13** | `repoErrToConnect(err)` and `authedUser(ctx)` helpers in `handlers/util.go`; applied across every handler via perl + goimports cleanup. `errorlint` (C14) prevents regressions. |
@@ -272,7 +272,7 @@ All cleanup proposals except **C8** are now landed and the CI gate is in place. 
 
 ### E2E coverage today
 
-`tests/e2e/e2e_test.go` — six sub-tests, all passing locally and in CI:
+`tests/e2e/e2e_test.go` — 12 sub-tests, all passing locally and in CI:
 
 1. `AuthorizedConnection_DefaultUser` — fresh user's `.creds` connects and round-trips pub/sub.
 2. `UnauthorizedConnection_NoCredsRejected` — connection without credentials refused.
@@ -280,6 +280,12 @@ All cleanup proposals except **C8** are now landed and the CI gate is in place. 
 4. `SyncAfterMutation_NewScopeTakesEffect` — mutate scope, re-sync, new policy takes effect on next connect.
 5. `SyncAfterMutation_DeleteRevokesAccess` — delete scoped key, re-sync, old creds rejected.
 6. `AccountIsolation_CrossAccountSubjectsDoNotLeak` — account-level subject isolation enforced by NATS.
+7. `Observability_ProbeAndMetricsEndpoints` — `/livez`, `/healthz`, `/readyz`, `/metrics` all 200; `/metrics` body has `rpc_server_duration_*` and `nis_operators_total`.
+8. `Export_YAML_Encoding` — exports operator as YAML, decodes locally, asserts snake_case keys + nested `operator.public_key` (regression for yaml struct-tag fix).
+9. `Export_JSON_Encoding` — same for JSON.
+10. `Export_DefaultsToJSON_WhenFormatUnset` — empty format defaults to JSON. Back-compat lock for older clients.
+11. `Import_FromNSC_MinimalArchive` — synthesises a minimal NSC archive via `testutil.BuildMinimalNSCArchive`, POSTs it, verifies operator + account + user queryable. Exercises the tx-wrapped NSC import path.
+12. `ExportImport_FullRoundTrip` — destructive end-to-end backup/restore: export YAML, delete cluster + operator (A1 cascade), re-import YAML bytes, verify accounts return. Runs LAST.
 
 ### Files touched across the full round
 

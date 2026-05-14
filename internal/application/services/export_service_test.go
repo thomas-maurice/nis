@@ -276,8 +276,8 @@ func (s *ExportServiceTestSuite) TestExportAndImport() {
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
 
-	// Import with regenerated IDs
-	err = s.exportService.ImportOperatorJSON(s.ctx, data, true)
+	// Import. Faithful restore: same UUIDs as the export, same NKey pubkeys, etc.
+	err = s.exportService.ImportOperatorJSON(s.ctx, data)
 	require.NoError(s.T(), err)
 
 	// Verify the imported operator exists
@@ -285,8 +285,8 @@ func (s *ExportServiceTestSuite) TestExportAndImport() {
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), "Import Test Operator", importedOperator.Name)
 	assert.Equal(s.T(), "Operator for import testing", importedOperator.Description)
-	// ID should be different since we regenerated IDs
-	assert.NotEqual(s.T(), operator.ID, importedOperator.ID)
+	// ID is preserved on faithful restore.
+	assert.Equal(s.T(), operator.ID, importedOperator.ID)
 
 	// Verify the imported account
 	importedAccounts, err := s.accountService.ListAccountsByOperator(s.ctx, importedOperator.ID, repositories.ListOptions{})
@@ -321,8 +321,9 @@ func (s *ExportServiceTestSuite) TestImportOperator_DuplicateName() {
 	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
 	require.NoError(s.T(), err)
 
-	// Try to import without deleting the existing operator
-	err = s.exportService.ImportOperatorJSON(s.ctx, data, true)
+	// Try to import without deleting the existing operator. The unique-name
+	// constraint should kick in.
+	err = s.exportService.ImportOperatorJSON(s.ctx, data)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "already exists")
 }
@@ -333,7 +334,7 @@ func (s *ExportServiceTestSuite) TestImportOperator_InvalidVersion() {
 		Version: "99.0",
 	}
 
-	err := s.exportService.ImportOperator(s.ctx, exported, false)
+	err := s.exportService.ImportOperator(s.ctx, exported)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "unsupported export version")
 }
@@ -441,7 +442,7 @@ func (s *ExportServiceTestSuite) TestExportYAMLAndImport() {
 	s.db.Exec("DELETE FROM operators")
 
 	// Re-import the YAML bytes via the auto-detecting path.
-	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, data, true))
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, data))
 
 	imported, err := s.operatorService.GetOperatorByName(s.ctx, "YAML Roundtrip Operator")
 	require.NoError(s.T(), err)
@@ -481,7 +482,7 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	s.db.Exec("DELETE FROM accounts")
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
-	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, jsonData, true))
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, jsonData))
 	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
 	require.NoError(s.T(), err, "JSON auto-detect import failed")
 
@@ -491,7 +492,7 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	s.db.Exec("DELETE FROM accounts")
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
-	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, yamlData, true))
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, yamlData))
 	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
 	require.NoError(s.T(), err, "YAML auto-detect import failed")
 }

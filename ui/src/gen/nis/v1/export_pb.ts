@@ -127,13 +127,6 @@ export class ImportOperatorRequest extends Message<ImportOperatorRequest> {
    */
   data = new Uint8Array(0);
 
-  /**
-   * Whether to regenerate UUIDs (for copying)
-   *
-   * @generated from field: bool regenerate_ids = 2;
-   */
-  regenerateIds = false;
-
   constructor(data?: PartialMessage<ImportOperatorRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -143,7 +136,6 @@ export class ImportOperatorRequest extends Message<ImportOperatorRequest> {
   static readonly typeName = "nis.v1.ImportOperatorRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "data", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
-    { no: 2, name: "regenerate_ids", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ImportOperatorRequest {

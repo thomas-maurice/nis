@@ -328,20 +328,18 @@ func (s *ExportService) ExportOperatorJSON(ctx context.Context, operatorID uuid.
 	return data, nil
 }
 
-// ImportOperator imports an operator from exported data
-func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOperator, regenerateIDs bool) error {
+// ImportOperator imports an operator and its entire subtree as a faithful
+// restore. UUIDs, NKey public keys, JWTs, and timestamps are preserved
+// byte-for-byte from the export — the only field touched is UpdatedAt, which
+// reflects when the row was re-inserted. This is the right (and only)
+// behaviour for backup/restore. There used to be a regenerateIDs flag that
+// swapped UUIDs but not NKeys, which produced a half-clone that couldn't
+// coexist with the source (pubkey collision) and couldn't migrate either —
+// it was dropped on 2026-05-13. A future "duplicate operator" feature would
+// be a separate operation that also mints fresh NKeys and re-signs JWTs.
+func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOperator) error {
 	if exported.Version != "1.0" {
 		return fmt.Errorf("unsupported export version: %s", exported.Version)
-	}
-
-	// Map old IDs to new IDs if regenerating
-	idMap := make(map[uuid.UUID]uuid.UUID)
-
-	// Import operator
-	operatorID := exported.Operator.ID
-	if regenerateIDs {
-		operatorID = uuid.New()
-		idMap[exported.Operator.ID] = operatorID
 	}
 
 	// Check if operator with this name already exists
@@ -354,7 +352,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 	}
 
 	operator := &entities.Operator{
-		ID:                  operatorID,
+		ID:                  exported.Operator.ID,
 		Name:                exported.Operator.Name,
 		Description:         exported.Operator.Description,
 		PublicKey:           exported.Operator.PublicKey,
@@ -369,17 +367,10 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 		return fmt.Errorf("failed to create operator: %w", err)
 	}
 
-	// Import accounts
 	for _, exportedAccount := range exported.Accounts {
-		accountID := exportedAccount.ID
-		if regenerateIDs {
-			accountID = uuid.New()
-			idMap[exportedAccount.ID] = accountID
-		}
-
 		account := &entities.Account{
-			ID:                    accountID,
-			OperatorID:            operatorID,
+			ID:                    exportedAccount.ID,
+			OperatorID:            exported.Operator.ID,
 			Name:                  exportedAccount.Name,
 			Description:           exportedAccount.Description,
 			PublicKey:             exportedAccount.PublicKey,
@@ -393,28 +384,15 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			CreatedAt:             exportedAccount.CreatedAt,
 			UpdatedAt:             time.Now(),
 		}
-
 		if err := s.accountRepo.Create(ctx, account); err != nil {
 			return fmt.Errorf("failed to create account %s: %w", exportedAccount.Name, err)
 		}
 	}
 
-	// Import scoped signing keys
 	for _, exportedKey := range exported.ScopedKeys {
-		keyID := exportedKey.ID
-		accountID := exportedKey.AccountID
-
-		if regenerateIDs {
-			keyID = uuid.New()
-			idMap[exportedKey.ID] = keyID
-			if newAccountID, ok := idMap[exportedKey.AccountID]; ok {
-				accountID = newAccountID
-			}
-		}
-
 		scopedKey := &entities.ScopedSigningKey{
-			ID:              keyID,
-			AccountID:       accountID,
+			ID:              exportedKey.ID,
+			AccountID:       exportedKey.AccountID,
 			Name:            exportedKey.Name,
 			Description:     exportedKey.Description,
 			PublicKey:       exportedKey.PublicKey,
@@ -428,62 +406,33 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			CreatedAt:       exportedKey.CreatedAt,
 			UpdatedAt:       time.Now(),
 		}
-
 		if err := s.scopedKeyRepo.Create(ctx, scopedKey); err != nil {
 			return fmt.Errorf("failed to create scoped key %s: %w", exportedKey.Name, err)
 		}
 	}
 
-	// Import users
 	for _, exportedUser := range exported.Users {
-		userID := exportedUser.ID
-		accountID := exportedUser.AccountID
-		var scopedKeyID *uuid.UUID
-
-		if regenerateIDs {
-			userID = uuid.New()
-			idMap[exportedUser.ID] = userID
-			if newAccountID, ok := idMap[exportedUser.AccountID]; ok {
-				accountID = newAccountID
-			}
-			if exportedUser.ScopedSigningKeyID != nil {
-				if newKeyID, ok := idMap[*exportedUser.ScopedSigningKeyID]; ok {
-					scopedKeyID = &newKeyID
-				}
-			}
-		} else {
-			scopedKeyID = exportedUser.ScopedSigningKeyID
-		}
-
 		user := &entities.User{
-			ID:                 userID,
-			AccountID:          accountID,
+			ID:                 exportedUser.ID,
+			AccountID:          exportedUser.AccountID,
 			Name:               exportedUser.Name,
 			Description:        exportedUser.Description,
 			PublicKey:          exportedUser.PublicKey,
 			EncryptedSeed:      exportedUser.EncryptedSeed,
 			JWT:                exportedUser.JWT,
-			ScopedSigningKeyID: scopedKeyID,
+			ScopedSigningKeyID: exportedUser.ScopedSigningKeyID,
 			CreatedAt:          exportedUser.CreatedAt,
 			UpdatedAt:          time.Now(),
 		}
-
 		if err := s.userRepo.Create(ctx, user); err != nil {
 			return fmt.Errorf("failed to create user %s: %w", exportedUser.Name, err)
 		}
 	}
 
-	// Import clusters
 	for _, exportedCluster := range exported.Clusters {
-		clusterID := exportedCluster.ID
-
-		if regenerateIDs {
-			clusterID = uuid.New()
-		}
-
 		cluster := &entities.Cluster{
-			ID:                  clusterID,
-			OperatorID:          operatorID,
+			ID:                  exportedCluster.ID,
+			OperatorID:          exported.Operator.ID,
 			Name:                exportedCluster.Name,
 			Description:         exportedCluster.Description,
 			ServerURLs:          exportedCluster.ServerURLs,
@@ -492,7 +441,6 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			CreatedAt:           exportedCluster.CreatedAt,
 			UpdatedAt:           time.Now(),
 		}
-
 		if err := s.clusterRepo.Create(ctx, cluster); err != nil {
 			return fmt.Errorf("failed to create cluster %s: %w", exportedCluster.Name, err)
 		}
@@ -502,13 +450,13 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 }
 
 // ImportOperatorJSON imports an operator from JSON data
-func (s *ExportService) ImportOperatorJSON(ctx context.Context, data []byte, regenerateIDs bool) error {
+func (s *ExportService) ImportOperatorJSON(ctx context.Context, data []byte) error {
 	var exported ExportedOperator
 	if err := json.Unmarshal(data, &exported); err != nil {
 		return fmt.Errorf("failed to unmarshal export: %w", err)
 	}
 
-	return s.ImportOperator(ctx, &exported, regenerateIDs)
+	return s.ImportOperator(ctx, &exported)
 }
 
 // ExportOperatorYAML exports an operator and returns YAML-encoded bytes.
@@ -525,12 +473,12 @@ func (s *ExportService) ExportOperatorYAML(ctx context.Context, operatorID uuid.
 }
 
 // ImportOperatorYAML imports an operator from YAML-encoded bytes.
-func (s *ExportService) ImportOperatorYAML(ctx context.Context, data []byte, regenerateIDs bool) error {
+func (s *ExportService) ImportOperatorYAML(ctx context.Context, data []byte) error {
 	var exported ExportedOperator
 	if err := yaml.Unmarshal(data, &exported); err != nil {
 		return fmt.Errorf("failed to unmarshal yaml export: %w", err)
 	}
-	return s.ImportOperator(ctx, &exported, regenerateIDs)
+	return s.ImportOperator(ctx, &exported)
 }
 
 // ExportOperatorBytes is a format-aware wrapper around the format-specific
@@ -551,12 +499,12 @@ func (s *ExportService) ExportOperatorBytes(ctx context.Context, operatorID uuid
 // non-whitespace byte. A leading '{' or '[' is JSON; anything else is YAML.
 // This lets clients write `cat export.{json,yaml} | nisctl import` without
 // thinking about format.
-func (s *ExportService) ImportOperatorBytes(ctx context.Context, data []byte, regenerateIDs bool) error {
+func (s *ExportService) ImportOperatorBytes(ctx context.Context, data []byte) error {
 	exported, err := ParseExport(data)
 	if err != nil {
 		return err
 	}
-	return s.ImportOperator(ctx, exported, regenerateIDs)
+	return s.ImportOperator(ctx, exported)
 }
 
 // ParseExport decodes the export bytes into an ExportedOperator struct,

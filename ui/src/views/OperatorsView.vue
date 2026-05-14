@@ -106,27 +106,14 @@
                 id="importFile"
                 type="file"
                 class="form-control"
-                accept=".json"
+                accept=".yaml,.yml,.json"
                 @change="handleFileSelect"
               />
               <div class="form-text">
-                Select a JSON file exported from another NIS instance.
-              </div>
-            </div>
-            <div class="mb-3">
-              <div class="form-check">
-                <input
-                  id="regenerateIds"
-                  v-model="importRegenerateIds"
-                  class="form-check-input"
-                  type="checkbox"
-                />
-                <label class="form-check-label" for="regenerateIds">
-                  Regenerate IDs
-                </label>
-                <div class="form-text">
-                  Generate new UUIDs for all entities. Use this to create a copy instead of restoring.
-                </div>
+                YAML or JSON exports are both accepted; the format is auto-detected.
+                Import is a faithful restore — UUIDs and NKey public keys are preserved
+                exactly as exported, so import only works against a clean DB (no
+                conflicting operator with the same name).
               </div>
             </div>
             <div v-if="importError" class="alert alert-danger">{{ importError }}</div>
@@ -213,7 +200,6 @@ const saving = ref(false)
 const formError = ref('')
 const showImportModal = ref(false)
 const selectedFile = ref(null)
-const importRegenerateIds = ref(false)
 const importing = ref(false)
 const importError = ref('')
 const showNSCImportModal = ref(false)
@@ -312,7 +298,6 @@ const truncate = (str, length) => {
 const closeImportModal = () => {
   showImportModal.value = false
   selectedFile.value = null
-  importRegenerateIds.value = false
   importError.value = ''
 }
 
@@ -337,9 +322,9 @@ const handleImport = async () => {
         // Convert to base64
         const base64Data = btoa(fileContent)
 
+        // Server auto-detects YAML vs JSON from the bytes — no format hint needed.
         await apiClient.post('/nis.v1.ExportService/ImportOperator', {
-          data: base64Data,
-          regenerateIds: importRegenerateIds.value
+          data: base64Data
         })
 
         closeImportModal()

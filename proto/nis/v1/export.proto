@@ -29,7 +29,6 @@ message ImportOperatorRequest {
   // JSON- or YAML-encoded export data. Format is auto-detected by peeking at
   // the first non-whitespace byte: '{' or '[' is JSON, anything else is YAML.
   bytes data = 1;
-  bool regenerate_ids = 2; // Whether to regenerate UUIDs (for copying)
 }
 
 // ImportOperatorResponse is the response from importing an operator

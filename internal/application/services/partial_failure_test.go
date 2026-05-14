@@ -1,19 +1,11 @@
 package services
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nkeys"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +15,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 	"github.com/thomas-maurice/nis/migrations"
+	"github.com/thomas-maurice/nis/pkg/testutil"
 )
 
 // faultEncryptor wraps a real Encryptor and forces an error on the Nth (or
@@ -224,7 +217,7 @@ func TestImportFromNSC_PartialFailureRollsBack(t *testing.T) {
 	_, _, _, _, _, exportSvc, factory, faulty := setupFaultRollbackHarness(t, 0)
 	ctx := context.Background()
 
-	archive := buildMinimalNSCArchive(t)
+	archive := testutil.BuildMinimalNSCArchive(t, "minimal-operator", "minimal-account", "minimal-user")
 
 	// Allow several encrypts (operator seed encrypts cleanly) then fail —
 	// targeting one of the later account/user seed encrypts. failAfter=2
@@ -253,85 +246,3 @@ func TestImportFromNSC_PartialFailureRollsBack(t *testing.T) {
 	assert.Empty(t, users, "any user written before the fault must be rolled back")
 }
 
-// buildMinimalNSCArchive constructs a gzipped tarball of the smallest NSC
-// store layout that ImportFromNSC accepts: one operator JWT, one account JWT
-// with one user, plus the nkey seed files at the expected paths. Returns the
-// archive as bytes ready for ImportFromNSC.
-func buildMinimalNSCArchive(t *testing.T) []byte {
-	t.Helper()
-
-	// Generate operator key + JWT.
-	opKP, err := nkeys.CreateOperator()
-	require.NoError(t, err)
-	opSeed, err := opKP.Seed()
-	require.NoError(t, err)
-	opPub, err := opKP.PublicKey()
-	require.NoError(t, err)
-
-	opClaims := jwt.NewOperatorClaims(opPub)
-	opClaims.Name = "minimal-operator"
-	opClaims.IssuedAt = time.Now().Unix()
-	opJWT, err := opClaims.Encode(opKP)
-	require.NoError(t, err)
-
-	// Generate account key + JWT.
-	accKP, err := nkeys.CreateAccount()
-	require.NoError(t, err)
-	accSeed, err := accKP.Seed()
-	require.NoError(t, err)
-	accPub, err := accKP.PublicKey()
-	require.NoError(t, err)
-
-	accClaims := jwt.NewAccountClaims(accPub)
-	accClaims.Name = "minimal-account"
-	accClaims.IssuedAt = time.Now().Unix()
-	accJWT, err := accClaims.Encode(opKP)
-	require.NoError(t, err)
-
-	// Generate user key + JWT.
-	userKP, err := nkeys.CreateUser()
-	require.NoError(t, err)
-	userSeed, err := userKP.Seed()
-	require.NoError(t, err)
-	userPub, err := userKP.PublicKey()
-	require.NoError(t, err)
-
-	userClaims := jwt.NewUserClaims(userPub)
-	userClaims.Name = "minimal-user"
-	userClaims.IssuedAt = time.Now().Unix()
-	userJWT, err := userClaims.Encode(accKP)
-	require.NoError(t, err)
-
-	// Lay out files in the NSC store structure inside a tar.gz.
-	files := map[string][]byte{
-		filepath.Join("operator", "operator.jwt"):                                 []byte(opJWT),
-		filepath.Join("operator", "accounts", "minimal-account", "minimal-account.jwt"):   []byte(accJWT),
-		filepath.Join("operator", "accounts", "minimal-account", "users", "minimal-user.jwt"): []byte(userJWT),
-		filepath.Join("nkeys", "keys", "O", opPub[1:3], opPub+".nk"):                opSeed,
-		filepath.Join("nkeys", "keys", "A", accPub[1:3], accPub+".nk"):              accSeed,
-		filepath.Join("nkeys", "keys", "U", userPub[1:3], userPub+".nk"):            userSeed,
-	}
-
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-
-	for name, contents := range files {
-		hdr := &tar.Header{
-			Name: name,
-			Mode: 0o600,
-			Size: int64(len(contents)),
-		}
-		require.NoError(t, tw.WriteHeader(hdr))
-		_, err := tw.Write(contents)
-		require.NoError(t, err)
-	}
-
-	require.NoError(t, tw.Close())
-	require.NoError(t, gz.Close())
-
-	if buf.Len() == 0 {
-		t.Fatal(fmt.Errorf("empty archive generated"))
-	}
-	return buf.Bytes()
-}

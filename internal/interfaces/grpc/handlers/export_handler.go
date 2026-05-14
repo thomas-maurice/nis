@@ -93,7 +93,7 @@ func (h *ExportHandler) ImportOperator(
 
 	// Import the operator. ImportOperatorBytes re-parses internally; the cost
 	// is negligible vs. the dozens of writes that follow.
-	if err := h.service.ImportOperatorBytes(ctx, req.Msg.Data, req.Msg.RegenerateIds); err != nil {
+	if err := h.service.ImportOperatorBytes(ctx, req.Msg.Data); err != nil {
 		return nil, err
 	}
 

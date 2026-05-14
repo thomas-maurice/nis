@@ -71,6 +71,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/signing-keys/:id',
+      name: 'signing-key-detail',
+      component: () => import('@/views/SigningKeyDetailView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/api-users',
       name: 'api-users',
       component: () => import('@/views/ApiUsersView.vue'),
