@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"connectrpc.com/grpcreflect"
 	"connectrpc.com/otelconnect"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/net/http2"
@@ -139,8 +140,11 @@ func NewServer(
 		if err == nil {
 			// Create a wrapper handler that routes between UI and API
 			handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// If the path starts with /nis.v1, it's an API call
-				if strings.HasPrefix(r.URL.Path, "/nis.v1") {
+				// API + operator-facing endpoints go to the mux; everything else
+				// falls through to the SPA so client-side routes resolve.
+				p := r.URL.Path
+				if strings.HasPrefix(p, "/nis.v1") ||
+					p == "/livez" || p == "/healthz" || p == "/readyz" || p == "/metrics" {
 					mux.ServeHTTP(w, r)
 					return
 				}
@@ -175,6 +179,37 @@ func NewServer(
 
 	// Wrap handler with request logging middleware
 	handler = logging.RequestLoggingMiddleware(handler)
+
+	// gRPC server reflection. Lets tools (grpcurl, Postman, Bruno, Kreya)
+	// discover services and message schemas without a local .proto copy.
+	// Reflection uses a bidi-streaming RPC that needs http.Flusher on the
+	// response writer; otelhttp / metrics / logging middlewares wrap the writer
+	// in ways that don't preserve Flusher, so reflection is registered on an
+	// outer dispatcher that runs before those wrappers. Unauthenticated by
+	// design — reflection exposes schema only; the underlying RPCs remain
+	// auth-gated by the interceptor above.
+	reflector := grpcreflect.NewStaticReflector(
+		nisv1connect.OperatorServiceName,
+		nisv1connect.AccountServiceName,
+		nisv1connect.UserServiceName,
+		nisv1connect.ScopedSigningKeyServiceName,
+		nisv1connect.ClusterServiceName,
+		nisv1connect.AuthServiceName,
+		nisv1connect.ExportServiceName,
+	)
+	reflectV1Path, reflectV1Handler := grpcreflect.NewHandlerV1(reflector)
+	reflectV1AlphaPath, reflectV1AlphaHandler := grpcreflect.NewHandlerV1Alpha(reflector)
+	instrumented := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, reflectV1Path):
+			reflectV1Handler.ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, reflectV1AlphaPath):
+			reflectV1AlphaHandler.ServeHTTP(w, r)
+		default:
+			instrumented.ServeHTTP(w, r)
+		}
+	})
 
 	// Create HTTP/2 server with h2c (HTTP/2 without TLS) support
 	// This allows both HTTP/1.1 and HTTP/2 connections

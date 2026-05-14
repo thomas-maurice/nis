@@ -71,11 +71,47 @@
         </div>
       </div>
     </div>
+
+    <div class="row mt-4">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">
+              <font-awesome-icon :icon="['fas', 'flask']" class="text-secondary me-2" />
+              API Explorer
+            </h5>
+            <p class="card-text">
+              This server exposes a Connect-RPC API (proto over HTTP) with gRPC server
+              reflection enabled. Point a Connect/gRPC client at it to browse services and
+              call methods interactively.
+            </p>
+            <ul class="small text-muted mb-3">
+              <li>
+                <strong>grpcurl</strong> —
+                <code>grpcurl -plaintext {{ serverHost }} list</code>
+              </li>
+              <li>
+                <strong>Postman / Bruno / Kreya</strong> — import via reflection from
+                <code>{{ serverHost }}</code>.
+              </li>
+            </ul>
+            <a
+              href="https://github.com/fullstorydev/grpcurl"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-primary"
+            >
+              grpcurl
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import apiClient from '@/utils/api'
 
 const stats = ref({
@@ -83,6 +119,11 @@ const stats = ref({
   accounts: 0,
   users: 0,
   clusters: 0
+})
+
+const serverHost = computed(() => {
+  if (typeof window === 'undefined') return 'localhost:8080'
+  return window.location.host
 })
 
 const loadStats = async () => {

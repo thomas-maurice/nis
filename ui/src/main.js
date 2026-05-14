@@ -32,6 +32,7 @@ import {
   faBars,
   faChartLine,
   faUserGear,
+  faFlask,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -51,7 +52,8 @@ library.add(
   faHome,
   faBars,
   faChartLine,
-  faUserGear
+  faUserGear,
+  faFlask
 )
 
 const app = createApp(App)

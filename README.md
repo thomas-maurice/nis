@@ -218,6 +218,33 @@ Convenience targets:
 | `make serve-local` | Legacy host-only server, SQLite, hardcoded dev secrets |
 | `make docker-build` / `docker-run` / `docker-stop` | Single-container Docker image lifecycle |
 
+## API access
+
+NIS exposes a Connect-RPC API (Protobuf over HTTP, both gRPC and gRPC-Web are
+accepted on the same port as the UI). gRPC **server reflection** is enabled, so
+clients can discover services and message schemas without a local `.proto` copy.
+Reflection itself is unauthenticated by design — it returns schema only; the
+underlying RPCs remain auth-gated.
+
+The Dashboard has an "API Explorer" card with links and copy-pasteable
+commands. Common entry points:
+
+```bash
+# List exposed services via reflection
+grpcurl -plaintext localhost:8080 list
+
+# Inspect a service
+grpcurl -plaintext localhost:8080 describe nis.v1.OperatorService
+
+# Call a method (token from /nis.v1.AuthService/Login, see auth.proto)
+grpcurl -plaintext \
+  -H "authorization: Bearer $TOKEN" \
+  -d '{}' localhost:8080 nis.v1.OperatorService/ListOperators
+```
+
+Also works with **Postman**, **Bruno**, **Kreya**, and any other Connect/gRPC
+client that supports reflection. Point them at your NIS URL.
+
 ## Observability
 
 NIS exports Prometheus metrics, OpenTelemetry traces, and three HTTP probe
