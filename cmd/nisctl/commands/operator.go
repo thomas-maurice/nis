@@ -75,7 +75,6 @@ func init() {
 	operatorCmd.AddCommand(operatorGenerateIncludeCmd)
 
 	// Create flags
-	operatorCreateCmd.Flags().StringVar(&operatorSystemAccountPubKey, "system-account-pubkey", "", "system account public key")
 	operatorCreateCmd.Flags().StringVar(&operatorDescription, "description", "", "operator description")
 
 	// Set system account flags
@@ -91,9 +90,8 @@ func runOperatorCreate(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
 	req := connect.NewRequest(&nisv1.CreateOperatorRequest{
-		Name:                name,
-		Description:         operatorDescription,
-		SystemAccountPubKey: operatorSystemAccountPubKey,
+		Name:        name,
+		Description: operatorDescription,
 	})
 
 	resp, err := GetClient().Operator.CreateOperator(context.Background(), req)

@@ -55,9 +55,8 @@ func NewOperatorService(
 
 // CreateOperatorRequest contains the data needed to create an operator
 type CreateOperatorRequest struct {
-	Name                string
-	Description         string
-	SystemAccountPubKey string // Optional
+	Name        string
+	Description string
 }
 
 // CreateOperator creates a new operator with generated keys and JWT.

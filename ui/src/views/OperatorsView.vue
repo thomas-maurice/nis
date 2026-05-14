@@ -77,17 +77,6 @@
           ></textarea>
         </div>
 
-        <div class="mb-3">
-          <label for="systemAccountPubKey" class="form-label">System Account Public Key</label>
-          <input
-            id="systemAccountPubKey"
-            v-model="formData.systemAccountPubKey"
-            type="text"
-            class="form-control"
-            placeholder="AXXXXXXXXXXXXX..."
-          />
-          <div class="form-text">Public key of the system account (usually $SYS)</div>
-        </div>
       </template>
     </EntityForm>
 
@@ -248,7 +237,7 @@ const loadOperators = async () => {
 
 const showCreateModal = () => {
   editingOperator.value = null
-  formData.value = { name: '', description: '', systemAccountPubKey: '' }
+  formData.value = { name: '', description: '' }
   showModal.value = true
   formError.value = ''
 }

@@ -125,12 +125,11 @@ func (x *Operator) GetUpdatedAt() *timestamppb.Timestamp {
 
 // CreateOperatorRequest is the request to create a new operator
 type CreateOperatorRequest struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Name                string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description         string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	SystemAccountPubKey string                 `protobuf:"bytes,3,opt,name=system_account_pub_key,json=systemAccountPubKey,proto3" json:"system_account_pub_key,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateOperatorRequest) Reset() {
@@ -173,13 +172,6 @@ func (x *CreateOperatorRequest) GetName() string {
 func (x *CreateOperatorRequest) GetDescription() string {
 	if x != nil {
 		return x.Description
-	}
-	return ""
-}
-
-func (x *CreateOperatorRequest) GetSystemAccountPubKey() string {
-	if x != nil {
-		return x.SystemAccountPubKey
 	}
 	return ""
 }
@@ -891,11 +883,10 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x82\x01\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"M\n" +
 	"\x15CreateOperatorRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\x123\n" +
-	"\x16system_account_pub_key\x18\x03 \x01(\tR\x13systemAccountPubKey\"F\n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\"F\n" +
 	"\x16CreateOperatorResponse\x12,\n" +
 	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"$\n" +
 	"\x12GetOperatorRequest\x12\x0e\n" +

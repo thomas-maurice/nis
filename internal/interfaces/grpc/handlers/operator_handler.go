@@ -30,9 +30,8 @@ func (h *OperatorHandler) CreateOperator(
 	req *connect.Request[pb.CreateOperatorRequest],
 ) (*connect.Response[pb.CreateOperatorResponse], error) {
 	operator, err := h.service.CreateOperator(ctx, services.CreateOperatorRequest{
-		Name:                req.Msg.Name,
-		Description:         req.Msg.Description,
-		SystemAccountPubKey: req.Msg.SystemAccountPubKey,
+		Name:        req.Msg.Name,
+		Description: req.Msg.Description,
 	})
 	if err != nil {
 		return nil, err

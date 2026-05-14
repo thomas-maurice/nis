@@ -23,7 +23,6 @@ message Operator {
 message CreateOperatorRequest {
   string name = 1;
   string description = 2;
-  string system_account_pub_key = 3;
 }
 
 // CreateOperatorResponse is the response from creating an operator
