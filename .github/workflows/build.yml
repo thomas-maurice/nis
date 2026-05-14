@@ -87,8 +87,13 @@ jobs:
       - name: Warm up NATS image cache
         run: docker pull nats:2.10-alpine
 
+      # The e2e suite is split across scenario files under tests/e2e/ (lifecycle,
+      # nats_live, export, import_backup, import_nsc, delete, observability).
+      # Each scenario boots its own NIS + (when needed) NATS container, so total
+      # wall-clock time is the sum of per-scenario setup. 20m gives headroom on
+      # the slower CI runners; locally the suite typically finishes in 3-5m.
       - name: Run e2e suite
-        run: go test -tags=e2e -v -timeout=15m ./tests/e2e/...
+        run: go test -tags=e2e -v -timeout=20m ./tests/e2e/...
 
   build:
     needs: [test, lint, e2e]

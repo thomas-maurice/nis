@@ -272,20 +272,15 @@ All cleanup proposals except **C8** are now landed and the CI gate is in place. 
 
 ### E2E coverage today
 
-`tests/e2e/e2e_test.go` — 12 sub-tests, all passing locally and in CI:
+Split across per-scenario files under `tests/e2e/`, all passing locally and in CI. Shared harness lives in `harness_test.go`; each test boots its own NIS (and NATS, when needed) so failures localise:
 
-1. `AuthorizedConnection_DefaultUser` — fresh user's `.creds` connects and round-trips pub/sub.
-2. `UnauthorizedConnection_NoCredsRejected` — connection without credentials refused.
-3. `ScopedKey_PubDenyEnforced` — scoped key with `pub_deny=["secret.>"]` allows `public.>`, denies `secret.>` (E1 regression test).
-4. `SyncAfterMutation_NewScopeTakesEffect` — mutate scope, re-sync, new policy takes effect on next connect.
-5. `SyncAfterMutation_DeleteRevokesAccess` — delete scoped key, re-sync, old creds rejected.
-6. `AccountIsolation_CrossAccountSubjectsDoNotLeak` — account-level subject isolation enforced by NATS.
-7. `Observability_ProbeAndMetricsEndpoints` — `/livez`, `/healthz`, `/readyz`, `/metrics` all 200; `/metrics` body has `rpc_server_duration_*` and `nis_operators_total`.
-8. `Export_YAML_Encoding` — exports operator as YAML, decodes locally, asserts snake_case keys + nested `operator.public_key` (regression for yaml struct-tag fix).
-9. `Export_JSON_Encoding` — same for JSON.
-10. `Export_DefaultsToJSON_WhenFormatUnset` — empty format defaults to JSON. Back-compat lock for older clients.
-11. `Import_FromNSC_MinimalArchive` — synthesises a minimal NSC archive via `testutil.BuildMinimalNSCArchive`, POSTs it, verifies operator + account + user queryable. Exercises the tx-wrapped NSC import path.
-12. `ExportImport_FullRoundTrip` — destructive end-to-end backup/restore: export YAML, delete cluster + operator (A1 cascade), re-import YAML bytes, verify accounts return. Runs LAST.
+- `lifecycle_test.go` — operator/account/user/scoped-key CRUD + `GetUserCredentials` shape.
+- `nats_live_test.go` — `AuthorizedConnection`, `UnauthorizedConnectionRejected`, `ScopedKeyPubDenyEnforced` (E1), `SyncAfterMutation_NewScopeTakesEffect`, `SyncAfterMutation_DeleteRevokesAccess`, `AccountIsolation_CrossAccountSubjectsDoNotLeak`.
+- `export_test.go` — `YAMLEncoding` (regression for yaml struct-tag fix), `JSONEncoding`, `PlaintextSecretsShape`, `DefaultsToJSONWhenFormatUnset`.
+- `import_backup_test.go` — `RefusesExistingWithoutOverwrite`, `OverwritePreservesClusters`, `FullRoundTrip` (A1 cascade), `PlaintextSecretsRoundTrip` (DR scenario).
+- `import_nsc_test.go` — `MinimalArchive` (tx-wrapped NSC import path).
+- `delete_test.go` — `OperatorBlockedByAttachedCluster` (FK-leak regression), `OperatorCascadesAccountsAndUsers`, `AccountCascadesUsersAndKeys`, `UserIsScoped`.
+- `observability_test.go` — `/livez`/`/healthz`/`/readyz`/`/metrics` all 200 plus `rpc_server_duration_*` and `nis_operators_total` series.
 
 ### Files touched across the full round
 
@@ -295,7 +290,7 @@ deleted   IMPLEMENTATION.md, IMPROVEMENT.md, IMPROVEMENTS_IMPLEM.md, PROGRESS.md
 new       internal/application/services/casbin_embed.go         — embedded RBAC model+policy + loader
 new       internal/application/services/archive.go              — zip/tar.gz/tar.bz2 extraction helpers (C10)
 new       internal/interfaces/grpc/handlers/util.go             — repoErrToConnect + authedUser (C3)
-new       tests/e2e/e2e_test.go                                 — full e2e harness + 6 sub-tests
+new       tests/e2e/                                            — split per-scenario suite (harness_test.go + lifecycle/nats_live/export/import_backup/import_nsc/delete/observability)
 new       .golangci.yml                                         — errorlint + bodyclose config (C14)
 new       PROPOSALS.md                                          — this file
 edit      internal/application/services/jwt_service.go          — E1: SigningKeys + SetScoped(true)

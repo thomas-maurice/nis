@@ -206,7 +206,7 @@ make test         # Unit + integration tests
 make test-e2e     # End-to-end suite (boots NIS + real NATS in Docker, asserts permissions)
 ```
 
-`make test-e2e` is the regression net for refactors of the server, services, NATS plumbing, persistence, or encryption layers. CI runs it on every PR; run it locally after non-trivial server-side changes. Requires the Docker daemon for the NATS container; uses random TCP ports so it can run alongside `make run`.
+`make test-e2e` is the regression net for refactors of the server, services, NATS plumbing, persistence, or encryption layers. CI runs it on every PR; run it locally after non-trivial server-side changes. Requires the Docker daemon for the NATS container; uses random TCP ports so it can run alongside `make run`. The suite is split into per-scenario files under `tests/e2e/` (`lifecycle`, `nats_live`, `export`, `import_backup`, `import_nsc`, `delete`, `observability`) with a shared harness in `harness_test.go`; each test boots its own NIS process (and NATS container, when needed) so a failure in one scenario doesn't cascade.
 
 Convenience targets:
 
