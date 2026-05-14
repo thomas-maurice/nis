@@ -519,7 +519,6 @@ func TestE2E_FullLifecycle(t *testing.T) {
 	t.Run("Export_YAML_Encoding", func(t *testing.T) {
 		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
 			OperatorId:     operatorID,
-			IncludeSecrets: true,
 			Format:         "yaml",
 		}))
 		if err != nil {
@@ -557,7 +556,6 @@ func TestE2E_FullLifecycle(t *testing.T) {
 	t.Run("Export_JSON_Encoding", func(t *testing.T) {
 		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
 			OperatorId:     operatorID,
-			IncludeSecrets: true,
 			Format:         "json",
 		}))
 		if err != nil {
@@ -581,13 +579,40 @@ func TestE2E_FullLifecycle(t *testing.T) {
 		}
 	})
 
+	// Plaintext-secrets export: verify the wire shape (per-row `seed` set,
+	// `encrypted_seed` elided) and that the seeds look like real NKey seeds.
+	// Non-destructive — runs before the round-trip teardown below.
+	t.Run("Export_PlaintextSecrets_Shape", func(t *testing.T) {
+		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId:       operatorID,
+			Format:           "yaml",
+			PlaintextSecrets: true,
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator(plaintext): %v", err)
+		}
+		body := string(resp.Msg.Data)
+
+		// Plaintext seeds carry the NKey seed prefix ("SU"/"SA"/"SO"). The
+		// encrypted-storage refs in this codebase carry an "encrypted:" prefix.
+		// If we see the latter in a plaintext export, the decrypt step didn't
+		// happen.
+		if strings.Contains(body, "encrypted:") {
+			t.Fatalf("plaintext export must not contain any 'encrypted:' storage refs; body sample: %q",
+				body[:min(len(body), 400)])
+		}
+		if !strings.Contains(body, "seed: S") {
+			t.Fatalf("plaintext export must contain at least one NKey seed (seed: S...); body sample: %q",
+				body[:min(len(body), 400)])
+		}
+	})
+
 	// Empty format must still produce JSON — back-compat for older clients
 	// that predate the format field. Locking this in as a test means flipping
 	// the default has to be a deliberate choice.
 	t.Run("Export_DefaultsToJSON_WhenFormatUnset", func(t *testing.T) {
 		resp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
 			OperatorId:     operatorID,
-			IncludeSecrets: true,
 			// Format intentionally unset.
 		}))
 		if err != nil {
@@ -691,7 +716,6 @@ func TestE2E_FullLifecycle(t *testing.T) {
 		// (1) Export.
 		exportResp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
 			OperatorId:     operatorID,
-			IncludeSecrets: true,
 			Format:         "yaml",
 		}))
 		if err != nil {
@@ -776,6 +800,141 @@ func TestE2E_FullLifecycle(t *testing.T) {
 			}
 		}
 	})
+
+	// End-to-end disaster-recovery scenario for the plaintext-secrets path.
+	// Uses a fresh, isolated operator (no cluster attached, so DeleteOperator
+	// is allowed without a cluster-cleanup dance) so this test doesn't depend
+	// on whatever state the earlier sub-tests left behind.
+	//
+	// The point: prove that an export taken in plaintext mode can survive a
+	// full DB wipe and that the re-encrypted-on-import seeds are functional.
+	// Functional == GetUserCredentials succeeds, which forces the server to
+	// decrypt the user's freshly-stored encrypted_seed with the current
+	// encryptor and emit a valid .creds blob. That entire chain is broken if
+	// the import re-encrypt step was a no-op or got the bytes wrong.
+	//
+	// (Side note: the previous design considered a "no secrets" export mode
+	// for this scenario. It was dropped — an export without seeds is an
+	// unrecoverable half-restore because the JWT's baked-in public key can't
+	// be reproduced from a regenerated NKey pair. There is no "regen seeds"
+	// path, by design.)
+	t.Run("ExportImport_PlaintextSecrets_RoundTrip", func(t *testing.T) {
+		const opName = "plaintext-dr-op"
+		const accName = "plaintext-dr-acc"
+		const userName = "plaintext-dr-user"
+
+		// (1) Build a fresh operator + account + user.
+		opResp, err := h.operatorCli.CreateOperator(ctx, connect.NewRequest(&nisv1.CreateOperatorRequest{
+			Name: opName,
+		}))
+		if err != nil {
+			t.Fatalf("CreateOperator(plaintext-dr-op): %v", err)
+		}
+		drOpID := opResp.Msg.Operator.Id
+
+		accResp, err := h.accountCli.CreateAccount(ctx, connect.NewRequest(&nisv1.CreateAccountRequest{
+			OperatorId: drOpID,
+			Name:       accName,
+		}))
+		if err != nil {
+			t.Fatalf("CreateAccount: %v", err)
+		}
+		drAccID := accResp.Msg.Account.Id
+
+		userResp, err := h.userCli.CreateUser(ctx, connect.NewRequest(&nisv1.CreateUserRequest{
+			AccountId: drAccID,
+			Name:      userName,
+		}))
+		if err != nil {
+			t.Fatalf("CreateUser: %v", err)
+		}
+		drUserID := userResp.Msg.User.Id
+
+		// Pre-wipe sanity: GetUserCredentials returns a valid .creds. This is
+		// our baseline — the same call must work post-restore.
+		credsBefore, err := h.userCli.GetUserCredentials(ctx, connect.NewRequest(&nisv1.GetUserCredentialsRequest{
+			Id: drUserID,
+		}))
+		if err != nil {
+			t.Fatalf("GetUserCredentials pre-export: %v", err)
+		}
+		if !strings.Contains(credsBefore.Msg.Credentials, "BEGIN USER NKEY SEED") {
+			t.Fatalf("pre-export creds missing NKEY SEED block")
+		}
+
+		// (2) Export plaintext.
+		exp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId:       drOpID,
+			Format:           "yaml",
+			PlaintextSecrets: true,
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator(plaintext): %v", err)
+		}
+		body := exp.Msg.Data
+		if strings.Contains(string(body), "encrypted:") {
+			t.Fatalf("plaintext export must not contain 'encrypted:' refs")
+		}
+
+		// (3) Wipe. No cluster attached → DeleteOperator alone is enough.
+		if _, err := h.operatorCli.DeleteOperator(ctx, connect.NewRequest(&nisv1.DeleteOperatorRequest{
+			Id: drOpID,
+		})); err != nil {
+			t.Fatalf("DeleteOperator: %v", err)
+		}
+		// The user must be gone post-delete (FK cascade).
+		if _, err := h.userCli.GetUser(ctx, connect.NewRequest(&nisv1.GetUserRequest{Id: drUserID})); err == nil {
+			t.Fatal("user should be gone after operator delete")
+		}
+
+		// (4) Import plaintext. Server re-encrypts every seed with its
+		// current encryptor.
+		impResp, err := h.exportCli.ImportOperator(ctx, connect.NewRequest(&nisv1.ImportOperatorRequest{
+			Data: body,
+		}))
+		if err != nil {
+			t.Fatalf("ImportOperator(plaintext): %v", err)
+		}
+		if impResp.Msg.OperatorId != drOpID {
+			t.Fatalf("restored operator id changed: got %s, want %s", impResp.Msg.OperatorId, drOpID)
+		}
+
+		// (5) Smoking-gun: GetUserCredentials must work post-restore. This
+		// only succeeds if the user's encrypted_seed in the new DB row is a
+		// valid storage ref the current encryptor can decrypt — i.e. the
+		// re-encrypt step in ImportOperator actually ran and produced
+		// correct bytes.
+		credsAfter, err := h.userCli.GetUserCredentials(ctx, connect.NewRequest(&nisv1.GetUserCredentialsRequest{
+			Id: drUserID,
+		}))
+		if err != nil {
+			t.Fatalf("GetUserCredentials post-restore (re-encryption broken?): %v", err)
+		}
+		if !strings.Contains(credsAfter.Msg.Credentials, "BEGIN USER NKEY SEED") {
+			t.Fatalf("post-restore creds missing NKEY SEED block")
+		}
+		// And the seed material recovered post-restore must match what we
+		// saw pre-export. The user's NKey is content-addressable, so any
+		// drift here means the seed bytes were corrupted somewhere in the
+		// export → plaintext → re-encrypt → store → re-decrypt chain.
+		if extractNKeySeed(t, credsAfter.Msg.Credentials) != extractNKeySeed(t, credsBefore.Msg.Credentials) {
+			t.Fatalf("post-restore NKey seed does not match pre-export seed — round-trip lost or mutated bytes")
+		}
+	})
+}
+
+// extractNKeySeed pulls the seed line out of a NATS .creds blob for round-trip
+// comparison. Returns the seed (e.g. "SU...") with no surrounding whitespace.
+func extractNKeySeed(t *testing.T, creds string) string {
+	t.Helper()
+	const start = "-----BEGIN USER NKEY SEED-----"
+	const end = "------END USER NKEY SEED------"
+	i := strings.Index(creds, start)
+	j := strings.Index(creds, end)
+	if i < 0 || j < 0 || j <= i {
+		t.Fatalf("creds missing NKey seed block:\n%s", creds)
+	}
+	return strings.TrimSpace(creds[i+len(start) : j])
 }
 
 // mapKeys returns the keys of a generic map sorted for stable test output.

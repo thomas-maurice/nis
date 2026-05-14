@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,7 +149,7 @@ func (s *ExportServiceTestSuite) TestExportOperator() {
 	require.NoError(s.T(), err)
 
 	// Export with secrets
-	exported, err := s.exportService.ExportOperator(s.ctx, operator.ID, true)
+	exported, err := s.exportService.ExportOperator(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 	assert.NotNil(s.T(), exported)
 
@@ -200,24 +201,6 @@ func (s *ExportServiceTestSuite) TestExportOperator() {
 }
 
 // TestExportOperator_WithoutSecrets tests exporting without including secrets
-func (s *ExportServiceTestSuite) TestExportOperator_WithoutSecrets() {
-	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{
-		Name: "No Secrets Operator",
-	})
-	require.NoError(s.T(), err)
-
-	exported, err := s.exportService.ExportOperator(s.ctx, operator.ID, false)
-	require.NoError(s.T(), err)
-
-	// Verify secrets are not included
-	assert.Empty(s.T(), exported.Operator.EncryptedSeed)
-
-	// Accounts should also not have encrypted seeds
-	for _, account := range exported.Accounts {
-		assert.Empty(s.T(), account.EncryptedSeed)
-	}
-}
-
 // TestExportOperatorJSON tests JSON export format
 func (s *ExportServiceTestSuite) TestExportOperatorJSON() {
 	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{
@@ -225,7 +208,7 @@ func (s *ExportServiceTestSuite) TestExportOperatorJSON() {
 	})
 	require.NoError(s.T(), err)
 
-	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
+	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 	assert.NotEmpty(s.T(), data)
 
@@ -266,7 +249,7 @@ func (s *ExportServiceTestSuite) TestExportAndImport() {
 	require.NoError(s.T(), err)
 
 	// Export to JSON
-	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
+	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 
 	// Clean up the database to simulate importing into a fresh instance
@@ -318,7 +301,7 @@ func (s *ExportServiceTestSuite) TestImportOperator_DuplicateName() {
 	require.NoError(s.T(), err)
 
 	// Export
-	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
+	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 
 	// Try to import without deleting the existing operator. The unique-name
@@ -347,7 +330,7 @@ func (s *ExportServiceTestSuite) TestExportOutputStructure() {
 	require.NoError(s.T(), err)
 
 	// Export to JSON
-	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
+	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 
 	// Parse the JSON and verify all expected fields exist
@@ -386,7 +369,7 @@ func (s *ExportServiceTestSuite) TestExportOperatorYAML() {
 	})
 	require.NoError(s.T(), err)
 
-	data, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, true)
+	data, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 	assert.NotEmpty(s.T(), data)
 	// First non-whitespace char must NOT be '{' — that would mean we accidentally
@@ -431,7 +414,7 @@ func (s *ExportServiceTestSuite) TestExportYAMLAndImport() {
 	require.NoError(s.T(), err)
 	_ = account
 
-	data, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, true)
+	data, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 
 	// Wipe everything.
@@ -471,9 +454,9 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	})
 	require.NoError(s.T(), err)
 
-	jsonData, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, true)
+	jsonData, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
-	yamlData, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, true)
+	yamlData, err := s.exportService.ExportOperatorYAML(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 
 	// Wipe and import the JSON bytes.
@@ -532,7 +515,213 @@ func (s *ExportServiceTestSuite) TestExportOperatorBytes_DefaultsToJSON() {
 	})
 	require.NoError(s.T(), err)
 
-	data, err := s.exportService.ExportOperatorBytes(s.ctx, operator.ID, true, "")
+	data, err := s.exportService.ExportOperatorBytes(s.ctx, operator.ID, SecretsEncrypted, "")
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), FormatJSON, detectExportFormat(data))
+}
+
+// helpers for the plaintext-secret round-trip tests
+// -----------------------------------------------------------------------------
+
+// freshExportService rebuilds an ExportService bound to the same DB but with
+// a different encryptor. Used to simulate a destination NIS instance whose
+// encryption key differs from the source's.
+func (s *ExportServiceTestSuite) freshExportService(enc encryption.Encryptor) *ExportService {
+	factory := persistence.NewSQLRepositoryFactoryFromDB(s.db)
+	jwtSvc := NewJWTService(enc)
+	accountSvc := NewAccountService(factory, jwtSvc, enc)
+	operatorSvc := NewOperatorService(factory, accountSvc, jwtSvc, enc)
+	userSvc := NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, jwtSvc, enc)
+	scopedSvc := NewScopedSigningKeyService(factory, jwtSvc, enc)
+	clusterSvc := NewClusterService(s.clusterRepo, s.operatorRepo, s.accountRepo, s.userRepo, s.scopedSigningKeyRepo, enc, jwtSvc)
+	return NewExportService(
+		factory,
+		s.operatorRepo, s.accountRepo, s.userRepo, s.scopedSigningKeyRepo, s.clusterRepo,
+		operatorSvc, accountSvc, userSvc, scopedSvc, clusterSvc,
+		enc,
+	)
+}
+
+// secondEncryptor is a distinct encryption key — used as the "destination
+// server's" encryptor to prove that imports re-encrypt seeds with the
+// destination's key, not the source's.
+func (s *ExportServiceTestSuite) secondEncryptor() encryption.Encryptor {
+	enc, err := encryption.NewChaChaEncryptor(map[string]string{
+		"dest-key": "AAAA00000000000000000000000000000000000000A=",
+	}, "dest-key")
+	require.NoError(s.T(), err)
+	return enc
+}
+
+// -----------------------------------------------------------------------------
+// Plaintext export
+// -----------------------------------------------------------------------------
+
+// TestExportOperator_PlaintextSecrets_EmitsPlainAndElidesEncrypted asserts the
+// shape of a plaintext export: per-row `Seed` populated with a printable NKey
+// seed, per-row `EncryptedSeed` empty. The two seed fields are mutually
+// exclusive at the export layer.
+func (s *ExportServiceTestSuite) TestExportOperator_PlaintextSecrets_EmitsPlainAndElidesEncrypted() {
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{Name: "plaintext-op"})
+	require.NoError(s.T(), err)
+
+	account, err := s.accountService.CreateAccount(s.ctx, CreateAccountRequest{OperatorID: operator.ID, Name: "plaintext-acc"})
+	require.NoError(s.T(), err)
+
+	_, err = s.userService.CreateUser(s.ctx, CreateUserRequest{AccountID: account.ID, Name: "plaintext-user"})
+	require.NoError(s.T(), err)
+
+	exported, err := s.exportService.ExportOperator(s.ctx, operator.ID, SecretsPlaintext)
+	require.NoError(s.T(), err)
+
+	// Operator
+	assert.Empty(s.T(), exported.Operator.EncryptedSeed, "encrypted_seed must be elided in plaintext export")
+	require.NotEmpty(s.T(), exported.Operator.Seed, "plaintext seed must be populated")
+	assert.Equal(s.T(), byte('S'), exported.Operator.Seed[0], "NKey seed always starts with 'S'")
+
+	// Accounts (including the auto-created default scoped key under each)
+	require.NotEmpty(s.T(), exported.Accounts)
+	for _, acc := range exported.Accounts {
+		assert.Empty(s.T(), acc.EncryptedSeed, "account encrypted_seed must be elided")
+		assert.NotEmpty(s.T(), acc.Seed, "account plaintext seed must be populated")
+		assert.Equal(s.T(), byte('S'), acc.Seed[0])
+	}
+
+	require.NotEmpty(s.T(), exported.ScopedKeys)
+	for _, sk := range exported.ScopedKeys {
+		assert.Empty(s.T(), sk.EncryptedSeed)
+		assert.NotEmpty(s.T(), sk.Seed)
+	}
+
+	require.NotEmpty(s.T(), exported.Users)
+	for _, u := range exported.Users {
+		assert.Empty(s.T(), u.EncryptedSeed)
+		assert.NotEmpty(s.T(), u.Seed)
+	}
+}
+
+// TestExportOperator_PlaintextSecrets_JSONBytesContainSeedFieldOnly is a
+// belt-and-braces check on the wire encoding: a plaintext export's JSON
+// must contain `"seed":` and must NOT contain `"encrypted_seed":` populated
+// with a non-empty value. (The field uses omitempty so an empty
+// encrypted_seed is dropped entirely.)
+func (s *ExportServiceTestSuite) TestExportOperator_PlaintextSecrets_JSONBytesContainSeedFieldOnly() {
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{Name: "wire-shape"})
+	require.NoError(s.T(), err)
+
+	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsPlaintext)
+	require.NoError(s.T(), err)
+
+	body := string(data)
+	assert.Contains(s.T(), body, `"seed":`)
+	assert.NotContains(s.T(), body, `"encrypted_seed": "encrypted:`)
+}
+
+// -----------------------------------------------------------------------------
+// Plaintext import (re-encryption)
+// -----------------------------------------------------------------------------
+
+// TestImportOperator_PlaintextSecrets_ReEncryptsAgainstDestinationKey is the
+// core disaster-recovery test. Export with the source encryptor in plaintext
+// mode, wipe the DB, then import via an ExportService bound to a DIFFERENT
+// encryptor. The persisted `encrypted_seed` must be decryptable by the new
+// encryptor and must round-trip back to the original plaintext.
+func (s *ExportServiceTestSuite) TestImportOperator_PlaintextSecrets_ReEncryptsAgainstDestinationKey() {
+	// (1) Build a small tree under the source's encryptor.
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{Name: "dr-op"})
+	require.NoError(s.T(), err)
+	account, err := s.accountService.CreateAccount(s.ctx, CreateAccountRequest{OperatorID: operator.ID, Name: "dr-acc"})
+	require.NoError(s.T(), err)
+	user, err := s.userService.CreateUser(s.ctx, CreateUserRequest{AccountID: account.ID, Name: "dr-user"})
+	require.NoError(s.T(), err)
+
+	// (2) Export plaintext. Capture the seeds so we can assert post-import equality.
+	exported, err := s.exportService.ExportOperator(s.ctx, operator.ID, SecretsPlaintext)
+	require.NoError(s.T(), err)
+
+	originalOpSeed := exported.Operator.Seed
+	originalAccSeed := ""
+	for _, a := range exported.Accounts {
+		if a.ID == account.ID {
+			originalAccSeed = a.Seed
+		}
+	}
+	originalUserSeed := ""
+	for _, u := range exported.Users {
+		if u.ID == user.ID {
+			originalUserSeed = u.Seed
+		}
+	}
+	require.NotEmpty(s.T(), originalOpSeed)
+	require.NotEmpty(s.T(), originalAccSeed)
+	require.NotEmpty(s.T(), originalUserSeed)
+
+	// (3) Wipe DB and rebuild ExportService against a fresh encryption key.
+	s.db.Exec("DELETE FROM users")
+	s.db.Exec("DELETE FROM scoped_signing_keys")
+	s.db.Exec("DELETE FROM accounts")
+	s.db.Exec("DELETE FROM clusters")
+	s.db.Exec("DELETE FROM operators")
+
+	destEnc := s.secondEncryptor()
+	destSvc := s.freshExportService(destEnc)
+
+	// (4) Import. Plaintext seeds get re-encrypted with destEnc.
+	require.NoError(s.T(), destSvc.ImportOperator(s.ctx, exported))
+
+	// (5) Verify by decrypting the stored storage refs with destEnc — the
+	// plaintext we get back must equal the seeds we originally exported.
+	loadedOp, err := s.operatorRepo.GetByID(s.ctx, operator.ID)
+	require.NoError(s.T(), err)
+	require.NotEmpty(s.T(), loadedOp.EncryptedSeed)
+	decryptedOp, err := destEnc.Decrypt(s.ctx, loadedOp.EncryptedSeed)
+	require.NoError(s.T(), err, "destination encryptor must be able to decrypt the re-encrypted operator seed")
+	assert.Equal(s.T(), originalOpSeed, string(decryptedOp))
+
+	loadedAcc, err := s.accountRepo.GetByID(s.ctx, account.ID)
+	require.NoError(s.T(), err)
+	decryptedAcc, err := destEnc.Decrypt(s.ctx, loadedAcc.EncryptedSeed)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), originalAccSeed, string(decryptedAcc))
+
+	loadedUser, err := s.userRepo.GetByID(s.ctx, user.ID)
+	require.NoError(s.T(), err)
+	decryptedUser, err := destEnc.Decrypt(s.ctx, loadedUser.EncryptedSeed)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), originalUserSeed, string(decryptedUser))
+
+	// (6) And — critically — the SOURCE encryptor must NOT be able to decrypt
+	// the re-encrypted seed (different key). This proves the seed was
+	// genuinely re-encrypted, not stored verbatim.
+	_, err = s.encryptor.Decrypt(s.ctx, loadedOp.EncryptedSeed)
+	assert.Error(s.T(), err, "source encryptor must not decrypt seed re-encrypted with destination key")
+}
+
+// TestImportOperator_BothSeedAndEncryptedSet_Rejected guards against an
+// ambiguous export. An importer presented with both encrypted_seed AND seed
+// for the same entity cannot tell which to trust — refuse rather than guess.
+func (s *ExportServiceTestSuite) TestImportOperator_BothSeedAndEncryptedSet_Rejected() {
+	exported := &ExportedOperator{
+		Version: "1.0",
+		Operator: &ExportedOperatorData{
+			ID:            uuidNamed("00000000-0000-0000-0000-000000000001"),
+			Name:          "ambiguous-op",
+			PublicKey:     "OAAAA",
+			EncryptedSeed: "encrypted:something",
+			Seed:          "SOMESEED",
+		},
+	}
+	err := s.exportService.ImportOperator(s.ctx, exported)
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "both encrypted_seed and seed")
+}
+
+// uuidNamed parses a UUID literal in tests where a specific value matters
+// for assertions but not collision avoidance.
+func uuidNamed(s string) uuid.UUID {
+	u, err := uuid.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }

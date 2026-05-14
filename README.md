@@ -161,17 +161,27 @@ ENCRYPTION_KEY="exactly-32-bytes-..............." \
 
 ## Export & Import
 
-Operators (and everything underneath — accounts, users, scoped signing keys, clusters) can be backed up to and restored from a single file. Both **YAML** (default) and **JSON** are supported.
+Operators (and everything underneath — accounts, users, scoped signing keys, clusters) can be backed up to and restored from a single file. Both **YAML** (default) and **JSON** are supported. Every export carries seed material — there is no "metadata-only" mode, because an export without seeds isn't restorable (the JWT's baked-in public key cannot be reproduced from a regenerated NKey pair).
 
 ```bash
-# Export. --format defaults to yaml.
-nisctl export operator my-operator --include-secrets -o backup.yaml
-nisctl export operator my-operator --include-secrets --format json -o backup.json
+# Default: seeds stay encrypted with the server's current encryption key.
+# Importable only by a server that uses the same key.
+nisctl export operator my-operator -o backup.yaml
+nisctl export operator my-operator --format json -o backup.json
+
+# Disaster-recovery: decrypt seeds and emit them as plaintext NKey seeds.
+# Importable by ANY server (the import re-encrypts with the destination's
+# current key). Use this when you need a backup that survives encryption-key
+# loss or rotation.
+#
+# DANGER: the resulting file is a plaintext NKey vault — protect it like a
+# .creds file. Anyone with read access can mint credentials for every entity.
+nisctl export operator my-operator --plaintext-secrets -o backup-dr.yaml
 
 # Import. Format is auto-detected from the file contents — no flag needed,
-# the same command handles either encoding.
+# the same command handles either encoding, encrypted or plaintext.
 nisctl export import backup.yaml
-nisctl export import backup.json
+nisctl export import backup-dr.yaml
 ```
 
 NSC migration is the other direction: `nisctl export import-nsc <archive> <operator-name>` ingests a tar/zip of an existing `~/.nsc/stores` tree. The whole import runs in a single database transaction, so a mid-import failure rolls every partial write back instead of leaving orphan accounts behind.

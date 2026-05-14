@@ -26,6 +26,26 @@ const (
 	FormatYAML ExportFormat = "yaml"
 )
 
+// SecretsMode controls the form in which NKey seeds are emitted in an export.
+// Every export carries seed material — a "metadata-only" mode is intentionally
+// not supported because it produces an unrecoverable half-restore (see
+// proto/nis/v1/export.proto).
+//
+//   - SecretsEncrypted: storage refs as-is (e.g. "encrypted:keyid:..."). The
+//     destination must be configured with the same encryption key to decrypt.
+//   - SecretsPlaintext: seeds decrypted with the source's encryption key and
+//     written as plaintext NKey seeds (e.g. "SO..."). DANGEROUS — the export
+//     becomes a plaintext key vault. Use only for disaster-recovery backups
+//     that must remain readable across key loss/rotation. Imports of a
+//     plaintext export re-encrypt every seed with the destination's current
+//     encryption key.
+type SecretsMode string
+
+const (
+	SecretsEncrypted SecretsMode = "encrypted"
+	SecretsPlaintext SecretsMode = "plaintext"
+)
+
 // ExportService provides business logic for exporting and importing operators
 type ExportService struct {
 	factory          persistence.RepositoryFactory
@@ -91,13 +111,28 @@ type ExportedOperator struct {
 	Clusters   []*ExportedClusterData   `json:"clusters,omitempty" yaml:"clusters,omitempty"`
 }
 
+// Secret material is carried in mutually-exclusive sibling fields across every
+// Exported*Data struct:
+//
+//   - `encrypted_seed` (or `encrypted_creds`): storage refs from the source's
+//     encryptor. Importable only by a server that holds the same encryption
+//     key.
+//   - `seed` (or `creds`): plaintext NKey seeds (or .creds bytes) — present
+//     only when the export was created in `plaintext` mode. The importer
+//     re-encrypts these with its own current key.
+//
+// Exactly one of the pair is populated per row, depending on SecretsMode at
+// export time. Both use `omitempty` so a SecretsNone export contains neither
+// and stays minimal.
+
 // ExportedOperatorData contains operator data including encrypted seed
 type ExportedOperatorData struct {
 	ID                  uuid.UUID `json:"id" yaml:"id"`
 	Name                string    `json:"name" yaml:"name"`
 	Description         string    `json:"description" yaml:"description"`
 	PublicKey           string    `json:"public_key" yaml:"public_key"`
-	EncryptedSeed       string    `json:"encrypted_seed" yaml:"encrypted_seed"` // Re-encrypted with export key
+	EncryptedSeed       string    `json:"encrypted_seed,omitempty" yaml:"encrypted_seed,omitempty"`
+	Seed                string    `json:"seed,omitempty" yaml:"seed,omitempty"`
 	SystemAccountPubKey string    `json:"system_account_pub_key" yaml:"system_account_pub_key"`
 	JWT                 string    `json:"jwt" yaml:"jwt"`
 	CreatedAt           time.Time `json:"created_at" yaml:"created_at"`
@@ -111,7 +146,8 @@ type ExportedAccountData struct {
 	Name                  string    `json:"name" yaml:"name"`
 	Description           string    `json:"description" yaml:"description"`
 	PublicKey             string    `json:"public_key" yaml:"public_key"`
-	EncryptedSeed         string    `json:"encrypted_seed" yaml:"encrypted_seed"`
+	EncryptedSeed         string    `json:"encrypted_seed,omitempty" yaml:"encrypted_seed,omitempty"`
+	Seed                  string    `json:"seed,omitempty" yaml:"seed,omitempty"`
 	JetStreamEnabled      bool      `json:"jetstream_enabled" yaml:"jetstream_enabled"`
 	JetStreamMaxMemory    int64     `json:"jetstream_max_memory" yaml:"jetstream_max_memory"`
 	JetStreamMaxStorage   int64     `json:"jetstream_max_storage" yaml:"jetstream_max_storage"`
@@ -129,7 +165,8 @@ type ExportedScopedKeyData struct {
 	Name            string        `json:"name" yaml:"name"`
 	Description     string        `json:"description" yaml:"description"`
 	PublicKey       string        `json:"public_key" yaml:"public_key"`
-	EncryptedSeed   string        `json:"encrypted_seed" yaml:"encrypted_seed"`
+	EncryptedSeed   string        `json:"encrypted_seed,omitempty" yaml:"encrypted_seed,omitempty"`
+	Seed            string        `json:"seed,omitempty" yaml:"seed,omitempty"`
 	PubAllow        []string      `json:"pub_allow" yaml:"pub_allow"`
 	PubDeny         []string      `json:"pub_deny" yaml:"pub_deny"`
 	SubAllow        []string      `json:"sub_allow" yaml:"sub_allow"`
@@ -147,7 +184,8 @@ type ExportedUserData struct {
 	Name               string     `json:"name" yaml:"name"`
 	Description        string     `json:"description" yaml:"description"`
 	PublicKey          string     `json:"public_key" yaml:"public_key"`
-	EncryptedSeed      string     `json:"encrypted_seed" yaml:"encrypted_seed"`
+	EncryptedSeed      string     `json:"encrypted_seed,omitempty" yaml:"encrypted_seed,omitempty"`
+	Seed               string     `json:"seed,omitempty" yaml:"seed,omitempty"`
 	JWT                string     `json:"jwt" yaml:"jwt"`
 	ScopedSigningKeyID *uuid.UUID `json:"scoped_signing_key_id,omitempty" yaml:"scoped_signing_key_id,omitempty"`
 	CreatedAt          time.Time  `json:"created_at" yaml:"created_at"`
@@ -162,13 +200,31 @@ type ExportedClusterData struct {
 	Description         string    `json:"description" yaml:"description"`
 	ServerURLs          []string  `json:"server_urls" yaml:"server_urls"`
 	SystemAccountPubKey string    `json:"system_account_pub_key" yaml:"system_account_pub_key"`
-	EncryptedCreds      string    `json:"encrypted_creds" yaml:"encrypted_creds"`
+	EncryptedCreds      string    `json:"encrypted_creds,omitempty" yaml:"encrypted_creds,omitempty"`
+	Creds               string    `json:"creds,omitempty" yaml:"creds,omitempty"`
 	CreatedAt           time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at" yaml:"updated_at"`
 }
 
-// ExportOperator exports an operator and all its associated data
-func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID, includeSecrets bool) (*ExportedOperator, error) {
+// ExportOperator exports an operator and all its associated data.
+//
+// `mode` controls which (if any) secret material is emitted. See SecretsMode.
+// SecretsPlaintext decrypts every seed/creds blob with the source encryptor;
+// any failure aborts the export (we won't ship a half-encrypted, half-plaintext
+// archive).
+func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID, mode SecretsMode) (*ExportedOperator, error) {
+	switch mode {
+	case "":
+		mode = SecretsEncrypted
+	case SecretsEncrypted, SecretsPlaintext:
+		// valid
+	default:
+		return nil, fmt.Errorf("invalid secrets mode: %q", mode)
+	}
+	if mode == SecretsPlaintext && s.encryptor == nil {
+		return nil, fmt.Errorf("cannot export with plaintext secrets: no encryptor configured")
+	}
+
 	// Get operator
 	operator, err := s.operatorRepo.GetByID(ctx, operatorID)
 	if err != nil {
@@ -194,9 +250,8 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 		Clusters:   make([]*ExportedClusterData, 0),
 	}
 
-	// Include encrypted seed if secrets are requested
-	if includeSecrets {
-		exported.Operator.EncryptedSeed = operator.EncryptedSeed
+	if err := s.fillSeed(ctx, mode, operator.EncryptedSeed, &exported.Operator.EncryptedSeed, &exported.Operator.Seed, "operator "+operator.Name); err != nil {
+		return nil, err
 	}
 
 	// Get all accounts for this operator
@@ -222,8 +277,8 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 			UpdatedAt:             account.UpdatedAt,
 		}
 
-		if includeSecrets {
-			exportedAccount.EncryptedSeed = account.EncryptedSeed
+		if err := s.fillSeed(ctx, mode, account.EncryptedSeed, &exportedAccount.EncryptedSeed, &exportedAccount.Seed, "account "+account.Name); err != nil {
+			return nil, err
 		}
 
 		exported.Accounts = append(exported.Accounts, exportedAccount)
@@ -251,8 +306,8 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 				UpdatedAt:       key.UpdatedAt,
 			}
 
-			if includeSecrets {
-				exportedKey.EncryptedSeed = key.EncryptedSeed
+			if err := s.fillSeed(ctx, mode, key.EncryptedSeed, &exportedKey.EncryptedSeed, &exportedKey.Seed, "scoped key "+key.Name); err != nil {
+				return nil, err
 			}
 
 			exported.ScopedKeys = append(exported.ScopedKeys, exportedKey)
@@ -277,8 +332,8 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 				UpdatedAt:          user.UpdatedAt,
 			}
 
-			if includeSecrets {
-				exportedUser.EncryptedSeed = user.EncryptedSeed
+			if err := s.fillSeed(ctx, mode, user.EncryptedSeed, &exportedUser.EncryptedSeed, &exportedUser.Seed, "user "+user.Name); err != nil {
+				return nil, err
 			}
 
 			exported.Users = append(exported.Users, exportedUser)
@@ -303,8 +358,8 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 			UpdatedAt:           cluster.UpdatedAt,
 		}
 
-		if includeSecrets {
-			exportedCluster.EncryptedCreds = cluster.EncryptedCreds
+		if err := s.fillSeed(ctx, mode, cluster.EncryptedCreds, &exportedCluster.EncryptedCreds, &exportedCluster.Creds, "cluster "+cluster.Name); err != nil {
+			return nil, err
 		}
 
 		exported.Clusters = append(exported.Clusters, exportedCluster)
@@ -313,9 +368,35 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 	return exported, nil
 }
 
+// fillSeed writes the source's encrypted blob (stored as a storage ref) into
+// either `encryptedDst` (SecretsEncrypted: copy as-is) or `plaintextDst`
+// (SecretsPlaintext: decrypt, write plaintext bytes as a string). An empty
+// source blob is left empty in either mode — some entities legitimately have
+// no seed material yet (e.g. a freshly-registered cluster row with no system
+// creds).
+func (s *ExportService) fillSeed(ctx context.Context, mode SecretsMode, source string, encryptedDst, plaintextDst *string, label string) error {
+	if source == "" {
+		return nil
+	}
+	switch mode {
+	case SecretsEncrypted:
+		*encryptedDst = source
+		return nil
+	case SecretsPlaintext:
+		plain, err := s.encryptor.Decrypt(ctx, source)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt %s for plaintext export: %w", label, err)
+		}
+		*plaintextDst = string(plain)
+		return nil
+	default:
+		return fmt.Errorf("invalid secrets mode: %q", mode)
+	}
+}
+
 // ExportOperatorJSON exports an operator to JSON
-func (s *ExportService) ExportOperatorJSON(ctx context.Context, operatorID uuid.UUID, includeSecrets bool) ([]byte, error) {
-	exported, err := s.ExportOperator(ctx, operatorID, includeSecrets)
+func (s *ExportService) ExportOperatorJSON(ctx context.Context, operatorID uuid.UUID, mode SecretsMode) ([]byte, error) {
+	exported, err := s.ExportOperator(ctx, operatorID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -351,12 +432,16 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 		return fmt.Errorf("operator with name '%s' already exists", exported.Operator.Name)
 	}
 
+	opSeed, err := s.adoptSeed(ctx, exported.Operator.EncryptedSeed, exported.Operator.Seed, "operator "+exported.Operator.Name)
+	if err != nil {
+		return err
+	}
 	operator := &entities.Operator{
 		ID:                  exported.Operator.ID,
 		Name:                exported.Operator.Name,
 		Description:         exported.Operator.Description,
 		PublicKey:           exported.Operator.PublicKey,
-		EncryptedSeed:       exported.Operator.EncryptedSeed,
+		EncryptedSeed:       opSeed,
 		SystemAccountPubKey: exported.Operator.SystemAccountPubKey,
 		JWT:                 exported.Operator.JWT,
 		CreatedAt:           exported.Operator.CreatedAt,
@@ -368,13 +453,17 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 	}
 
 	for _, exportedAccount := range exported.Accounts {
+		accSeed, err := s.adoptSeed(ctx, exportedAccount.EncryptedSeed, exportedAccount.Seed, "account "+exportedAccount.Name)
+		if err != nil {
+			return err
+		}
 		account := &entities.Account{
 			ID:                    exportedAccount.ID,
 			OperatorID:            exported.Operator.ID,
 			Name:                  exportedAccount.Name,
 			Description:           exportedAccount.Description,
 			PublicKey:             exportedAccount.PublicKey,
-			EncryptedSeed:         exportedAccount.EncryptedSeed,
+			EncryptedSeed:         accSeed,
 			JetStreamEnabled:      exportedAccount.JetStreamEnabled,
 			JetStreamMaxMemory:    exportedAccount.JetStreamMaxMemory,
 			JetStreamMaxStorage:   exportedAccount.JetStreamMaxStorage,
@@ -390,13 +479,17 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 	}
 
 	for _, exportedKey := range exported.ScopedKeys {
+		keySeed, err := s.adoptSeed(ctx, exportedKey.EncryptedSeed, exportedKey.Seed, "scoped key "+exportedKey.Name)
+		if err != nil {
+			return err
+		}
 		scopedKey := &entities.ScopedSigningKey{
 			ID:              exportedKey.ID,
 			AccountID:       exportedKey.AccountID,
 			Name:            exportedKey.Name,
 			Description:     exportedKey.Description,
 			PublicKey:       exportedKey.PublicKey,
-			EncryptedSeed:   exportedKey.EncryptedSeed,
+			EncryptedSeed:   keySeed,
 			PubAllow:        exportedKey.PubAllow,
 			PubDeny:         exportedKey.PubDeny,
 			SubAllow:        exportedKey.SubAllow,
@@ -412,13 +505,17 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 	}
 
 	for _, exportedUser := range exported.Users {
+		userSeed, err := s.adoptSeed(ctx, exportedUser.EncryptedSeed, exportedUser.Seed, "user "+exportedUser.Name)
+		if err != nil {
+			return err
+		}
 		user := &entities.User{
 			ID:                 exportedUser.ID,
 			AccountID:          exportedUser.AccountID,
 			Name:               exportedUser.Name,
 			Description:        exportedUser.Description,
 			PublicKey:          exportedUser.PublicKey,
-			EncryptedSeed:      exportedUser.EncryptedSeed,
+			EncryptedSeed:      userSeed,
 			JWT:                exportedUser.JWT,
 			ScopedSigningKeyID: exportedUser.ScopedSigningKeyID,
 			CreatedAt:          exportedUser.CreatedAt,
@@ -430,6 +527,10 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 	}
 
 	for _, exportedCluster := range exported.Clusters {
+		clusterCreds, err := s.adoptSeed(ctx, exportedCluster.EncryptedCreds, exportedCluster.Creds, "cluster "+exportedCluster.Name)
+		if err != nil {
+			return err
+		}
 		cluster := &entities.Cluster{
 			ID:                  exportedCluster.ID,
 			OperatorID:          exported.Operator.ID,
@@ -437,7 +538,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			Description:         exportedCluster.Description,
 			ServerURLs:          exportedCluster.ServerURLs,
 			SystemAccountPubKey: exportedCluster.SystemAccountPubKey,
-			EncryptedCreds:      exportedCluster.EncryptedCreds,
+			EncryptedCreds:      clusterCreds,
 			CreatedAt:           exportedCluster.CreatedAt,
 			UpdatedAt:           time.Now(),
 		}
@@ -447,6 +548,37 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 	}
 
 	return nil
+}
+
+// adoptSeed returns the storage-ref the importer should persist for one entity,
+// given the two mutually-exclusive seed fields from an export row:
+//
+//   - If `plaintext` is set, encrypt it with the destination's current
+//     encryptor and return the resulting storage ref. This is the
+//     "disaster-recovery into a fresh key" path.
+//   - If only `encrypted` is set, return it verbatim — assumes the
+//     destination uses the same encryption key the source used.
+//   - If both are set, the export is ambiguous; refuse rather than guess.
+//   - If neither is set (SecretsNone export), return "" — the entity row will
+//     exist with a JWT and public key but no seed, so the server can verify
+//     things signed by the original keys but cannot sign anything new for
+//     that entity. Documented as the "metadata-only restore" mode; see
+//     module docstring.
+func (s *ExportService) adoptSeed(ctx context.Context, encrypted, plaintext, label string) (string, error) {
+	if encrypted != "" && plaintext != "" {
+		return "", fmt.Errorf("export for %s has both encrypted_seed and seed set; refusing ambiguous import", label)
+	}
+	if plaintext != "" {
+		if s.encryptor == nil {
+			return "", fmt.Errorf("cannot import plaintext seed for %s: no encryptor configured", label)
+		}
+		ref, err := s.encryptor.Encrypt(ctx, []byte(plaintext))
+		if err != nil {
+			return "", fmt.Errorf("failed to re-encrypt seed for %s: %w", label, err)
+		}
+		return ref, nil
+	}
+	return encrypted, nil
 }
 
 // ImportOperatorJSON imports an operator from JSON data
@@ -460,8 +592,8 @@ func (s *ExportService) ImportOperatorJSON(ctx context.Context, data []byte) err
 }
 
 // ExportOperatorYAML exports an operator and returns YAML-encoded bytes.
-func (s *ExportService) ExportOperatorYAML(ctx context.Context, operatorID uuid.UUID, includeSecrets bool) ([]byte, error) {
-	exported, err := s.ExportOperator(ctx, operatorID, includeSecrets)
+func (s *ExportService) ExportOperatorYAML(ctx context.Context, operatorID uuid.UUID, mode SecretsMode) ([]byte, error) {
+	exported, err := s.ExportOperator(ctx, operatorID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -484,12 +616,12 @@ func (s *ExportService) ImportOperatorYAML(ctx context.Context, data []byte) err
 // ExportOperatorBytes is a format-aware wrapper around the format-specific
 // ExportOperator{JSON,YAML} methods. Empty format defaults to JSON for
 // backward compatibility — older clients (and stored exports) predate yaml.
-func (s *ExportService) ExportOperatorBytes(ctx context.Context, operatorID uuid.UUID, includeSecrets bool, format ExportFormat) ([]byte, error) {
+func (s *ExportService) ExportOperatorBytes(ctx context.Context, operatorID uuid.UUID, mode SecretsMode, format ExportFormat) ([]byte, error) {
 	switch format {
 	case "", FormatJSON:
-		return s.ExportOperatorJSON(ctx, operatorID, includeSecrets)
+		return s.ExportOperatorJSON(ctx, operatorID, mode)
 	case FormatYAML:
-		return s.ExportOperatorYAML(ctx, operatorID, includeSecrets)
+		return s.ExportOperatorYAML(ctx, operatorID, mode)
 	default:
 		return nil, fmt.Errorf("unsupported export format: %q (want %q or %q)", format, FormatJSON, FormatYAML)
 	}

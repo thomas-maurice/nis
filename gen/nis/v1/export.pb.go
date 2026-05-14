@@ -22,17 +22,32 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ExportOperatorRequest is the request to export an operator
+// ExportOperatorRequest is the request to export an operator.
+//
+// Every export carries seed material — either encrypted (default) or
+// plaintext. A "metadata-only" mode (public keys + JWTs but no seeds) was
+// considered and dropped: it produces an unrecoverable half-restore that
+// breaks the first time the server tries to sign anything (regen account
+// JWT, mint user creds), and a regenerated seed wouldn't match the JWT's
+// already-baked public key anyway.
 type ExportOperatorRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	OperatorId     string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	IncludeSecrets bool                   `protobuf:"varint,2,opt,name=include_secrets,json=includeSecrets,proto3" json:"include_secrets,omitempty"` // Whether to include encrypted seeds
-	// Output encoding. "json" (default if unset) or "yaml". Older clients that
-	// leave this empty continue to receive JSON-encoded data — same on-wire shape
-	// as before yaml support was added.
-	Format        string `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	// Output encoding. "json" (default if unset) or "yaml".
+	Format string `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
+	// DANGER: when true, NKey seeds are decrypted with the server's current
+	// encryption key and emitted in plaintext (`seed` field per row) instead
+	// of as `encrypted_seed`. The resulting export is equivalent to a
+	// plaintext NKey vault — anyone reading the file can mint .creds for
+	// every entity.
+	//
+	// Intended use: disaster-recovery backups that must remain readable after
+	// the server's encryption key is lost or rotated incorrectly. On import,
+	// plaintext seeds are re-encrypted with the destination server's current
+	// key.
+	PlaintextSecrets bool `protobuf:"varint,3,opt,name=plaintext_secrets,json=plaintextSecrets,proto3" json:"plaintext_secrets,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ExportOperatorRequest) Reset() {
@@ -72,18 +87,18 @@ func (x *ExportOperatorRequest) GetOperatorId() string {
 	return ""
 }
 
-func (x *ExportOperatorRequest) GetIncludeSecrets() bool {
-	if x != nil {
-		return x.IncludeSecrets
-	}
-	return false
-}
-
 func (x *ExportOperatorRequest) GetFormat() string {
 	if x != nil {
 		return x.Format
 	}
 	return ""
+}
+
+func (x *ExportOperatorRequest) GetPlaintextSecrets() bool {
+	if x != nil {
+		return x.PlaintextSecrets
+	}
+	return false
 }
 
 // ExportOperatorResponse is the response containing the exported operator data
@@ -335,12 +350,12 @@ var File_nis_v1_export_proto protoreflect.FileDescriptor
 
 const file_nis_v1_export_proto_rawDesc = "" +
 	"\n" +
-	"\x13nis/v1/export.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"y\n" +
+	"\x13nis/v1/export.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"}\n" +
 	"\x15ExportOperatorRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
-	"operatorId\x12'\n" +
-	"\x0finclude_secrets\x18\x02 \x01(\bR\x0eincludeSecrets\x12\x16\n" +
-	"\x06format\x18\x03 \x01(\tR\x06format\"D\n" +
+	"operatorId\x12\x16\n" +
+	"\x06format\x18\x02 \x01(\tR\x06format\x12+\n" +
+	"\x11plaintext_secrets\x18\x03 \x01(\bR\x10plaintextSecrets\"D\n" +
 	"\x16ExportOperatorResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\"+\n" +

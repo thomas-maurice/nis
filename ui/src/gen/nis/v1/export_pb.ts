@@ -7,7 +7,14 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto3 } from "@bufbuild/protobuf";
 
 /**
- * ExportOperatorRequest is the request to export an operator
+ * ExportOperatorRequest is the request to export an operator.
+ *
+ * Every export carries seed material — either encrypted (default) or
+ * plaintext. A "metadata-only" mode (public keys + JWTs but no seeds) was
+ * considered and dropped: it produces an unrecoverable half-restore that
+ * breaks the first time the server tries to sign anything (regen account
+ * JWT, mint user creds), and a regenerated seed wouldn't match the JWT's
+ * already-baked public key anyway.
  *
  * @generated from message nis.v1.ExportOperatorRequest
  */
@@ -18,20 +25,27 @@ export class ExportOperatorRequest extends Message<ExportOperatorRequest> {
   operatorId = "";
 
   /**
-   * Whether to include encrypted seeds
+   * Output encoding. "json" (default if unset) or "yaml".
    *
-   * @generated from field: bool include_secrets = 2;
-   */
-  includeSecrets = false;
-
-  /**
-   * Output encoding. "json" (default if unset) or "yaml". Older clients that
-   * leave this empty continue to receive JSON-encoded data — same on-wire shape
-   * as before yaml support was added.
-   *
-   * @generated from field: string format = 3;
+   * @generated from field: string format = 2;
    */
   format = "";
+
+  /**
+   * DANGER: when true, NKey seeds are decrypted with the server's current
+   * encryption key and emitted in plaintext (`seed` field per row) instead
+   * of as `encrypted_seed`. The resulting export is equivalent to a
+   * plaintext NKey vault — anyone reading the file can mint .creds for
+   * every entity.
+   *
+   * Intended use: disaster-recovery backups that must remain readable after
+   * the server's encryption key is lost or rotated incorrectly. On import,
+   * plaintext seeds are re-encrypted with the destination server's current
+   * key.
+   *
+   * @generated from field: bool plaintext_secrets = 3;
+   */
+  plaintextSecrets = false;
 
   constructor(data?: PartialMessage<ExportOperatorRequest>) {
     super();
@@ -42,8 +56,8 @@ export class ExportOperatorRequest extends Message<ExportOperatorRequest> {
   static readonly typeName = "nis.v1.ExportOperatorRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "include_secrets", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-    { no: 3, name: "format", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "format", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "plaintext_secrets", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ExportOperatorRequest {

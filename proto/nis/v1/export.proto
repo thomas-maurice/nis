@@ -6,14 +6,29 @@ option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
 
 import "google/protobuf/timestamp.proto";
 
-// ExportOperatorRequest is the request to export an operator
+// ExportOperatorRequest is the request to export an operator.
+//
+// Every export carries seed material — either encrypted (default) or
+// plaintext. A "metadata-only" mode (public keys + JWTs but no seeds) was
+// considered and dropped: it produces an unrecoverable half-restore that
+// breaks the first time the server tries to sign anything (regen account
+// JWT, mint user creds), and a regenerated seed wouldn't match the JWT's
+// already-baked public key anyway.
 message ExportOperatorRequest {
   string operator_id = 1;
-  bool include_secrets = 2; // Whether to include encrypted seeds
-  // Output encoding. "json" (default if unset) or "yaml". Older clients that
-  // leave this empty continue to receive JSON-encoded data — same on-wire shape
-  // as before yaml support was added.
-  string format = 3;
+  // Output encoding. "json" (default if unset) or "yaml".
+  string format = 2;
+  // DANGER: when true, NKey seeds are decrypted with the server's current
+  // encryption key and emitted in plaintext (`seed` field per row) instead
+  // of as `encrypted_seed`. The resulting export is equivalent to a
+  // plaintext NKey vault — anyone reading the file can mint .creds for
+  // every entity.
+  //
+  // Intended use: disaster-recovery backups that must remain readable after
+  // the server's encryption key is lost or rotated incorrectly. On import,
+  // plaintext seeds are re-encrypted with the destination server's current
+  // key.
+  bool plaintext_secrets = 3;
 }
 
 // ExportOperatorResponse is the response containing the exported operator data

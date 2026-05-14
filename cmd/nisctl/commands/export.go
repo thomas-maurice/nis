@@ -43,9 +43,9 @@ var importNSCCmd = &cobra.Command{
 }
 
 var (
-	exportIncludeSecrets bool
-	exportOutput         string
-	exportFormat         string
+	exportPlaintextSecrets bool
+	exportOutput           string
+	exportFormat           string
 )
 
 func init() {
@@ -55,7 +55,9 @@ func init() {
 	exportCmd.AddCommand(importOperatorCmd)
 	exportCmd.AddCommand(importNSCCmd)
 
-	exportOperatorCmd.Flags().BoolVarP(&exportIncludeSecrets, "include-secrets", "s", false, "include encrypted seeds in export")
+	exportOperatorCmd.Flags().BoolVar(&exportPlaintextSecrets, "plaintext-secrets", false,
+		"DANGER: emit NKey seeds in plaintext (recovery from lost encryption key). "+
+			"Default exports keep seeds encrypted with the server's current key.")
 	exportOperatorCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output file (default: stdout)")
 	exportOperatorCmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "export format: yaml or json")
 }
@@ -98,11 +100,19 @@ func runExportOperator(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --format %q: must be yaml or json", exportFormat)
 	}
 
+	if exportPlaintextSecrets {
+		fmt.Fprintln(os.Stderr,
+			"WARNING: --plaintext-secrets emits NKey seeds in plaintext. "+
+				"The resulting file is a plaintext key vault; protect it like a "+
+				".creds file. Anyone with read access can mint credentials for "+
+				"every entity in the export.")
+	}
+
 	// Export the operator
 	req := connect.NewRequest(&nisv1.ExportOperatorRequest{
-		OperatorId:     operatorID,
-		IncludeSecrets: exportIncludeSecrets,
-		Format:         format,
+		OperatorId:       operatorID,
+		Format:           format,
+		PlaintextSecrets: exportPlaintextSecrets,
 	})
 
 	resp, err := GetClient().Export.ExportOperator(context.Background(), req)

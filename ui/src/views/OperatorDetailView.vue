@@ -163,16 +163,21 @@
             <div class="mb-3">
               <div class="form-check">
                 <input
-                  id="includeSecrets"
-                  v-model="exportIncludeSecrets"
+                  id="plaintextSecrets"
+                  v-model="exportPlaintextSecrets"
                   class="form-check-input"
                   type="checkbox"
                 />
-                <label class="form-check-label" for="includeSecrets">
-                  Include secrets (encrypted seeds)
+                <label class="form-check-label" for="plaintextSecrets">
+                  <strong class="text-danger">DANGER:</strong> export seeds in plaintext
                 </label>
-                <div class="form-text">
-                  Include encrypted private keys in the export. Required for full restore.
+                <div class="form-text text-danger">
+                  Decrypts every NKey seed with the server's current encryption key and writes them
+                  as plaintext in the file. Use only for disaster-recovery backups that must remain
+                  readable if the encryption key is lost. The resulting file is equivalent to a
+                  plaintext NKey vault — anyone with read access can mint credentials for every
+                  entity in the export. When unchecked, seeds stay encrypted (same on-disk form as
+                  the database) and the destination must use the same encryption key to import.
                 </div>
               </div>
             </div>
@@ -207,7 +212,7 @@ const loading = ref(false)
 const error = ref('')
 const config = ref('')
 const showExportModal = ref(false)
-const exportIncludeSecrets = ref(true)
+const exportPlaintextSecrets = ref(false)
 const exportFormat = ref('yaml') // matches nisctl default
 const exporting = ref(false)
 const exportError = ref('')
@@ -373,7 +378,7 @@ const downloadConfig = () => {
 const closeExportModal = () => {
   showExportModal.value = false
   exportError.value = ''
-  exportIncludeSecrets.value = true
+  exportPlaintextSecrets.value = false
   exportFormat.value = 'yaml'
 }
 
@@ -383,7 +388,7 @@ const handleExport = async () => {
   try {
     const response = await apiClient.post('/nis.v1.ExportService/ExportOperator', {
       operatorId: operator.value.id,
-      includeSecrets: exportIncludeSecrets.value,
+      plaintextSecrets: exportPlaintextSecrets.value,
       format: exportFormat.value
     }, {
       responseType: 'json'

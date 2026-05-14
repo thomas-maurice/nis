@@ -53,7 +53,13 @@ func (h *ExportHandler) ExportOperator(
 		format = services.FormatJSON
 	}
 
-	data, err := h.service.ExportOperatorBytes(ctx, operatorID, req.Msg.IncludeSecrets, format)
+	// Every export carries seeds; the only knob is the form. Default = encrypted.
+	mode := services.SecretsEncrypted
+	if req.Msg.PlaintextSecrets {
+		mode = services.SecretsPlaintext
+	}
+
+	data, err := h.service.ExportOperatorBytes(ctx, operatorID, mode, format)
 	if err != nil {
 		// Unsupported format becomes InvalidArgument; everything else stays as-is.
 		if format != services.FormatJSON && format != services.FormatYAML {
