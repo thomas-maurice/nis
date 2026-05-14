@@ -141,6 +141,17 @@ export class ImportOperatorRequest extends Message<ImportOperatorRequest> {
    */
   data = new Uint8Array(0);
 
+  /**
+   * When true, if an operator with the same ID already exists, its subtree
+   * (accounts, users, scoped signing keys) is replaced atomically with the
+   * contents of the export. Clusters under that operator are preserved (they
+   * model live NATS infrastructure and are not touched by import). When false
+   * (default), import refuses if the operator ID already exists.
+   *
+   * @generated from field: bool overwrite = 2;
+   */
+  overwrite = false;
+
   constructor(data?: PartialMessage<ImportOperatorRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -150,6 +161,7 @@ export class ImportOperatorRequest extends Message<ImportOperatorRequest> {
   static readonly typeName = "nis.v1.ImportOperatorRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "data", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
+    { no: 2, name: "overwrite", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ImportOperatorRequest {

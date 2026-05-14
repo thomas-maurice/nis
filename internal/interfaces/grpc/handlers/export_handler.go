@@ -98,13 +98,14 @@ func (h *ExportHandler) ImportOperator(
 	}
 
 	// Import the operator. ImportOperatorBytes re-parses internally; the cost
-	// is negligible vs. the dozens of writes that follow.
-	if err := h.service.ImportOperatorBytes(ctx, req.Msg.Data); err != nil {
-		return nil, err
+	// is negligible vs. the dozens of writes that follow. Overwrite=true
+	// turns the call into a subtree replacement when the operator ID already
+	// exists (preserves clusters); false refuses on existing-ID with
+	// FailedPrecondition. See ImportOperator doc for full semantics.
+	if err := h.service.ImportOperatorBytes(ctx, req.Msg.Data, req.Msg.Overwrite); err != nil {
+		return nil, repoErrToConnect(err)
 	}
 
-	// Return the original operator ID (note: if regenerate_ids was true, a new ID was created)
-	// The client will need to look up the operator by name if they need the new ID
 	return connect.NewResponse(&pb.ImportOperatorResponse{
 		OperatorId: mappers.UUIDToString(exported.Operator.ID),
 	}), nil

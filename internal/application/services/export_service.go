@@ -46,6 +46,17 @@ const (
 	SecretsPlaintext SecretsMode = "plaintext"
 )
 
+// ErrOperatorImportExists is returned by ImportOperator when the export's
+// operator ID already exists in the destination and overwrite was not set.
+// Handlers should surface this as a precondition failure — the caller has to
+// opt in to subtree replacement.
+var ErrOperatorImportExists = errors.New("operator with that ID already exists")
+
+// ErrOperatorImportNameConflict is returned when the import's operator name
+// is already taken by a *different* operator ID. Overwrite cannot resolve this
+// — the caller has to rename or delete the conflicting operator manually.
+var ErrOperatorImportNameConflict = errors.New("operator name already taken by a different ID")
+
 // ExportService provides business logic for exporting and importing operators
 type ExportService struct {
 	factory          persistence.RepositoryFactory
@@ -418,136 +429,208 @@ func (s *ExportService) ExportOperatorJSON(ctx context.Context, operatorID uuid.
 // coexist with the source (pubkey collision) and couldn't migrate either —
 // it was dropped on 2026-05-13. A future "duplicate operator" feature would
 // be a separate operation that also mints fresh NKeys and re-signs JWTs.
-func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOperator) error {
+//
+// Identity is established by operator ID, not name — exports preserve UUIDs,
+// so two payloads with the same ID are by definition "the same operator".
+//
+// Behaviour:
+//   - ID exists, overwrite=false → ErrOperatorImportExists.
+//   - ID exists, overwrite=true → operator row updated in place; accounts
+//     under the operator are deleted (FK cascades sweep scoped keys and
+//     users) and recreated from the export. Clusters are **left alone** —
+//     they model live NATS infrastructure (encrypted creds, health state,
+//     server URLs) tied to the existing operator JWT, and restoring them
+//     from a possibly-stale backup would clobber running state. The
+//     exported.Clusters list is silently ignored on overwrite.
+//   - ID does not exist, name collides on a different ID →
+//     ErrOperatorImportNameConflict. Overwrite cannot resolve this; the
+//     caller must rename or delete the conflicting operator first.
+//   - Fresh import → operator + subtree + clusters all created.
+//
+// The whole flow runs inside a single tx so a mid-import error rolls
+// everything back. Without that, an interrupted overwrite leaves the DB
+// with the operator wiped but the subtree only partially restored.
+func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOperator, overwrite bool) error {
 	if exported.Version != "1.0" {
 		return fmt.Errorf("unsupported export version: %s", exported.Version)
 	}
 
-	// Check if operator with this name already exists
-	existing, err := s.operatorRepo.GetByName(ctx, exported.Operator.Name)
-	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-		return fmt.Errorf("failed to check existing operator: %w", err)
-	}
-	if existing != nil {
-		return fmt.Errorf("operator with name '%s' already exists", exported.Operator.Name)
-	}
+	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		operatorRepo := tx.OperatorRepository()
+		accountRepo := tx.AccountRepository()
+		userRepo := tx.UserRepository()
+		scopedKeyRepo := tx.ScopedSigningKeyRepository()
+		clusterRepo := tx.ClusterRepository()
 
-	opSeed, err := s.adoptSeed(ctx, exported.Operator.EncryptedSeed, exported.Operator.Seed, "operator "+exported.Operator.Name)
-	if err != nil {
-		return err
-	}
-	operator := &entities.Operator{
-		ID:                  exported.Operator.ID,
-		Name:                exported.Operator.Name,
-		Description:         exported.Operator.Description,
-		PublicKey:           exported.Operator.PublicKey,
-		EncryptedSeed:       opSeed,
-		SystemAccountPubKey: exported.Operator.SystemAccountPubKey,
-		JWT:                 exported.Operator.JWT,
-		CreatedAt:           exported.Operator.CreatedAt,
-		UpdatedAt:           time.Now(),
-	}
+		existing, err := operatorRepo.GetByID(ctx, exported.Operator.ID)
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+			return fmt.Errorf("failed to check existing operator by id: %w", err)
+		}
+		existsByID := existing != nil
 
-	if err := s.operatorRepo.Create(ctx, operator); err != nil {
-		return fmt.Errorf("failed to create operator: %w", err)
-	}
+		if existsByID && !overwrite {
+			return fmt.Errorf("%w: operator %q (id=%s); pass overwrite=true to replace its subtree", ErrOperatorImportExists, existing.Name, existing.ID)
+		}
 
-	for _, exportedAccount := range exported.Accounts {
-		accSeed, err := s.adoptSeed(ctx, exportedAccount.EncryptedSeed, exportedAccount.Seed, "account "+exportedAccount.Name)
+		if !existsByID {
+			// No row with this ID. If a different operator already owns the
+			// name, refuse — same-name/different-ID is two operators, not one,
+			// and overwrite can't disambiguate them.
+			byName, err := operatorRepo.GetByName(ctx, exported.Operator.Name)
+			if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+				return fmt.Errorf("failed to check existing operator by name: %w", err)
+			}
+			if byName != nil {
+				return fmt.Errorf("%w: %q is owned by operator %s (import id=%s)", ErrOperatorImportNameConflict, exported.Operator.Name, byName.ID, exported.Operator.ID)
+			}
+		}
+
+		opSeed, err := s.adoptSeed(ctx, exported.Operator.EncryptedSeed, exported.Operator.Seed, "operator "+exported.Operator.Name)
 		if err != nil {
 			return err
 		}
-		account := &entities.Account{
-			ID:                    exportedAccount.ID,
-			OperatorID:            exported.Operator.ID,
-			Name:                  exportedAccount.Name,
-			Description:           exportedAccount.Description,
-			PublicKey:             exportedAccount.PublicKey,
-			EncryptedSeed:         accSeed,
-			JetStreamEnabled:      exportedAccount.JetStreamEnabled,
-			JetStreamMaxMemory:    exportedAccount.JetStreamMaxMemory,
-			JetStreamMaxStorage:   exportedAccount.JetStreamMaxStorage,
-			JetStreamMaxStreams:   exportedAccount.JetStreamMaxStreams,
-			JetStreamMaxConsumers: exportedAccount.JetStreamMaxConsumers,
-			JWT:                   exportedAccount.JWT,
-			CreatedAt:             exportedAccount.CreatedAt,
-			UpdatedAt:             time.Now(),
-		}
-		if err := s.accountRepo.Create(ctx, account); err != nil {
-			return fmt.Errorf("failed to create account %s: %w", exportedAccount.Name, err)
-		}
-	}
-
-	for _, exportedKey := range exported.ScopedKeys {
-		keySeed, err := s.adoptSeed(ctx, exportedKey.EncryptedSeed, exportedKey.Seed, "scoped key "+exportedKey.Name)
-		if err != nil {
-			return err
-		}
-		scopedKey := &entities.ScopedSigningKey{
-			ID:              exportedKey.ID,
-			AccountID:       exportedKey.AccountID,
-			Name:            exportedKey.Name,
-			Description:     exportedKey.Description,
-			PublicKey:       exportedKey.PublicKey,
-			EncryptedSeed:   keySeed,
-			PubAllow:        exportedKey.PubAllow,
-			PubDeny:         exportedKey.PubDeny,
-			SubAllow:        exportedKey.SubAllow,
-			SubDeny:         exportedKey.SubDeny,
-			ResponseMaxMsgs: exportedKey.ResponseMaxMsgs,
-			ResponseTTL:     exportedKey.ResponseTTL,
-			CreatedAt:       exportedKey.CreatedAt,
-			UpdatedAt:       time.Now(),
-		}
-		if err := s.scopedKeyRepo.Create(ctx, scopedKey); err != nil {
-			return fmt.Errorf("failed to create scoped key %s: %w", exportedKey.Name, err)
-		}
-	}
-
-	for _, exportedUser := range exported.Users {
-		userSeed, err := s.adoptSeed(ctx, exportedUser.EncryptedSeed, exportedUser.Seed, "user "+exportedUser.Name)
-		if err != nil {
-			return err
-		}
-		user := &entities.User{
-			ID:                 exportedUser.ID,
-			AccountID:          exportedUser.AccountID,
-			Name:               exportedUser.Name,
-			Description:        exportedUser.Description,
-			PublicKey:          exportedUser.PublicKey,
-			EncryptedSeed:      userSeed,
-			JWT:                exportedUser.JWT,
-			ScopedSigningKeyID: exportedUser.ScopedSigningKeyID,
-			CreatedAt:          exportedUser.CreatedAt,
-			UpdatedAt:          time.Now(),
-		}
-		if err := s.userRepo.Create(ctx, user); err != nil {
-			return fmt.Errorf("failed to create user %s: %w", exportedUser.Name, err)
-		}
-	}
-
-	for _, exportedCluster := range exported.Clusters {
-		clusterCreds, err := s.adoptSeed(ctx, exportedCluster.EncryptedCreds, exportedCluster.Creds, "cluster "+exportedCluster.Name)
-		if err != nil {
-			return err
-		}
-		cluster := &entities.Cluster{
-			ID:                  exportedCluster.ID,
-			OperatorID:          exported.Operator.ID,
-			Name:                exportedCluster.Name,
-			Description:         exportedCluster.Description,
-			ServerURLs:          exportedCluster.ServerURLs,
-			SystemAccountPubKey: exportedCluster.SystemAccountPubKey,
-			EncryptedCreds:      clusterCreds,
-			CreatedAt:           exportedCluster.CreatedAt,
+		operator := &entities.Operator{
+			ID:                  exported.Operator.ID,
+			Name:                exported.Operator.Name,
+			Description:         exported.Operator.Description,
+			PublicKey:           exported.Operator.PublicKey,
+			EncryptedSeed:       opSeed,
+			SystemAccountPubKey: exported.Operator.SystemAccountPubKey,
+			JWT:                 exported.Operator.JWT,
+			CreatedAt:           exported.Operator.CreatedAt,
 			UpdatedAt:           time.Now(),
 		}
-		if err := s.clusterRepo.Create(ctx, cluster); err != nil {
-			return fmt.Errorf("failed to create cluster %s: %w", exportedCluster.Name, err)
-		}
-	}
 
-	return nil
+		if existsByID {
+			// Update operator row in place. We deliberately do NOT
+			// delete-recreate it: clusters.operator_id is ON DELETE RESTRICT
+			// (intentionally, see DeleteOperator), so a delete would fail
+			// when clusters are attached. In-place update keeps cluster rows
+			// pointing at a valid operator throughout the transaction.
+			if err := operatorRepo.Update(ctx, operator); err != nil {
+				return fmt.Errorf("failed to update operator: %w", err)
+			}
+			// Wipe the subtree. FK cascades on accounts sweep users and
+			// scoped signing keys with them. Cluster rows are not touched
+			// because they reference operator_id (which we just updated, not
+			// deleted), not any account.
+			existingAccounts, err := accountRepo.ListByOperator(ctx, exported.Operator.ID, repositories.ListOptions{Limit: 100000})
+			if err != nil {
+				return fmt.Errorf("failed to list existing accounts for overwrite: %w", err)
+			}
+			for _, acc := range existingAccounts {
+				if err := accountRepo.Delete(ctx, acc.ID); err != nil {
+					return fmt.Errorf("failed to delete existing account %s: %w", acc.ID, err)
+				}
+			}
+		} else {
+			if err := operatorRepo.Create(ctx, operator); err != nil {
+				return fmt.Errorf("failed to create operator: %w", err)
+			}
+		}
+
+		for _, exportedAccount := range exported.Accounts {
+			accSeed, err := s.adoptSeed(ctx, exportedAccount.EncryptedSeed, exportedAccount.Seed, "account "+exportedAccount.Name)
+			if err != nil {
+				return err
+			}
+			account := &entities.Account{
+				ID:                    exportedAccount.ID,
+				OperatorID:            exported.Operator.ID,
+				Name:                  exportedAccount.Name,
+				Description:           exportedAccount.Description,
+				PublicKey:             exportedAccount.PublicKey,
+				EncryptedSeed:         accSeed,
+				JetStreamEnabled:      exportedAccount.JetStreamEnabled,
+				JetStreamMaxMemory:    exportedAccount.JetStreamMaxMemory,
+				JetStreamMaxStorage:   exportedAccount.JetStreamMaxStorage,
+				JetStreamMaxStreams:   exportedAccount.JetStreamMaxStreams,
+				JetStreamMaxConsumers: exportedAccount.JetStreamMaxConsumers,
+				JWT:                   exportedAccount.JWT,
+				CreatedAt:             exportedAccount.CreatedAt,
+				UpdatedAt:             time.Now(),
+			}
+			if err := accountRepo.Create(ctx, account); err != nil {
+				return fmt.Errorf("failed to create account %s: %w", exportedAccount.Name, err)
+			}
+		}
+
+		for _, exportedKey := range exported.ScopedKeys {
+			keySeed, err := s.adoptSeed(ctx, exportedKey.EncryptedSeed, exportedKey.Seed, "scoped key "+exportedKey.Name)
+			if err != nil {
+				return err
+			}
+			scopedKey := &entities.ScopedSigningKey{
+				ID:              exportedKey.ID,
+				AccountID:       exportedKey.AccountID,
+				Name:            exportedKey.Name,
+				Description:     exportedKey.Description,
+				PublicKey:       exportedKey.PublicKey,
+				EncryptedSeed:   keySeed,
+				PubAllow:        exportedKey.PubAllow,
+				PubDeny:         exportedKey.PubDeny,
+				SubAllow:        exportedKey.SubAllow,
+				SubDeny:         exportedKey.SubDeny,
+				ResponseMaxMsgs: exportedKey.ResponseMaxMsgs,
+				ResponseTTL:     exportedKey.ResponseTTL,
+				CreatedAt:       exportedKey.CreatedAt,
+				UpdatedAt:       time.Now(),
+			}
+			if err := scopedKeyRepo.Create(ctx, scopedKey); err != nil {
+				return fmt.Errorf("failed to create scoped key %s: %w", exportedKey.Name, err)
+			}
+		}
+
+		for _, exportedUser := range exported.Users {
+			userSeed, err := s.adoptSeed(ctx, exportedUser.EncryptedSeed, exportedUser.Seed, "user "+exportedUser.Name)
+			if err != nil {
+				return err
+			}
+			user := &entities.User{
+				ID:                 exportedUser.ID,
+				AccountID:          exportedUser.AccountID,
+				Name:               exportedUser.Name,
+				Description:        exportedUser.Description,
+				PublicKey:          exportedUser.PublicKey,
+				EncryptedSeed:      userSeed,
+				JWT:                exportedUser.JWT,
+				ScopedSigningKeyID: exportedUser.ScopedSigningKeyID,
+				CreatedAt:          exportedUser.CreatedAt,
+				UpdatedAt:          time.Now(),
+			}
+			if err := userRepo.Create(ctx, user); err != nil {
+				return fmt.Errorf("failed to create user %s: %w", exportedUser.Name, err)
+			}
+		}
+
+		// Clusters are only restored on fresh imports. In overwrite mode the
+		// existing cluster rows are deliberately left untouched (see the
+		// function doc). The export's cluster list is silently dropped.
+		if !existsByID {
+			for _, exportedCluster := range exported.Clusters {
+				clusterCreds, err := s.adoptSeed(ctx, exportedCluster.EncryptedCreds, exportedCluster.Creds, "cluster "+exportedCluster.Name)
+				if err != nil {
+					return err
+				}
+				cluster := &entities.Cluster{
+					ID:                  exportedCluster.ID,
+					OperatorID:          exported.Operator.ID,
+					Name:                exportedCluster.Name,
+					Description:         exportedCluster.Description,
+					ServerURLs:          exportedCluster.ServerURLs,
+					SystemAccountPubKey: exportedCluster.SystemAccountPubKey,
+					EncryptedCreds:      clusterCreds,
+					CreatedAt:           exportedCluster.CreatedAt,
+					UpdatedAt:           time.Now(),
+				}
+				if err := clusterRepo.Create(ctx, cluster); err != nil {
+					return fmt.Errorf("failed to create cluster %s: %w", exportedCluster.Name, err)
+				}
+			}
+		}
+
+		return nil
+	})
 }
 
 // adoptSeed returns the storage-ref the importer should persist for one entity,
@@ -581,14 +664,15 @@ func (s *ExportService) adoptSeed(ctx context.Context, encrypted, plaintext, lab
 	return encrypted, nil
 }
 
-// ImportOperatorJSON imports an operator from JSON data
-func (s *ExportService) ImportOperatorJSON(ctx context.Context, data []byte) error {
+// ImportOperatorJSON imports an operator from JSON data. See ImportOperator
+// for overwrite semantics.
+func (s *ExportService) ImportOperatorJSON(ctx context.Context, data []byte, overwrite bool) error {
 	var exported ExportedOperator
 	if err := json.Unmarshal(data, &exported); err != nil {
 		return fmt.Errorf("failed to unmarshal export: %w", err)
 	}
 
-	return s.ImportOperator(ctx, &exported)
+	return s.ImportOperator(ctx, &exported, overwrite)
 }
 
 // ExportOperatorYAML exports an operator and returns YAML-encoded bytes.
@@ -604,13 +688,14 @@ func (s *ExportService) ExportOperatorYAML(ctx context.Context, operatorID uuid.
 	return data, nil
 }
 
-// ImportOperatorYAML imports an operator from YAML-encoded bytes.
-func (s *ExportService) ImportOperatorYAML(ctx context.Context, data []byte) error {
+// ImportOperatorYAML imports an operator from YAML-encoded bytes. See
+// ImportOperator for overwrite semantics.
+func (s *ExportService) ImportOperatorYAML(ctx context.Context, data []byte, overwrite bool) error {
 	var exported ExportedOperator
 	if err := yaml.Unmarshal(data, &exported); err != nil {
 		return fmt.Errorf("failed to unmarshal yaml export: %w", err)
 	}
-	return s.ImportOperator(ctx, &exported)
+	return s.ImportOperator(ctx, &exported, overwrite)
 }
 
 // ExportOperatorBytes is a format-aware wrapper around the format-specific
@@ -630,13 +715,13 @@ func (s *ExportService) ExportOperatorBytes(ctx context.Context, operatorID uuid
 // ImportOperatorBytes auto-detects JSON vs YAML by peeking at the first
 // non-whitespace byte. A leading '{' or '[' is JSON; anything else is YAML.
 // This lets clients write `cat export.{json,yaml} | nisctl import` without
-// thinking about format.
-func (s *ExportService) ImportOperatorBytes(ctx context.Context, data []byte) error {
+// thinking about format. See ImportOperator for overwrite semantics.
+func (s *ExportService) ImportOperatorBytes(ctx context.Context, data []byte, overwrite bool) error {
 	exported, err := ParseExport(data)
 	if err != nil {
 		return err
 	}
-	return s.ImportOperator(ctx, exported)
+	return s.ImportOperator(ctx, exported, overwrite)
 }
 
 // ParseExport decodes the export bytes into an ExportedOperator struct,

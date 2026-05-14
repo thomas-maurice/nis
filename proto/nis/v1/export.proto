@@ -44,6 +44,12 @@ message ImportOperatorRequest {
   // JSON- or YAML-encoded export data. Format is auto-detected by peeking at
   // the first non-whitespace byte: '{' or '[' is JSON, anything else is YAML.
   bytes data = 1;
+  // When true, if an operator with the same ID already exists, its subtree
+  // (accounts, users, scoped signing keys) is replaced atomically with the
+  // contents of the export. Clusters under that operator are preserved (they
+  // model live NATS infrastructure and are not touched by import). When false
+  // (default), import refuses if the operator ID already exists.
+  bool overwrite = 2;
 }
 
 // ImportOperatorResponse is the response from importing an operator

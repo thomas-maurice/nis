@@ -161,7 +161,13 @@ type ImportOperatorRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// JSON- or YAML-encoded export data. Format is auto-detected by peeking at
 	// the first non-whitespace byte: '{' or '[' is JSON, anything else is YAML.
-	Data          []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// When true, if an operator with the same ID already exists, its subtree
+	// (accounts, users, scoped signing keys) is replaced atomically with the
+	// contents of the export. Clusters under that operator are preserved (they
+	// model live NATS infrastructure and are not touched by import). When false
+	// (default), import refuses if the operator ID already exists.
+	Overwrite     bool `protobuf:"varint,2,opt,name=overwrite,proto3" json:"overwrite,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -201,6 +207,13 @@ func (x *ImportOperatorRequest) GetData() []byte {
 		return x.Data
 	}
 	return nil
+}
+
+func (x *ImportOperatorRequest) GetOverwrite() bool {
+	if x != nil {
+		return x.Overwrite
+	}
+	return false
 }
 
 // ImportOperatorResponse is the response from importing an operator
@@ -358,9 +371,10 @@ const file_nis_v1_export_proto_rawDesc = "" +
 	"\x11plaintext_secrets\x18\x03 \x01(\bR\x10plaintextSecrets\"D\n" +
 	"\x16ExportOperatorResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\"+\n" +
+	"\x06format\x18\x02 \x01(\tR\x06format\"I\n" +
 	"\x15ImportOperatorRequest\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"9\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1c\n" +
+	"\toverwrite\x18\x02 \x01(\bR\toverwrite\"9\n" +
 	"\x16ImportOperatorResponse\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\"O\n" +

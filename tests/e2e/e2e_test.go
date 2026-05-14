@@ -698,6 +698,205 @@ func TestE2E_FullLifecycle(t *testing.T) {
 		}
 	})
 
+	// Regression net for the FK-leak bug: DeleteOperator must refuse cleanly
+	// when clusters are still attached instead of letting the FK constraint
+	// surface as raw SQLSTATE 23503. The schema (clusters.operator_id ON
+	// DELETE RESTRICT) is deliberate — clusters track live NATS infra and
+	// shouldn't vanish silently — so the service has to enforce a friendly
+	// pre-flight error and roll the tx back. State must be intact afterward.
+	t.Run("Delete_BlockedByAttachedCluster", func(t *testing.T) {
+		_, err := h.operatorCli.DeleteOperator(ctx, connect.NewRequest(&nisv1.DeleteOperatorRequest{
+			Id: operatorID,
+		}))
+		if err == nil {
+			t.Fatal("DeleteOperator with attached cluster must fail, got nil")
+		}
+		// Friendly message must name the offending cluster so the operator
+		// knows what to delete first. (Connect-RPC wraps the status code +
+		// message into the error.)
+		if !strings.Contains(err.Error(), "e2e-cluster") {
+			t.Fatalf("error should mention attached cluster name; got: %v", err)
+		}
+		if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+			t.Fatalf("expected CodeFailedPrecondition, got %v: %v", connect.CodeOf(err), err)
+		}
+
+		// Tx must have rolled back: operator + accounts + users + cluster
+		// must all still be present.
+		if _, err := h.operatorCli.GetOperator(ctx, connect.NewRequest(&nisv1.GetOperatorRequest{
+			Id: operatorID,
+		})); err != nil {
+			t.Fatalf("operator should still exist after blocked delete: %v", err)
+		}
+		if _, err := h.clusterCli.GetCluster(ctx, connect.NewRequest(&nisv1.GetClusterRequest{
+			Id: clusterID,
+		})); err != nil {
+			t.Fatalf("cluster should still exist after blocked delete: %v", err)
+		}
+		accs, err := h.accountCli.ListAccounts(ctx, connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: operatorID,
+		}))
+		if err != nil {
+			t.Fatalf("ListAccounts after blocked delete: %v", err)
+		}
+		if len(accs.Msg.Accounts) == 0 {
+			t.Fatal("accounts list empty after blocked delete — tx did not roll back")
+		}
+	})
+
+	// Re-importing a YAML whose operator ID already exists must refuse
+	// without `overwrite=true`. Silent overwrite from a stale backup is a
+	// footgun (it would truncate accounts/users created since the export)
+	// so opting in is mandatory.
+	t.Run("Import_RefusesExistingWithoutOverwrite", func(t *testing.T) {
+		exp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId: operatorID,
+			Format:     "yaml",
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator: %v", err)
+		}
+
+		_, err = h.exportCli.ImportOperator(ctx, connect.NewRequest(&nisv1.ImportOperatorRequest{
+			Data: exp.Msg.Data,
+			// Overwrite: false (explicit)
+		}))
+		if err == nil {
+			t.Fatal("ImportOperator without overwrite must refuse when ID exists")
+		}
+		if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+			t.Fatalf("expected CodeFailedPrecondition, got %v: %v", connect.CodeOf(err), err)
+		}
+		// Error message should mention 'overwrite' so callers know the
+		// escape hatch (defensive: this is a UX promise, not a security
+		// property).
+		if !strings.Contains(err.Error(), "overwrite") {
+			t.Fatalf("error should mention overwrite=true escape hatch; got: %v", err)
+		}
+	})
+
+	// Import with overwrite=true must:
+	//   - replace the operator's accounts/users/scoped-keys subtree with the
+	//     YAML contents (atomically — partial overwrite is worse than no-op)
+	//   - leave clusters under that operator untouched (same row id, same
+	//     encrypted creds, same server urls — they model live NATS infra
+	//     that the import doesn't get to second-guess from a possibly-stale
+	//     backup).
+	//
+	// We prove both halves by mutating state between export and import
+	// (adding a stray account that shouldn't exist after restore) and
+	// snapshotting the cluster row before/after.
+	t.Run("Import_OverwritePreservesClusters", func(t *testing.T) {
+		// Snapshot cluster row pre-export.
+		preCluster, err := h.clusterCli.GetCluster(ctx, connect.NewRequest(&nisv1.GetClusterRequest{
+			Id: clusterID,
+		}))
+		if err != nil {
+			t.Fatalf("GetCluster pre-export: %v", err)
+		}
+		preClusterName := preCluster.Msg.Cluster.Name
+		preClusterURLs := preCluster.Msg.Cluster.ServerUrls
+
+		// Snapshot account names pre-export — these define the "truth" the
+		// overwrite must restore.
+		preAccs, err := h.accountCli.ListAccounts(ctx, connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: operatorID,
+		}))
+		if err != nil {
+			t.Fatalf("ListAccounts pre-export: %v", err)
+		}
+		expected := map[string]bool{}
+		for _, a := range preAccs.Msg.Accounts {
+			expected[a.Name] = true
+		}
+
+		// (1) Export.
+		exp, err := h.exportCli.ExportOperator(ctx, connect.NewRequest(&nisv1.ExportOperatorRequest{
+			OperatorId: operatorID,
+			Format:     "yaml",
+		}))
+		if err != nil {
+			t.Fatalf("ExportOperator: %v", err)
+		}
+
+		// (2) Mutate state post-export: create a stray account. Overwrite
+		// must wipe this — proving the subtree is actually replaced, not
+		// just merged.
+		const strayName = "overwrite-stray-account"
+		strayResp, err := h.accountCli.CreateAccount(ctx, connect.NewRequest(&nisv1.CreateAccountRequest{
+			OperatorId: operatorID,
+			Name:       strayName,
+		}))
+		if err != nil {
+			t.Fatalf("CreateAccount(stray): %v", err)
+		}
+		strayID := strayResp.Msg.Account.Id
+
+		// (3) Import with overwrite=true. Must succeed atomically.
+		impResp, err := h.exportCli.ImportOperator(ctx, connect.NewRequest(&nisv1.ImportOperatorRequest{
+			Data:      exp.Msg.Data,
+			Overwrite: true,
+		}))
+		if err != nil {
+			t.Fatalf("ImportOperator(overwrite=true): %v", err)
+		}
+		if impResp.Msg.OperatorId != operatorID {
+			t.Fatalf("operator id changed under overwrite: got %s want %s", impResp.Msg.OperatorId, operatorID)
+		}
+
+		// (4) Stray account must be gone — subtree was truly replaced.
+		if _, err := h.accountCli.GetAccount(ctx, connect.NewRequest(&nisv1.GetAccountRequest{
+			Id: strayID,
+		})); err == nil {
+			t.Fatal("stray account should be wiped by overwrite import")
+		}
+
+		// (5) Pre-export accounts must be back.
+		postAccs, err := h.accountCli.ListAccounts(ctx, connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: operatorID,
+		}))
+		if err != nil {
+			t.Fatalf("ListAccounts after overwrite: %v", err)
+		}
+		got := map[string]bool{}
+		for _, a := range postAccs.Msg.Accounts {
+			got[a.Name] = true
+		}
+		for name := range expected {
+			if !got[name] {
+				t.Fatalf("overwrite import missing account %q. got: %v", name, got)
+			}
+		}
+		if got[strayName] {
+			t.Fatalf("overwrite did not remove stray account %q", strayName)
+		}
+
+		// (6) Cluster row must still exist with the same identity and
+		// server URLs. The YAML contained cluster data but overwrite must
+		// have ignored it — the same cluster row that existed before still
+		// exists after, untouched.
+		postCluster, err := h.clusterCli.GetCluster(ctx, connect.NewRequest(&nisv1.GetClusterRequest{
+			Id: clusterID,
+		}))
+		if err != nil {
+			t.Fatalf("GetCluster after overwrite: %v", err)
+		}
+		if postCluster.Msg.Cluster.Id != clusterID {
+			t.Fatalf("cluster id changed: got %s want %s", postCluster.Msg.Cluster.Id, clusterID)
+		}
+		if postCluster.Msg.Cluster.Name != preClusterName {
+			t.Fatalf("cluster name changed: got %s want %s", postCluster.Msg.Cluster.Name, preClusterName)
+		}
+		if len(postCluster.Msg.Cluster.ServerUrls) != len(preClusterURLs) {
+			t.Fatalf("cluster server urls changed: got %v want %v", postCluster.Msg.Cluster.ServerUrls, preClusterURLs)
+		}
+		for i := range preClusterURLs {
+			if postCluster.Msg.Cluster.ServerUrls[i] != preClusterURLs[i] {
+				t.Fatalf("cluster server url[%d] changed: got %s want %s", i, postCluster.Msg.Cluster.ServerUrls[i], preClusterURLs[i])
+			}
+		}
+	})
+
 	// Full export → wipe → import round-trip. This is THE user-facing
 	// promise: "I can back up an operator to a yaml file and restore it
 	// later if the DB is lost." It runs last because it deletes the

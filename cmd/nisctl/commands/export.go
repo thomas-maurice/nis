@@ -46,6 +46,7 @@ var (
 	exportPlaintextSecrets bool
 	exportOutput           string
 	exportFormat           string
+	importOverwrite        bool
 )
 
 func init() {
@@ -60,6 +61,12 @@ func init() {
 			"Default exports keep seeds encrypted with the server's current key.")
 	exportOperatorCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output file (default: stdout)")
 	exportOperatorCmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "export format: yaml or json")
+
+	importOperatorCmd.Flags().BoolVar(&importOverwrite, "overwrite", false,
+		"if an operator with the same ID already exists, atomically replace "+
+			"its subtree (accounts, users, scoped keys) with the export's "+
+			"contents. Attached clusters are preserved. Without this flag, "+
+			"importing over an existing operator ID is refused.")
 }
 
 func runExportOperator(cmd *cobra.Command, args []string) error {
@@ -149,7 +156,8 @@ func runImportOperator(cmd *cobra.Command, args []string) error {
 	// Import the operator. Format (json vs yaml) is auto-detected by the
 	// server from the file contents.
 	req := connect.NewRequest(&nisv1.ImportOperatorRequest{
-		Data: data,
+		Data:      data,
+		Overwrite: importOverwrite,
 	})
 
 	resp, err := GetClient().Export.ImportOperator(context.Background(), req)

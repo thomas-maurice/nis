@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,13 @@ import (
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
+
+// ErrOperatorHasClusters is returned by DeleteOperator when clusters are still
+// attached to the operator. Callers (handlers, CLI) should detect this with
+// errors.Is and surface it as a precondition failure — the underlying FK is
+// ON DELETE RESTRICT, so without this guard the user gets a raw SQLSTATE
+// 23503 leak. The wrapped error's message lists the attached cluster names.
+var ErrOperatorHasClusters = errors.New("operator has attached clusters")
 
 // OperatorService provides business logic for operator management.
 //
@@ -315,15 +323,36 @@ func (s *OperatorService) SetSystemAccountTx(ctx context.Context, tx persistence
 // step fails (e.g. one of the user deletes), the whole cascade rolls back —
 // without that, you can end up with orphan accounts referencing a deleted
 // operator that no list endpoint can surface.
+//
+// Refuses to delete when clusters are still attached: clusters.operator_id is
+// ON DELETE RESTRICT because clusters model live NATS infra (an existing
+// resolver, baked-in operator JWT, etc.) — we don't want a silent cascade
+// removing that record just because someone wanted the operator gone.
+// Returns ErrOperatorHasClusters (wrapped, with names) on that path.
 func (s *OperatorService) DeleteOperator(ctx context.Context, id uuid.UUID) error {
 	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		operatorRepo := tx.OperatorRepository()
 		accountRepo := tx.AccountRepository()
 		userRepo := tx.UserRepository()
+		clusterRepo := tx.ClusterRepository()
 
 		// Check if operator exists (and fail fast if not)
 		if _, err := operatorRepo.GetByID(ctx, id); err != nil {
 			return err
+		}
+
+		// Pre-flight: clusters block deletion. List up to 1000 — anyone with
+		// more clusters than that on a single operator has bigger problems.
+		clusters, err := clusterRepo.ListByOperator(ctx, id, repositories.ListOptions{Limit: 1000})
+		if err != nil {
+			return fmt.Errorf("failed to list clusters for deletion check: %w", err)
+		}
+		if len(clusters) > 0 {
+			names := make([]string, 0, len(clusters))
+			for _, c := range clusters {
+				names = append(names, c.Name)
+			}
+			return fmt.Errorf("%w: %d attached (%s); delete them first (note: scoped API users under this operator will also be removed when delete proceeds)", ErrOperatorHasClusters, len(clusters), strings.Join(names, ", "))
 		}
 
 		// Get all accounts for this operator

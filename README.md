@@ -182,9 +182,20 @@ nisctl export operator my-operator --plaintext-secrets -o backup-dr.yaml
 # the same command handles either encoding, encrypted or plaintext.
 nisctl export import backup.yaml
 nisctl export import backup-dr.yaml
+
+# Restore over an existing operator (same operator ID). Replaces the operator's
+# subtree — accounts, users, scoped signing keys — atomically. Attached
+# clusters are PRESERVED (they model live NATS infrastructure tied to the
+# operator JWT, and re-importing them from a stale backup would clobber
+# running state). Without --overwrite, importing over an existing operator
+# ID is refused, since silently truncating accounts/users created since the
+# export is a footgun.
+nisctl export import backup.yaml --overwrite
 ```
 
-NSC migration is the other direction: `nisctl export import-nsc <archive> <operator-name>` ingests a tar/zip of an existing `~/.nsc/stores` tree. The whole import runs in a single database transaction, so a mid-import failure rolls every partial write back instead of leaving orphan accounts behind.
+Imports are atomic: the whole flow runs in a single database transaction, so a mid-import failure rolls every partial write back instead of leaving orphan accounts behind. The same applies to `nisctl export import-nsc <archive> <operator-name>`, which ingests a tar/zip of an existing `~/.nsc/stores` tree (the other direction — migrating off `nsc`).
+
+**Deleting an operator** is refused while clusters are still attached to it. `clusters.operator_id` is `ON DELETE RESTRICT` because clusters model live NATS servers configured with the operator's JWT — a silent cascade would lose track of running infrastructure. Delete (or detach by deleting) every attached cluster first, then the operator delete will succeed. The error message names the offending clusters so you know which to clean up.
 
 ## Build
 

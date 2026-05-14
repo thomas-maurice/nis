@@ -111,9 +111,25 @@
               />
               <div class="form-text">
                 YAML or JSON exports are both accepted; the format is auto-detected.
-                Import is a faithful restore — UUIDs and NKey public keys are preserved
-                exactly as exported, so import only works against a clean DB (no
-                conflicting operator with the same name).
+                Import is a faithful restore — UUIDs and NKey public keys come back
+                exactly as exported.
+              </div>
+            </div>
+            <div class="mb-3 form-check">
+              <input
+                id="importOverwrite"
+                v-model="importOverwrite"
+                type="checkbox"
+                class="form-check-input"
+              />
+              <label for="importOverwrite" class="form-check-label">
+                Overwrite existing operator
+              </label>
+              <div class="form-text">
+                If an operator with the same ID already exists, replace its
+                accounts, users, and scoped signing keys with the contents of
+                this export. Attached clusters are preserved. Without this
+                checkbox, importing over an existing operator is refused.
               </div>
             </div>
             <div v-if="importError" class="alert alert-danger">{{ importError }}</div>
@@ -202,6 +218,7 @@ const showImportModal = ref(false)
 const selectedFile = ref(null)
 const importing = ref(false)
 const importError = ref('')
+const importOverwrite = ref(false)
 const showNSCImportModal = ref(false)
 const nscArchiveFile = ref(null)
 const nscOperatorName = ref('')
@@ -299,6 +316,7 @@ const closeImportModal = () => {
   showImportModal.value = false
   selectedFile.value = null
   importError.value = ''
+  importOverwrite.value = false
 }
 
 const handleFileSelect = (event) => {
@@ -324,7 +342,8 @@ const handleImport = async () => {
 
         // Server auto-detects YAML vs JSON from the bytes — no format hint needed.
         await apiClient.post('/nis.v1.ExportService/ImportOperator', {
-          data: base64Data
+          data: base64Data,
+          overwrite: importOverwrite.value
         })
 
         closeImportModal()

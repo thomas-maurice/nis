@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
@@ -24,6 +25,10 @@ func repoErrToConnect(err error) error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, repositories.ErrAlreadyExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
+	case errors.Is(err, services.ErrOperatorHasClusters),
+		errors.Is(err, services.ErrOperatorImportExists),
+		errors.Is(err, services.ErrOperatorImportNameConflict):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return err
 	}

@@ -260,7 +260,7 @@ func (s *ExportServiceTestSuite) TestExportAndImport() {
 	s.db.Exec("DELETE FROM operators")
 
 	// Import. Faithful restore: same UUIDs as the export, same NKey pubkeys, etc.
-	err = s.exportService.ImportOperatorJSON(s.ctx, data)
+	err = s.exportService.ImportOperatorJSON(s.ctx, data, false)
 	require.NoError(s.T(), err)
 
 	// Verify the imported operator exists
@@ -304,11 +304,12 @@ func (s *ExportServiceTestSuite) TestImportOperator_DuplicateName() {
 	data, err := s.exportService.ExportOperatorJSON(s.ctx, operator.ID, SecretsEncrypted)
 	require.NoError(s.T(), err)
 
-	// Try to import without deleting the existing operator. The unique-name
-	// constraint should kick in.
-	err = s.exportService.ImportOperatorJSON(s.ctx, data)
-	assert.Error(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "already exists")
+	// Try to import without deleting the existing operator. Now keyed on ID
+	// (the export carries the same UUID as the existing row), the ID-match
+	// path returns ErrOperatorImportExists when overwrite is not set.
+	err = s.exportService.ImportOperatorJSON(s.ctx, data, false)
+	require.Error(s.T(), err)
+	assert.ErrorIs(s.T(), err, ErrOperatorImportExists)
 }
 
 // TestImportOperator_InvalidVersion tests importing with unsupported version
@@ -317,7 +318,7 @@ func (s *ExportServiceTestSuite) TestImportOperator_InvalidVersion() {
 		Version: "99.0",
 	}
 
-	err := s.exportService.ImportOperator(s.ctx, exported)
+	err := s.exportService.ImportOperator(s.ctx, exported, false)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "unsupported export version")
 }
@@ -425,7 +426,7 @@ func (s *ExportServiceTestSuite) TestExportYAMLAndImport() {
 	s.db.Exec("DELETE FROM operators")
 
 	// Re-import the YAML bytes via the auto-detecting path.
-	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, data))
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, data, false))
 
 	imported, err := s.operatorService.GetOperatorByName(s.ctx, "YAML Roundtrip Operator")
 	require.NoError(s.T(), err)
@@ -465,7 +466,7 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	s.db.Exec("DELETE FROM accounts")
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
-	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, jsonData))
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, jsonData, false))
 	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
 	require.NoError(s.T(), err, "JSON auto-detect import failed")
 
@@ -475,7 +476,7 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	s.db.Exec("DELETE FROM accounts")
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
-	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, yamlData))
+	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, yamlData, false))
 	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
 	require.NoError(s.T(), err, "YAML auto-detect import failed")
 }
@@ -667,7 +668,7 @@ func (s *ExportServiceTestSuite) TestImportOperator_PlaintextSecrets_ReEncryptsA
 	destSvc := s.freshExportService(destEnc)
 
 	// (4) Import. Plaintext seeds get re-encrypted with destEnc.
-	require.NoError(s.T(), destSvc.ImportOperator(s.ctx, exported))
+	require.NoError(s.T(), destSvc.ImportOperator(s.ctx, exported, false))
 
 	// (5) Verify by decrypting the stored storage refs with destEnc — the
 	// plaintext we get back must equal the seeds we originally exported.
@@ -711,7 +712,7 @@ func (s *ExportServiceTestSuite) TestImportOperator_BothSeedAndEncryptedSet_Reje
 			Seed:          "SOMESEED",
 		},
 	}
-	err := s.exportService.ImportOperator(s.ctx, exported)
+	err := s.exportService.ImportOperator(s.ctx, exported, false)
 	require.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "both encrypted_seed and seed")
 }
