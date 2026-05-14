@@ -29,10 +29,18 @@
             <label class="form-label">Operator ID</label>
             <input v-model="filterOperatorId" type="text" class="form-control" placeholder="Optional operator ID" />
           </div>
-          <div class="col-md-3">
-            <button class="btn btn-primary w-100" @click="applyFilters" :disabled="loading">
+          <div class="col-md-3 d-flex gap-2">
+            <button class="btn btn-primary flex-fill" @click="applyFilters" :disabled="loading">
               <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
               Apply
+            </button>
+            <button
+              class="btn btn-outline-secondary flex-fill"
+              @click="clearFilters"
+              :disabled="loading"
+              title="Reset filters and reload"
+            >
+              Clear
             </button>
           </div>
         </div>
@@ -83,15 +91,30 @@
                       {{ event.type }}
                     </span>
                   </td>
-                  <td>
-                    <code v-if="event.resourceType || event.resourceId">
-                      {{ event.resourceType }}/{{ shortId(event.resourceId) }}
-                    </code>
+                  <td @click.stop>
+                    <template v-if="event.resourceType || event.resourceId">
+                      <router-link
+                        v-if="resourceRoute(event.resourceType, event.resourceId)"
+                        :to="resourceRoute(event.resourceType, event.resourceId)"
+                        :title="`${event.resourceType}/${event.resourceId}`"
+                      >
+                        <code>{{ event.resourceType }}/{{ shortId(event.resourceId) }}</code>
+                      </router-link>
+                      <code v-else>{{ event.resourceType }}/{{ shortId(event.resourceId) }}</code>
+                    </template>
                     <span v-else class="text-muted">-</span>
                   </td>
-                  <td>
+                  <td @click.stop>
                     <span v-if="event.actorType === 'system'" class="text-muted">system</span>
-                    <span v-else>{{ event.actorType }}:{{ shortId(event.actorId) }}</span>
+                    <router-link
+                      v-else-if="event.actorType === 'user' && event.actorId"
+                      to="/api-users"
+                      :title="event.actorId"
+                    >
+                      <font-awesome-icon :icon="['fas', 'user-shield']" class="me-1" />
+                      {{ actorLabel(event) }}
+                    </router-link>
+                    <span v-else>{{ actorLabel(event) }}</span>
                   </td>
                 </tr>
               </template>
@@ -134,26 +157,68 @@
 
               <dt class="col-sm-3">Resource:</dt>
               <dd class="col-sm-9">
-                <code v-if="selectedEvent.resourceType || selectedEvent.resourceId">
-                  {{ selectedEvent.resourceType }}/{{ selectedEvent.resourceId }}
-                </code>
+                <template v-if="selectedEvent.resourceType || selectedEvent.resourceId">
+                  <code>{{ selectedEvent.resourceType }}/{{ selectedEvent.resourceId }}</code>
+                  <router-link
+                    v-if="resourceRoute(selectedEvent.resourceType, selectedEvent.resourceId)"
+                    :to="resourceRoute(selectedEvent.resourceType, selectedEvent.resourceId)"
+                    class="ms-2 small"
+                    @click="selectedEvent = null"
+                  >
+                    <font-awesome-icon :icon="['fas', 'arrow-up-right-from-square']" class="me-1" />
+                    open {{ selectedEvent.resourceType }}
+                  </router-link>
+                </template>
                 <span v-else class="text-muted">-</span>
               </dd>
 
               <dt class="col-sm-3">Actor:</dt>
               <dd class="col-sm-9">
                 <span v-if="selectedEvent.actorType === 'system'" class="text-muted">system</span>
+                <template v-else-if="selectedEvent.actorType === 'user' && selectedEvent.actorId">
+                  <font-awesome-icon :icon="['fas', 'user-shield']" class="me-1" />
+                  <span>{{ actorLabel(selectedEvent) }}</span>
+                  <code class="ms-2 text-muted small">{{ selectedEvent.actorId }}</code>
+                  <router-link
+                    to="/api-users"
+                    class="ms-2 small"
+                    @click="selectedEvent = null"
+                  >
+                    <font-awesome-icon :icon="['fas', 'arrow-up-right-from-square']" class="me-1" />
+                    open API users
+                  </router-link>
+                </template>
                 <span v-else>{{ selectedEvent.actorType }}:{{ selectedEvent.actorId }}</span>
               </dd>
 
               <template v-if="selectedEvent.operatorId">
                 <dt class="col-sm-3">Operator ID:</dt>
-                <dd class="col-sm-9"><code>{{ selectedEvent.operatorId }}</code></dd>
+                <dd class="col-sm-9">
+                  <code>{{ selectedEvent.operatorId }}</code>
+                  <router-link
+                    :to="`/operators/${selectedEvent.operatorId}`"
+                    class="ms-2 small"
+                    @click="selectedEvent = null"
+                  >
+                    <font-awesome-icon :icon="['fas', 'arrow-up-right-from-square']" class="me-1" />
+                    open operator
+                  </router-link>
+                </dd>
               </template>
 
               <template v-if="selectedEvent.accountId">
                 <dt class="col-sm-3">Account ID:</dt>
-                <dd class="col-sm-9"><code>{{ selectedEvent.accountId }}</code></dd>
+                <dd class="col-sm-9">
+                  <code>{{ selectedEvent.accountId }}</code>
+                  <router-link
+                    :to="`/accounts/${selectedEvent.accountId}`"
+                    class="ms-2 small"
+                    @click="selectedEvent = null"
+                  >
+                    <font-awesome-icon :icon="['fas', 'arrow-up-right-from-square']" class="me-1" />
+                    open account
+                  </router-link>
+                </dd>
               </template>
             </dl>
 
@@ -175,6 +240,7 @@
 import { ref, onMounted } from 'vue'
 import { eventClient } from '@/utils/clients'
 import { Timestamp } from '@bufbuild/protobuf'
+import apiClient from '@/utils/api'
 import CodeBlock from '@/components/CodeBlock.vue'
 
 const KNOWN_EVENT_TYPES = [
@@ -193,6 +259,7 @@ const loadingMore = ref(false)
 const error = ref('')
 const nextCursor = ref('')
 const selectedEvent = ref(null)
+const apiUserNames = ref({})
 
 const filterTypes = ref([])
 const filterSince = ref('24h')
@@ -235,6 +302,54 @@ const loadEvents = async () => {
 
 const applyFilters = () => {
   loadEvents()
+}
+
+const clearFilters = () => {
+  filterTypes.value = []
+  filterOperatorId.value = ''
+  filterSince.value = '24h'
+  loadEvents()
+}
+
+const loadApiUsers = async () => {
+  try {
+    const response = await apiClient.post('/nis.v1.AuthService/ListAPIUsers', {})
+    const map = {}
+    for (const u of response.data.users || []) {
+      map[u.id] = u.username
+    }
+    apiUserNames.value = map
+  } catch (err) {
+    // Non-fatal: the actor cell will fall back to "user:<short_uuid>".
+    console.error('Failed to load API users for actor resolution', err)
+  }
+}
+
+function actorLabel(event) {
+  if (!event) return ''
+  if (event.actorType === 'system') return 'system'
+  if (event.actorType === 'user' && event.actorId) {
+    const name = apiUserNames.value[event.actorId]
+    if (name) return name
+    return `user:${shortId(event.actorId)}`
+  }
+  return `${event.actorType || 'unknown'}${event.actorId ? ':' + shortId(event.actorId) : ''}`
+}
+
+const RESOURCE_ROUTE_PREFIX = {
+  operator: '/operators',
+  account: '/accounts',
+  user: '/users',
+  cluster: '/clusters',
+  scoped_key: '/signing-keys',
+  webhook_subscription: '/webhooks',
+}
+
+function resourceRoute(type, id) {
+  if (!type || !id) return null
+  const prefix = RESOURCE_ROUTE_PREFIX[type]
+  if (!prefix) return null
+  return `${prefix}/${id}`
 }
 
 const loadMore = async () => {
@@ -297,7 +412,8 @@ function parsedPayload(json) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadApiUsers()
   loadEvents()
 })
 </script>

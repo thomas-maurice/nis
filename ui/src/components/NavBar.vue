@@ -61,7 +61,7 @@
           </li>
           <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
             <router-link class="nav-link" to="/webhooks">
-              <font-awesome-icon :icon="['fas', 'webhook']" class="me-1" />
+              <font-awesome-icon :icon="['fas', 'tower-broadcast']" class="me-1" />
               Webhooks
             </router-link>
           </li>

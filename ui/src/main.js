@@ -33,6 +33,18 @@ import {
   faChartLine,
   faUserGear,
   faFlask,
+  faUserShield,
+  faListAlt,
+  faTowerBroadcast,
+  faPaperPlane,
+  faExclamationTriangle,
+  faCheck,
+  faCheckCircle,
+  faQuestionCircle,
+  faShieldAlt,
+  faFileExport,
+  faFileImport,
+  faArrowUpRightFromSquare,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -53,7 +65,19 @@ library.add(
   faBars,
   faChartLine,
   faUserGear,
-  faFlask
+  faFlask,
+  faUserShield,
+  faListAlt,
+  faTowerBroadcast,
+  faPaperPlane,
+  faExclamationTriangle,
+  faCheck,
+  faCheckCircle,
+  faQuestionCircle,
+  faShieldAlt,
+  faFileExport,
+  faFileImport,
+  faArrowUpRightFromSquare
 )
 
 const app = createApp(App)

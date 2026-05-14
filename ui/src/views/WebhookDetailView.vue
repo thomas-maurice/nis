@@ -142,7 +142,9 @@
                       {{ statusLabel(d.status) }}
                     </span>
                   </td>
-                  <td><code>{{ shortId(d.eventId) }}</code></td>
+                  <td>
+                    <code :title="d.eventId" style="cursor: help;">{{ shortId(d.eventId) }}</code>
+                  </td>
                   <td>{{ d.attempt }}</td>
                   <td>
                     <span v-if="d.lastResponseCode > 0">{{ d.lastResponseCode }}</span>
@@ -151,9 +153,7 @@
                   <td>
                     <span
                       v-if="d.lastError"
-                      class="text-truncate d-inline-block"
-                      style="max-width: 200px;"
-                      :title="d.lastError"
+                      class="last-error-cell"
                     >{{ d.lastError }}</span>
                     <span v-else class="text-muted">-</span>
                   </td>
@@ -298,9 +298,10 @@ const handleSendTest = async () => {
   saveError.value = ''
   try {
     const resp = await webhookClient.testWebhookSubscription({ id: route.params.id })
-    const shortDeliveryId = resp.deliveryId ? resp.deliveryId.substring(0, 8) + '...' : ''
-    toast.value = `Test dispatched (delivery id: ${shortDeliveryId})`
-    setTimeout(() => { toast.value = '' }, 5000)
+    toast.value = resp.deliveryId
+      ? `Test dispatched (delivery id: ${resp.deliveryId})`
+      : 'Test dispatched'
+    setTimeout(() => { toast.value = '' }, 8000)
     await loadDeliveries()
   } catch (err) {
     saveError.value = err.message || 'Failed to send test'
@@ -392,3 +393,14 @@ onMounted(async () => {
   await loadDeliveries()
 })
 </script>
+
+<style scoped>
+.last-error-cell {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.85rem;
+  max-width: 480px;
+}
+</style>
