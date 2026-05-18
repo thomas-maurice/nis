@@ -36,6 +36,7 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | A9  | **Done 2026-05-13** | Viper flag-default trap fixed via `applyFlagOverrides` (writes to viper only when flag explicitly passed). Dead `internal/config` package + `sql.NewDB(config.DatabaseConfig)` removed; tests migrated to `sql.NewDB(driver, dsn)`. `config.example.yaml` rewritten to match the live shape (was documenting `database.path`/etc., none of which the binary reads). Doc triangle updated; precedence is now flag > env > file > default. Regression test in `cmd/nis/commands/viper_overrides_test.go`. |
 | A10 |        |       |
 | A11 |        |       |
+| A13 |        | Added 2026-05-18 — auto-sync on mutation; depends on A2 job substrate. |
 | A12 | **Partial Done 2026-05-13** | NSC import path (`ImportFromNSC` + 6 helpers, ~590 LOC) extracted to `import_nsc.go`. `export_service.go` down from 1089 to 493 LOC. Pure file split — methods stay on `*ExportService`, no API change, no behavior change. e2e green. Structural extraction into separate `Exporter` / `Importer` / `NSCImporter` types (needing new constructors and dependency wiring) deferred — that's a real design call. **2026-05-13 follow-up:** YAML support added end-to-end — `ExportOperatorYAML`/`ImportOperatorYAML` service methods, format-aware `ExportOperatorBytes`/`ImportOperatorBytes` with auto-detection by sniffing the first non-whitespace byte, proto `format` field on `ExportOperatorRequest/Response`, gRPC handler dispatch, `nisctl export operator --format yaml\|json` (default yaml). All 5 `Exported*` structs got `yaml:` tags alongside `json:` to keep field names identical across encodings (yaml.v3 defaults to lowercased Go names otherwise). Round-trip tests cover the JSON regression path, the YAML happy path, auto-detect, tricky `$SYS`-prefixed names, and back-compat default-to-JSON. **2026-05-14 API simplification:** removed `regenerate_ids` from `ImportOperatorRequest` (reserved in proto), from all `ImportOperator*` service methods, and from `nisctl export import`. The flag only swapped UUIDs while leaving NKey public keys untouched — useless for cloning (pubkey collides with source) and useless for migration (NKeys carry over identity). Import is now strictly a faithful restore: same UUIDs, same NKeys, same JWTs, end state byte-identical to what was exported. A future "duplicate operator" feature, if it's ever needed, will be a separate operation that also mints fresh NKeys and re-signs the tree. The structural type extraction remains the only A12 item still outstanding. |
 | C1  | **Done 2026-05-13** | Dead cmds + `test-nats.go` removed. |
 | C2  | **Done 2026-05-13** | Stale top-level docs removed (IMPLEMENTATION/IMPROVEMENT/IMPROVEMENTS_IMPLEM/PROGRESS/STATUS/UI_IMPLEMENTATION.md). |
@@ -183,6 +184,22 @@ Multi-tenancy today is "operator_id + role-based filtering in app code". If a ha
 ### A12. Decompose ExportService (1204 LOC) — M / Low
 
 One file owns JSON export, JSON import, NSC dir import, zip/tar/gz/bz2 codec, cluster syncing as a side effect. Hard to test, hard to reason about. Split into `Exporter`, `Importer`, `NSCImporter`, `ArchiveCodec`, each independently testable. Versioned file format header. Same change as C10.
+
+### A13. Auto-sync clusters on mutation — M / Med
+
+Today, account/user/scoped-key changes update the DB but never reach the NATS resolver until a human runs `nisctl cluster sync` or hits the Sync button. The 60s background loop is health-only (reachability check; no JWT push) — confirmed in `cluster_service.go` (`CheckClusterHealth` line 593, `CheckAllClustersHealth` line 647) and `cmd/nis/commands/serve.go:324`. Drift between DB and NATS is the default state, not the exception.
+
+**Proposal.** When a service mutation changes account-JWT-relevant state (account create/update/delete, scoped-signing-key CRUD that triggers `regenerateAccountJWT`, user delete on a revocation path, JetStream limit updates), enqueue a per-cluster sync. Debounce so a burst of mutations from one workflow collapses into one push round. Cross-reference with A2 (jobs table) — this is the natural first consumer of that substrate: the mutation emits a `cluster.sync_requested` event/job; the worker debounces and runs `SyncCluster` against each cluster attached to the operator. Errors are retried with backoff and exposed via the existing webhook substrate (A6/P4) as `cluster.sync_failed`.
+
+**Design notes / open questions.**
+- *Scope per cluster, not per account.* Pushing one account JWT to one cluster is the natural unit, but the existing `SyncCluster` does N pushes inside one connection — keep that as the worker's unit of work to amortize the TLS+auth round-trip. Debounce key = `cluster.id`.
+- *Per-operator → per-cluster fan-out.* A mutation knows its operator; the worker resolves attached clusters at run time, not enqueue time, so newly-attached clusters catch up automatically.
+- *Prune semantics.* Auto-sync should NOT prune by default (a misconfigured DB row should not silently remove accounts from NATS). Prune stays an explicit user/CLI option.
+- *Audit emit.* Each automatic sync should emit `cluster.sync_completed` (or `.sync_failed`) with `trigger='auto'` distinguishing from manual syncs so the audit log is honest about who acted.
+- *Opt-out.* Per-cluster `auto_sync_enabled` bool (default true) so an operator running NATS through change-control can keep manual sync. Surface in UI + nisctl.
+- *Depends on A2* for the job substrate; without it, doing this in-goroutine repeats the same single-replica drift problem A3 raised.
+
+**Discovered 2026-05-18** while investigating "do syncs happen on their own?" — answer was no, and the SKILL claimed otherwise (now corrected). Prior wording in A1's notes ("the existing 60s cluster-sync loop reconciles any DB-ahead-of-resolver window") was likewise wrong and load-bearing for the multi-write-atomicity story; A13 closes that gap properly instead of patching docs forever.
 
 ---
 
