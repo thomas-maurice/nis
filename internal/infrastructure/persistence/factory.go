@@ -17,6 +17,7 @@ type RepositoryFactory interface {
 	ScopedSigningKeyRepository() repositories.ScopedSigningKeyRepository
 	ClusterRepository() repositories.ClusterRepository
 	APIUserRepository() repositories.APIUserRepository
+	APITokenRepository() repositories.APITokenRepository
 	EventRepository() repositories.EventRepository
 	WebhookSubscriptionRepository() repositories.WebhookSubscriptionRepository
 	WebhookDeliveryRepository() repositories.WebhookDeliveryRepository

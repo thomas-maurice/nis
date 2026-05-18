@@ -500,3 +500,94 @@ func (s *PermissionService) CanDeleteWebhookSubscription(ctx context.Context, ap
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// API tokens (service-account tokens)
+// ---------------------------------------------------------------------------
+
+// roleRank assigns a numeric ceiling to each role so CanCreateAPIToken can refuse
+// to mint a token with a role higher than the caller's. admin > operator-admin >
+// account-admin. Unknown roles get 0 (cannot mint anything).
+func roleRank(r entities.APIUserRole) int {
+	switch r {
+	case entities.RoleAdmin:
+		return 3
+	case entities.RoleOperatorAdmin:
+		return 2
+	case entities.RoleAccountAdmin:
+		return 1
+	}
+	return 0
+}
+
+// CanCreateAPIToken enforces the privilege escalation guard: the caller may not
+// mint a token whose role exceeds their own, and any operator/account scope on
+// the token must lie within the caller's scope.
+//
+// admin           — may mint any role / any scope.
+// operator-admin  — may mint operator-admin (own operator) or account-admin (account in own operator).
+// account-admin   — may mint account-admin only, scoped to own account.
+func (s *PermissionService) CanCreateAPIToken(ctx context.Context, apiUser *entities.APIUser, role entities.APIUserRole, operatorID, accountID *uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	if !role.IsValid() {
+		return fmt.Errorf("%w: invalid role %q", ErrPermissionDenied, role)
+	}
+	if roleRank(role) > roleRank(apiUser.Role) {
+		return denyf("cannot mint token with role %q (caller is %q)", role, apiUser.Role)
+	}
+	switch role {
+	case entities.RoleOperatorAdmin:
+		if operatorID == nil {
+			return fmt.Errorf("operator_id is required for operator-admin tokens")
+		}
+		owns, err := s.ownsOperator(ctx, apiUser, *operatorID)
+		if err != nil {
+			return err
+		}
+		if !owns {
+			return denyf("cannot mint operator-admin token for operator %s", *operatorID)
+		}
+	case entities.RoleAccountAdmin:
+		if accountID == nil {
+			return fmt.Errorf("account_id is required for account-admin tokens")
+		}
+		owns, err := s.ownsAccount(ctx, apiUser, *accountID)
+		if err != nil {
+			return err
+		}
+		if !owns {
+			return denyf("cannot mint account-admin token for account %s", *accountID)
+		}
+	}
+	return nil
+}
+
+// CanReadAPIToken: admin reads any token; non-admins only their own.
+func (s *PermissionService) CanReadAPIToken(apiUser *entities.APIUser, token *entities.APIToken) error {
+	if apiUser == nil || token == nil {
+		return ErrPermissionDenied
+	}
+	if apiUser.Role == entities.RoleAdmin {
+		return nil
+	}
+	if token.CreatedByUserID == nil || *token.CreatedByUserID != apiUser.ID {
+		return denyf("cannot read api token %s", token.ID)
+	}
+	return nil
+}
+
+// CanDeleteAPIToken (== revoke): admin revokes any; non-admins only their own.
+func (s *PermissionService) CanDeleteAPIToken(apiUser *entities.APIUser, token *entities.APIToken) error {
+	return s.CanReadAPIToken(apiUser, token)
+}
+
+// CanListAPITokens: any authenticated role can call list — the handler narrows
+// the filter to the caller's own tokens for non-admins.
+func (s *PermissionService) CanListAPITokens(apiUser *entities.APIUser) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	return nil
+}

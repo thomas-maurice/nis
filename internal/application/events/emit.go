@@ -67,7 +67,19 @@ type actorRef struct {
 	ID   *uuid.UUID
 }
 
+// actorFromContext derives the audit Actor for an event. Resolution order:
+//
+//  1. Explicit Actor set via authctx.SetActor (token-authed requests).
+//  2. APIUser set via authctx.SetUser (ordinary user-authed requests).
+//  3. Fall back to ActorTypeSystem (background tasks, no context user).
+//
+// Step 1 is what keeps the audit log truthful for token-authed traffic: the
+// middleware also synthesizes an APIUser so PermissionService still works, but
+// we MUST record the token as the actor, not the synthetic user.
 func actorFromContext(ctx context.Context) actorRef {
+	if actor, ok := authctx.GetActor(ctx); ok && actor.Type != "" {
+		return actorRef{Type: actor.Type, ID: actor.ID}
+	}
 	user, ok := authctx.GetUser(ctx)
 	if !ok || user == nil {
 		return actorRef{Type: entities.ActorTypeSystem}

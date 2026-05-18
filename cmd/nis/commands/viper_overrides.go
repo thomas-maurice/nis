@@ -53,4 +53,5 @@ func registerConfigDefaults() {
 	viper.SetDefault("webhooks.backoff_base_seconds", 10)
 	viper.SetDefault("webhooks.backoff_cap_seconds", 600)
 	viper.SetDefault("webhooks.shutdown_timeout_seconds", 30)
+	viper.SetDefault("api_tokens.last_used_flush_interval_seconds", 30)
 }

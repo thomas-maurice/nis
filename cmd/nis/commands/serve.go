@@ -268,6 +268,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	webhookService := services.NewWebhookService(repoFactory, encryptor)
 
+	apiTokenService := services.NewAPITokenService(repoFactory)
+
 	// Initialize permission service for scope-based access control
 	permissionService := services.NewPermissionService(
 		repoFactory.OperatorRepository(),
@@ -275,8 +277,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.UserRepository(),
 	)
 
-	// Initialize auth middleware
-	authMiddleware := middleware.NewAuthInterceptor(authService, enforcer)
+	// Initialize auth middleware. The API-token flusher coalesces last_used_at
+	// updates so every authenticated request doesn't trigger its own DB write —
+	// burst CI traffic against SQLite would otherwise serialize behind those writes.
+	apiTokenFlusher := middleware.NewAPITokenLastUsedFlusher(
+		repoFactory.APITokenRepository(),
+		time.Duration(viper.GetInt("api_tokens.last_used_flush_interval_seconds"))*time.Second,
+	)
+	authMiddleware := middleware.NewAuthInterceptor(authService, enforcer).
+		WithAPITokenService(apiTokenService, apiTokenFlusher)
 
 	// Initialize gRPC server with auth middleware
 	server := grpcServer.NewServer(
@@ -297,6 +306,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		exportService,
 		eventService,
 		webhookService,
+		apiTokenService,
 		permissionService,
 		authMiddleware,
 	)
@@ -371,6 +381,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		},
 	)
 	go webhookWorker.Run(ctx)
+
+	apiTokenFlusher.Start(ctx)
+	defer apiTokenFlusher.Stop()
 
 	// Start server in a goroutine
 	errChan := make(chan error, 1)

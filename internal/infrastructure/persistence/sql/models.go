@@ -358,6 +358,86 @@ func APIUserModelFromEntity(e *entities.APIUser) *APIUserModel {
 	}
 }
 
+// APITokenModel represents the GORM model for service-account API tokens.
+type APITokenModel struct {
+	ID              string     `gorm:"primaryKey;type:text"`
+	Name            string     `gorm:"type:text;not null"`
+	TokenHash       string     `gorm:"type:text;not null;uniqueIndex"`
+	Prefix          string     `gorm:"type:text;not null"`
+	Description     string     `gorm:"type:text;not null;default:''"`
+	CreatedByUserID *string    `gorm:"type:text;index"`
+	Role            string     `gorm:"type:text;not null"`
+	OperatorID      *string    `gorm:"type:text;index"`
+	AccountID       *string    `gorm:"type:text;index"`
+	ExpiresAt       *time.Time `gorm:"type:timestamp"`
+	LastUsedAt      *time.Time `gorm:"type:timestamp"`
+	RevokedAt       *time.Time `gorm:"type:timestamp;index"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+func (APITokenModel) TableName() string {
+	return "api_tokens"
+}
+
+func (m *APITokenModel) ToEntity() *entities.APIToken {
+	t := &entities.APIToken{
+		ID:          uuid.MustParse(m.ID),
+		Name:        m.Name,
+		TokenHash:   m.TokenHash,
+		Prefix:      m.Prefix,
+		Description: m.Description,
+		Role:        entities.APIUserRole(m.Role),
+		ExpiresAt:   m.ExpiresAt,
+		LastUsedAt:  m.LastUsedAt,
+		RevokedAt:   m.RevokedAt,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}
+	if m.CreatedByUserID != nil {
+		id := uuid.MustParse(*m.CreatedByUserID)
+		t.CreatedByUserID = &id
+	}
+	if m.OperatorID != nil {
+		id := uuid.MustParse(*m.OperatorID)
+		t.OperatorID = &id
+	}
+	if m.AccountID != nil {
+		id := uuid.MustParse(*m.AccountID)
+		t.AccountID = &id
+	}
+	return t
+}
+
+func APITokenModelFromEntity(e *entities.APIToken) *APITokenModel {
+	m := &APITokenModel{
+		ID:          e.ID.String(),
+		Name:        e.Name,
+		TokenHash:   e.TokenHash,
+		Prefix:      e.Prefix,
+		Description: e.Description,
+		Role:        string(e.Role),
+		ExpiresAt:   e.ExpiresAt,
+		LastUsedAt:  e.LastUsedAt,
+		RevokedAt:   e.RevokedAt,
+		CreatedAt:   e.CreatedAt,
+		UpdatedAt:   e.UpdatedAt,
+	}
+	if e.CreatedByUserID != nil {
+		id := e.CreatedByUserID.String()
+		m.CreatedByUserID = &id
+	}
+	if e.OperatorID != nil {
+		id := e.OperatorID.String()
+		m.OperatorID = &id
+	}
+	if e.AccountID != nil {
+		id := e.AccountID.String()
+		m.AccountID = &id
+	}
+	return m
+}
+
 // EventModel represents the GORM model for events
 type EventModel struct {
 	ID           string  `gorm:"primaryKey;type:text"`

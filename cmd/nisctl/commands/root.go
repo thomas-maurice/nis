@@ -2,10 +2,16 @@ package commands
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/thomas-maurice/nis/internal/client"
 )
+
+// envToken is the environment variable consulted for a bearer token when neither
+// --token nor a stored session is provided. Useful in CI: set NIS_TOKEN to a
+// long-lived service-account API token and skip the login step entirely.
+const envToken = "NIS_TOKEN"
 
 var (
 	// Global flags
@@ -53,9 +59,12 @@ Before using nisctl, you must login to the NIS server using the 'login' command.
 			cfg.ServerURL = serverURL
 		}
 
-		// Override token if provided via flag
+		// Token precedence: --token flag > NIS_TOKEN env > config-file session.
+		// Matching the server's flag > env > file > default rule.
 		if token != "" {
 			cfg.Token = token
+		} else if envTok := os.Getenv(envToken); envTok != "" {
+			cfg.Token = envTok
 		}
 
 		// Validate that we have a server URL and token

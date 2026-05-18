@@ -141,3 +141,26 @@ p, operator-admin, webhook,  create
 p, operator-admin, webhook,  read
 p, operator-admin, webhook,  update
 p, operator-admin, webhook,  delete
+
+
+# ============================================================
+# API tokens (long-lived service-account credentials).
+# extractResourceAndAction maps APITokenService -> resource="apitoken".
+# Create/Get/List/Revoke/Delete are exposed; Revoke maps to "delete"
+# in extractAction (HasPrefix "revoke" is unmatched and falls through
+# to the default, so we route it explicitly: see api_token_handler.go).
+#
+# Fine-grained "caller can only see/manage their OWN tokens" check
+# happens in PermissionService.CanReadAPIToken / CanDeleteAPIToken.
+# The privilege-escalation guard on Create (no minting a higher role
+# or out-of-scope token) is PermissionService.CanCreateAPIToken.
+# ============================================================
+p, admin,          apitoken, create
+p, admin,          apitoken, read
+p, admin,          apitoken, delete
+p, operator-admin, apitoken, create
+p, operator-admin, apitoken, read
+p, operator-admin, apitoken, delete
+p, account-admin,  apitoken, create
+p, account-admin,  apitoken, read
+p, account-admin,  apitoken, delete

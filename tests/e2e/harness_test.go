@@ -82,6 +82,7 @@ type harness struct {
 	exportCli   nisv1connect.ExportServiceClient
 	eventCli    nisv1connect.EventServiceClient
 	webhookCli  nisv1connect.WebhookServiceClient
+	apiTokenCli nisv1connect.APITokenServiceClient
 }
 
 // startStack is the canonical entry point for a test. It boots NIS, bootstraps
@@ -228,6 +229,7 @@ func (h *harness) start(t *testing.T) {
 	h.exportCli = nisv1connect.NewExportServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.eventCli = nisv1connect.NewEventServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.webhookCli = nisv1connect.NewWebhookServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.apiTokenCli = nisv1connect.NewAPITokenServiceClient(h.httpClient, h.serverURL, authOpt)
 }
 
 // startNATSForOperator pulls the NATS include config for operatorID from NIS,
@@ -428,6 +430,7 @@ type clientSet struct {
 	authCli     nisv1connect.AuthServiceClient
 	eventCli    nisv1connect.EventServiceClient
 	webhookCli  nisv1connect.WebhookServiceClient
+	apiTokenCli nisv1connect.APITokenServiceClient
 }
 
 // loginAs authenticates as username/password and returns a clientSet whose
@@ -455,6 +458,7 @@ func (h *harness) loginAs(t *testing.T, username, password string) clientSet {
 		authCli:     nisv1connect.NewAuthServiceClient(h.httpClient, h.serverURL, authOpt),
 		eventCli:    nisv1connect.NewEventServiceClient(h.httpClient, h.serverURL, authOpt),
 		webhookCli:  nisv1connect.NewWebhookServiceClient(h.httpClient, h.serverURL, authOpt),
+		apiTokenCli: nisv1connect.NewAPITokenServiceClient(h.httpClient, h.serverURL, authOpt),
 	}
 }
 

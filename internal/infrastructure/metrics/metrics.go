@@ -136,6 +136,7 @@ type Recorder struct {
 	webhookDeliveries        metric.Int64Counter
 	webhookDeliveryDuration  metric.Float64Histogram
 	eventsEmitted            metric.Int64Counter
+	apiTokenAuthentications  metric.Int64Counter
 }
 
 func newRecorder(m metric.Meter) (*Recorder, error) {
@@ -197,6 +198,12 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 	if r.eventsEmitted, err = m.Int64Counter(
 		"nis_events_emitted_total",
 		metric.WithDescription("Total events emitted, labelled by type."),
+	); err != nil {
+		return nil, err
+	}
+	if r.apiTokenAuthentications, err = m.Int64Counter(
+		"nis_api_token_authentications_total",
+		metric.WithDescription("Total API token auth attempts, labelled by status (success/invalid/expired/revoked)."),
 	); err != nil {
 		return nil, err
 	}
@@ -268,6 +275,15 @@ func (r *Recorder) RecordWebhookDelivery(ctx context.Context, status string, dur
 	attrs := metric.WithAttributes(attribute.String("status", status))
 	r.webhookDeliveries.Add(ctx, 1, attrs)
 	r.webhookDeliveryDuration.Record(ctx, durationSeconds, attrs)
+}
+
+// RecordAPITokenAuthentication increments the API token auth counter.
+// status is one of "success", "invalid", "expired", "revoked".
+func (r *Recorder) RecordAPITokenAuthentication(ctx context.Context, status string) {
+	if r == nil {
+		return
+	}
+	r.apiTokenAuthentications.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }
 
 // RecordEventEmitted increments the events-emitted counter. eventType should be

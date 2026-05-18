@@ -99,6 +99,12 @@ const router = createRouter({
       name: 'webhook-detail',
       component: () => import('@/views/WebhookDetailView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/api-tokens',
+      name: 'api-tokens',
+      component: () => import('@/views/ApiTokensView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

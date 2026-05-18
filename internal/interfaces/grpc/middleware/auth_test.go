@@ -102,6 +102,10 @@ func TestExtractAction(t *testing.T) {
 		{name: "ListOperators", method: "ListOperators", want: "read"},
 		{name: "ListAccounts", method: "ListAccounts", want: "read"},
 
+		// Revoke is a soft-delete; auth-wise it's the same as Delete (a
+		// caller able to revoke must be able to remove the credential).
+		{name: "RevokeAPIToken", method: "RevokeAPIToken", want: "delete"},
+
 		// Unknown method defaults to read
 		{name: "unknown method SyncCluster", method: "SyncCluster", want: "read"},
 		{name: "unknown method GenerateInclude", method: "GenerateInclude", want: "read"},

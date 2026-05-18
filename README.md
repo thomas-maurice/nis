@@ -214,8 +214,9 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `cluster.synced` / `cluster.sync_failed` | Each `SyncCluster` call |
 | `cluster.health_changed` | The 60s probe sees a healthy→unhealthy or unhealthy→healthy transition |
 | `webhook.test` | Operator clicks "Send Test" on a subscription |
+| `api_token.created` / `api_token.revoked` | Service-account API token lifecycle |
 
-Events carry `actor_type` (`user` for RPC-driven events, `system` for background ones), `actor_id` (the API user, when applicable), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
+Events carry `actor_type` (`user` for RPC-driven events from human logins, `api_token` for RPCs driven by a service-account token, `system` for background ones), `actor_id` (the API user OR the token ID, depending on actor_type), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
 
 The events table is **append-only**. Retention defaults to 30 days, configurable via `--events-retention-days` / `EVENTS_RETENTION_DAYS`. The audit log survives the deletion of the resources it references (operator_id is a soft scope, not an FK). FK CASCADE deletions inside the database (e.g. an operator delete that cascade-removes its $SYS account) emit only the top-level event — `operator.deleted` — not one event per cascaded row.
 
@@ -366,6 +367,65 @@ Convenience targets:
 | `make serve-local` | Legacy host-only server, SQLite, hardcoded dev secrets |
 | `make docker-build` / `docker-run` / `docker-stop` | Single-container Docker image lifecycle |
 
+## API tokens (service-account credentials)
+
+For CI runners, deploy pipelines, and other non-interactive automation,
+short-lived JWT sessions (issued by `AuthService.Login`) are awkward — they
+expire and need refresh. NIS supports **long-lived opaque API tokens** that
+ride the same `Authorization: Bearer <…>` header as JWTs and have their own
+per-token role + scope.
+
+Tokens have the prefix `nis_pat_` so they're easy to scan for in code or logs.
+The plaintext is shown **once** at creation; only `sha256(token)` is stored.
+
+```bash
+# Mint a token for a CI runner.
+nisctl token create --name ci-deploy --role operator-admin --operator demo-operator --expires-in 720h
+#   Output ends with: nis_pat_abc123...      ← copy this; cannot be retrieved later
+
+# Use the token in CI by exporting NIS_TOKEN, or with --token.
+export NIS_TOKEN=nis_pat_abc123...
+nisctl operator list
+# or one-shot:
+nisctl --token "$NIS_TOKEN" operator list
+
+# List / revoke / delete.
+nisctl token list
+nisctl token revoke <id>
+nisctl token delete <id>
+```
+
+The UI exposes a **"API Tokens"** page where any role can mint tokens within
+their permissions and the plaintext is revealed in a one-time copy modal.
+
+Behaviour and guard rails:
+
+- **Privilege escalation guard.** A caller cannot mint a token with a role
+  higher than their own, nor scoped outside their own operator/account. An
+  operator-admin scoped to operator A cannot mint a token for operator B.
+- **Chained-privilege block.** A token-authed call cannot use
+  `CreateAPIToken` — i.e. a leaked token cannot bootstrap into a fresh
+  long-lived credential and survive its parent's revocation.
+- **Audit attribution.** Mutations driven by a token emit events with
+  `actor_type='api_token'` and `actor_id=<token uuid>` — not the api_user
+  that minted the token. The audit log identifies the credential actually
+  in use.
+- **`last_used_at`.** Updated by a coalescing background flusher (default
+  every 30s) so high-rate CI traffic doesn't serialize writes against the
+  authentication hot path. Configurable via
+  `--api-tokens-last-used-flush-interval-seconds` /
+  `API_TOKENS_LAST_USED_FLUSH_INTERVAL_SECONDS`.
+- **`ExpiresAt` is optional.** A token with no expiry never expires; revoke
+  it to disable.
+- **Outliving the creator.** If the api_user who minted a token is deleted,
+  the token stays valid (`ON DELETE SET NULL` on `created_by_user_id`). This
+  is intentional — offboarding a human shouldn't silently break CI. Revoke
+  the token explicitly if that's the goal.
+
+CLI precedence: `--token` flag > `NIS_TOKEN` env > stored session from
+`nisctl login`. Tokens are validated only on resource RPCs; they cannot be
+used on `AuthService.Login` to mint a fresh JWT.
+
 ## API access
 
 NIS exposes a Connect-RPC API (Protobuf over HTTP, both gRPC and gRPC-Web are
@@ -431,7 +491,8 @@ The interesting series:
 | `nis_cluster_sync_errors_total` | counter | `phase` | Sync errors broken down by where they happened (`open_cluster`, `list_accounts`, …). |
 | `nis_cluster_health_check_failures_total` | counter | — | 60s loop saw a cluster fail to connect or lack credentials. |
 | `nis_encryption_failures_total` | counter | `op` | `op` is `encrypt` / `decrypt`. A decrypt-failure spike usually means a key-rotation problem — alert on this. |
-| `nis_auth_rejections_total` | counter | `reason` | RPC rejected by the auth interceptor. `reason` ∈ `missing_token`, `invalid_token`, `forbidden`. |
+| `nis_auth_rejections_total` | counter | `reason` | RPC rejected by the auth interceptor. `reason` ∈ `missing_token`, `invalid_token`, `forbidden`, `invalid_api_token`. |
+| `nis_api_token_authentications_total` | counter | `status` | API-token auth outcomes. `status` ∈ `success`, `invalid`, `expired`, `revoked`. |
 | `nis_events_emitted_total` | counter | `type` | Events appended to the audit log, by event type (e.g. `account.created`). |
 | `nis_webhook_deliveries_total` | counter | `status` | Webhook deliveries by terminal status (`succeeded`/`failed`/`dead_letter`). |
 | `nis_webhook_delivery_duration_seconds` | histogram | — | Per-attempt POST latency. |

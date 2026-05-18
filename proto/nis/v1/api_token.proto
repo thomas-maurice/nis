@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// APIToken is a long-lived opaque service-account credential. Plaintext is
+// returned ONCE on Create via CreateAPITokenResponse.plaintext; lookups never
+// surface it.
+message APIToken {
+  string id = 1;
+  string name = 2;
+  // Display-only "nis_pat_xxxxxxxx" — first 8 chars of the secret part. Never
+  // sufficient to authenticate.
+  string prefix = 3;
+  string description = 4;
+  // ID of the api_user that minted the token. Empty when the creator was
+  // deleted (FK SET NULL).
+  string created_by_user_id = 5;
+  string role = 6;
+  string operator_id = 7; // empty unless role=operator-admin
+  string account_id = 8;  // empty unless role=account-admin
+  google.protobuf.Timestamp expires_at = 9;
+  google.protobuf.Timestamp last_used_at = 10;
+  google.protobuf.Timestamp revoked_at = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message CreateAPITokenRequest {
+  string name = 1;
+  string description = 2;
+  string role = 3;
+  string operator_id = 4;
+  string account_id = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message CreateAPITokenResponse {
+  APIToken token = 1;
+  // Plaintext token. Returned once on creation; never readable later.
+  string plaintext = 2;
+}
+
+message GetAPITokenRequest {
+  string id = 1;
+}
+
+message GetAPITokenResponse {
+  APIToken token = 1;
+}
+
+message ListAPITokensRequest {
+  // When set by admins, filters to tokens minted by that api_user. Ignored for
+  // non-admins (always scoped to caller's own tokens).
+  string created_by_user_id = 1;
+  bool include_revoked = 2;
+  ListOptions options = 3;
+}
+
+message ListAPITokensResponse {
+  repeated APIToken tokens = 1;
+}
+
+// Revoke marks a token as revoked. Tokens are intentionally immutable in every
+// other respect — there is no Update RPC. Use Delete to remove the row entirely.
+message RevokeAPITokenRequest {
+  string id = 1;
+}
+
+message RevokeAPITokenResponse {
+  APIToken token = 1;
+}
+
+message DeleteAPITokenRequest {
+  string id = 1;
+}
+
+message DeleteAPITokenResponse {}
+
+service APITokenService {
+  rpc CreateAPIToken(CreateAPITokenRequest) returns (CreateAPITokenResponse);
+  rpc GetAPIToken(GetAPITokenRequest) returns (GetAPITokenResponse);
+  rpc ListAPITokens(ListAPITokensRequest) returns (ListAPITokensResponse);
+  rpc RevokeAPIToken(RevokeAPITokenRequest) returns (RevokeAPITokenResponse);
+  rpc DeleteAPIToken(DeleteAPITokenRequest) returns (DeleteAPITokenResponse);
+}

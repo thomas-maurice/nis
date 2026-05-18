@@ -10,6 +10,7 @@ import { ScopedSigningKeyService } from '@/gen/nis/v1/scoped_key_connect'
 import { AuthService } from '@/gen/nis/v1/auth_connect'
 import { EventService } from '@/gen/nis/v1/event_connect'
 import { WebhookService } from '@/gen/nis/v1/webhook_connect'
+import { APITokenService } from '@/gen/nis/v1/api_token_connect'
 
 // Determine API base URL
 const API_BASE_URL = import.meta.env.DEV
@@ -43,3 +44,4 @@ export const scopedKeyClient: PromiseClient<typeof ScopedSigningKeyService> = cr
 export const authClient: PromiseClient<typeof AuthService> = createPromiseClient(AuthService, transport)
 export const eventClient: PromiseClient<typeof EventService> = createPromiseClient(EventService, transport)
 export const webhookClient: PromiseClient<typeof WebhookService> = createPromiseClient(WebhookService, transport)
+export const apiTokenClient: PromiseClient<typeof APITokenService> = createPromiseClient(APITokenService, transport)

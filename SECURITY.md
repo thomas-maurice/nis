@@ -108,6 +108,21 @@ Passwords are hashed using **bcrypt** at the default cost factor (currently 10).
 - There is no refresh token mechanism; users must re-authenticate after expiry.
 - To revoke access, delete the API user from the database. The next token validation will fail.
 
+### Service-Account API Tokens
+
+For automation use cases (CI runners, deploy scripts), NIS supports long-lived opaque tokens that ride the same `Authorization: Bearer` header as JWTs. They are distinct from the JWT login flow above.
+
+- **Wire format**: `nis_pat_<64 hex chars>`. 32 bytes of randomness. The `nis_pat_` prefix makes leaked tokens easy to scan for in code, logs, and committed repositories.
+- **At rest**: only `sha256(token)` is stored. The plaintext is returned exactly once in the create response (RPC or `nisctl token create`); there is no path to recover it later. Treat the plaintext like a password.
+- **Per-token role and scope**: each token carries its own role (`admin` / `operator-admin` / `account-admin`) plus optional operator/account scope. These are decided at creation time and do NOT re-resolve against the creator's permissions on later use — a token outlives changes to its creator's role, which is the desired property for unattended automation.
+- **Privilege escalation guard**: a caller cannot mint a token with a role above their own, nor scope it outside their own operator/account. Enforced in `PermissionService.CanCreateAPIToken`.
+- **Chained-privilege block**: a token-authenticated request CANNOT call `CreateAPIToken`. This stops a leaked token from bootstrapping into a fresh, long-lived credential that would survive its parent's revocation.
+- **Revocation**: `RevokeAPIToken` is a soft-delete (sets `revoked_at`); the next authentication attempt fails with `Unauthenticated`. Idempotent — repeated revokes do not error.
+- **Expiry**: optional. A token with no `expires_at` never expires. Pick an expiry for tokens you can rotate; rely on revoke for those you cannot.
+- **Audit attribution**: requests authenticated via a token emit events with `actor_type='api_token'` and `actor_id=<token uuid>` — not the human api_user that minted it. The audit log identifies the credential actually in use.
+- **No JWT minting**: the `AuthService.Login` endpoint always requires username+password and never accepts a token bearer header in lieu of credentials. There is no path to convert a token into a fresh JWT.
+- **Outliving the creator**: deleting the human api_user that minted a token sets `created_by_user_id` to NULL but leaves the token usable. This is intentional — offboarding a human shouldn't silently disable CI. To kill a token, revoke it explicitly.
+
 ## Authorization
 
 ### Casbin RBAC Model
@@ -159,6 +174,11 @@ matcher:  role(subject) AND object AND action must match
 | api_user | read | Y | | |
 | api_user | update | Y | | |
 | api_user | delete | Y | | |
+| apitoken | create | Y | Y | Y |
+| apitoken | read | Y | Y | Y |
+| apitoken | delete | Y | Y | Y |
+
+Note: for `apitoken`, the Casbin "Y" only allows the verb; per-token scope ("I see only MY tokens, not others'") is enforced in `PermissionService.CanReadAPIToken` / `CanDeleteAPIToken`. Admins see all tokens; non-admins see only tokens they created. The privilege escalation guard at create-time means a non-admin cannot mint a higher-role or out-of-scope token even though Casbin grants the verb.
 
 ### Scope Enforcement
 

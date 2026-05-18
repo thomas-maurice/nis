@@ -53,22 +53,10 @@
               Clusters
             </router-link>
           </li>
-          <li v-if="authStore.isAdmin" class="nav-item">
-            <router-link class="nav-link" to="/api-users">
-              <font-awesome-icon :icon="['fas', 'user-shield']" class="me-1" />
-              API Users
-            </router-link>
-          </li>
           <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
             <router-link class="nav-link" to="/webhooks">
               <font-awesome-icon :icon="['fas', 'tower-broadcast']" class="me-1" />
               Webhooks
-            </router-link>
-          </li>
-          <li v-if="authStore.isAdmin" class="nav-item">
-            <router-link class="nav-link" to="/events">
-              <font-awesome-icon :icon="['fas', 'list-alt']" class="me-1" />
-              Events
             </router-link>
           </li>
         </ul>
@@ -86,6 +74,26 @@
               {{ authStore.username || 'User' }}
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
+              <li>
+                <router-link class="dropdown-item" to="/api-tokens">
+                  <font-awesome-icon :icon="['fas', 'key']" class="me-2" />
+                  API Tokens
+                </router-link>
+              </li>
+              <li v-if="authStore.isAdmin"><hr class="dropdown-divider" /></li>
+              <li v-if="authStore.isAdmin">
+                <router-link class="dropdown-item" to="/api-users">
+                  <font-awesome-icon :icon="['fas', 'user-shield']" class="me-2" />
+                  API Users
+                </router-link>
+              </li>
+              <li v-if="authStore.isAdmin">
+                <router-link class="dropdown-item" to="/events">
+                  <font-awesome-icon :icon="['fas', 'list-alt']" class="me-2" />
+                  Events
+                </router-link>
+              </li>
+              <li><hr class="dropdown-divider" /></li>
               <li>
                 <a class="dropdown-item" href="#" @click.prevent="logout">
                   <font-awesome-icon :icon="['fas', 'sign-out-alt']" class="me-2" />

@@ -26,6 +26,7 @@ type Client struct {
 	Export            nisv1connect.ExportServiceClient
 	Event             nisv1connect.EventServiceClient
 	Webhook           nisv1connect.WebhookServiceClient
+	APIToken          nisv1connect.APITokenServiceClient
 }
 
 // NewClient creates a new NIS client with authentication
@@ -58,6 +59,7 @@ func NewClient(serverURL, token string) (*Client, error) {
 	client.Export = nisv1connect.NewExportServiceClient(httpClient, serverURL)
 	client.Event = nisv1connect.NewEventServiceClient(httpClient, serverURL)
 	client.Webhook = nisv1connect.NewWebhookServiceClient(httpClient, serverURL)
+	client.APIToken = nisv1connect.NewAPITokenServiceClient(httpClient, serverURL)
 
 	return client, nil
 }

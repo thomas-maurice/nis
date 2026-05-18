@@ -10,8 +10,9 @@ import (
 type ActorType string
 
 const (
-	ActorTypeUser   ActorType = "user"
-	ActorTypeSystem ActorType = "system"
+	ActorTypeUser     ActorType = "user"
+	ActorTypeSystem   ActorType = "system"
+	ActorTypeAPIToken ActorType = "api_token"
 )
 
 // Event type constants. Add more here as new event types are emitted.
@@ -35,6 +36,8 @@ const (
 	EventTypeClusterSyncFailed    = "cluster.sync_failed"
 	EventTypeClusterHealthChanged = "cluster.health_changed"
 	EventTypeWebhookTest          = "webhook.test"
+	EventTypeAPITokenCreated      = "api_token.created"
+	EventTypeAPITokenRevoked      = "api_token.revoked"
 )
 
 // Event is a single audit-log entry. Stored append-only in the events table.

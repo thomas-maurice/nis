@@ -2,10 +2,13 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/casbin/casbin/v2"
+	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/infrastructure/authctx"
@@ -14,27 +17,43 @@ import (
 
 // AuthInterceptor provides authentication and authorization middleware
 type AuthInterceptor struct {
-	authService *services.AuthService
-	enforcer    *casbin.Enforcer
+	authService     *services.AuthService
+	apiTokenService *services.APITokenService
+	tokenFlusher    *APITokenLastUsedFlusher
+	enforcer        *casbin.Enforcer
 	// Public methods that don't require authentication
 	publicMethods map[string]bool
 }
 
-// NewAuthInterceptor creates a new authentication interceptor
+// NewAuthInterceptor creates a new authentication interceptor.
+//
+// apiTokenService is optional — if nil, the token-auth fork is disabled and
+// every request is treated as a JWT-bearing user request. Production wiring
+// always provides it; tests that exercise only the JWT path can leave it nil.
+//
+// tokenFlusher batches last_used_at updates from the hot path. If nil, the
+// last_used_at column simply does not get refreshed (used by tests).
 func NewAuthInterceptor(
 	authService *services.AuthService,
 	enforcer *casbin.Enforcer,
 ) *AuthInterceptor {
-	// Define public methods that don't require authentication
 	publicMethods := map[string]bool{
 		"/nis.v1.AuthService/Login": true,
 	}
-
 	return &AuthInterceptor{
 		authService:   authService,
 		enforcer:      enforcer,
 		publicMethods: publicMethods,
 	}
+}
+
+// WithAPITokenService wires the APITokenService and (optional) last-used flusher
+// into the interceptor, enabling the `nis_pat_` token auth path. Returns the
+// receiver for fluent setup at construction time.
+func (i *AuthInterceptor) WithAPITokenService(svc *services.APITokenService, flusher *APITokenLastUsedFlusher) *AuthInterceptor {
+	i.apiTokenService = svc
+	i.tokenFlusher = flusher
+	return i
 }
 
 // contextKey aliases authctx.ContextKey so tests in this package can use the
@@ -45,43 +64,96 @@ type contextKey = authctx.ContextKey
 // reference middleware.UserContextKey continue to work.
 var UserContextKey = authctx.UserContextKey
 
+// authenticate runs the auth + authz checks shared by unary and streaming
+// handlers. On success it returns the new context (with user and possibly
+// actor set); on failure it returns an already-formatted Connect error. The
+// caller can ignore the returned ctx when err != nil.
+func (i *AuthInterceptor) authenticate(ctx context.Context, procedure, authHeader string) (context.Context, error) {
+	if i.publicMethods[procedure] {
+		return ctx, nil
+	}
+
+	token := extractToken(authHeader)
+	if token == "" {
+		metrics.Default().RecordAuthRejection(ctx, "missing_token")
+		return ctx, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+
+	user, actor, err := i.resolveCaller(ctx, token)
+	if err != nil {
+		return ctx, err
+	}
+
+	resource, action := extractResourceAndAction(procedure)
+	allowed, err := i.enforcer.Enforce(string(user.Role), resource, action)
+	if err != nil {
+		return ctx, connect.NewError(connect.CodeInternal, err)
+	}
+	if !allowed {
+		metrics.Default().RecordAuthRejection(ctx, "forbidden")
+		return ctx, connect.NewError(connect.CodePermissionDenied, nil)
+	}
+
+	ctx = authctx.SetUser(ctx, user)
+	if actor != nil {
+		ctx = authctx.SetActor(ctx, *actor)
+	}
+	return ctx, nil
+}
+
+// resolveCaller decides whether the bearer credential is a service-account API
+// token (prefix nis_pat_) or a JWT, and returns the synthetic APIUser plus an
+// optional Actor for audit attribution. Errors are already Connect-typed.
+func (i *AuthInterceptor) resolveCaller(ctx context.Context, token string) (*entities.APIUser, *authctx.Actor, error) {
+	if i.apiTokenService != nil && strings.HasPrefix(token, entities.APITokenPrefix) {
+		apiToken, err := i.apiTokenService.Authenticate(ctx, token)
+		if err != nil {
+			i.recordTokenAuthFailure(ctx, err)
+			return nil, nil, connect.NewError(connect.CodeUnauthenticated, err)
+		}
+		metrics.Default().RecordAPITokenAuthentication(ctx, "success")
+		metrics.Default().RecordAuthRejection(ctx, "") // no-op; success path does not increment rejections
+
+		// Defer last_used_at to the coalescing flusher so we don't write per request.
+		if i.tokenFlusher != nil {
+			i.tokenFlusher.Touch(apiToken.ID, time.Now().UTC())
+		}
+
+		synthetic := i.apiTokenService.SyntheticAPIUser(apiToken)
+		tokenID := apiToken.ID
+		return synthetic, &authctx.Actor{Type: entities.ActorTypeAPIToken, ID: &tokenID}, nil
+	}
+
+	user, err := i.authService.ValidateToken(ctx, token)
+	if err != nil {
+		metrics.Default().RecordAuthRejection(ctx, "invalid_token")
+		return nil, nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+	return user, nil, nil
+}
+
+func (i *AuthInterceptor) recordTokenAuthFailure(ctx context.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrAPITokenExpired):
+		metrics.Default().RecordAPITokenAuthentication(ctx, "expired")
+		metrics.Default().RecordAuthRejection(ctx, "invalid_api_token")
+	case errors.Is(err, services.ErrAPITokenRevoked):
+		metrics.Default().RecordAPITokenAuthentication(ctx, "revoked")
+		metrics.Default().RecordAuthRejection(ctx, "invalid_api_token")
+	default:
+		metrics.Default().RecordAPITokenAuthentication(ctx, "invalid")
+		metrics.Default().RecordAuthRejection(ctx, "invalid_api_token")
+	}
+}
+
 // WrapUnary wraps a unary RPC with authentication
 func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		// Check if this is a public method
-		if i.publicMethods[req.Spec().Procedure] {
-			return next(ctx, req)
-		}
-
-		// Extract token from Authorization header
-		token := extractToken(req.Header().Get("Authorization"))
-		if token == "" {
-			metrics.Default().RecordAuthRejection(ctx, "missing_token")
-			return nil, connect.NewError(connect.CodeUnauthenticated, nil)
-		}
-
-		// Validate token and get user
-		user, err := i.authService.ValidateToken(ctx, token)
+		newCtx, err := i.authenticate(ctx, req.Spec().Procedure, req.Header().Get("Authorization"))
 		if err != nil {
-			metrics.Default().RecordAuthRejection(ctx, "invalid_token")
-			return nil, connect.NewError(connect.CodeUnauthenticated, err)
+			return nil, err
 		}
-
-		// Check authorization with Casbin
-		resource, action := extractResourceAndAction(req.Spec().Procedure)
-		allowed, err := i.enforcer.Enforce(string(user.Role), resource, action)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		if !allowed {
-			metrics.Default().RecordAuthRejection(ctx, "forbidden")
-			return nil, connect.NewError(connect.CodePermissionDenied, nil)
-		}
-
-		// Add user to context
-		ctx = authctx.SetUser(ctx, user)
-
-		return next(ctx, req)
+		return next(newCtx, req)
 	}
 }
 
@@ -95,40 +167,11 @@ func (i *AuthInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) 
 // WrapStreamingHandler wraps a streaming handler RPC with authentication
 func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		// Check if this is a public method
-		if i.publicMethods[conn.Spec().Procedure] {
-			return next(ctx, conn)
-		}
-
-		// Extract token from Authorization header
-		token := extractToken(conn.RequestHeader().Get("Authorization"))
-		if token == "" {
-			metrics.Default().RecordAuthRejection(ctx, "missing_token")
-			return connect.NewError(connect.CodeUnauthenticated, nil)
-		}
-
-		// Validate token and get user
-		user, err := i.authService.ValidateToken(ctx, token)
+		newCtx, err := i.authenticate(ctx, conn.Spec().Procedure, conn.RequestHeader().Get("Authorization"))
 		if err != nil {
-			metrics.Default().RecordAuthRejection(ctx, "invalid_token")
-			return connect.NewError(connect.CodeUnauthenticated, err)
+			return err
 		}
-
-		// Check authorization with Casbin
-		resource, action := extractResourceAndAction(conn.Spec().Procedure)
-		allowed, err := i.enforcer.Enforce(string(user.Role), resource, action)
-		if err != nil {
-			return connect.NewError(connect.CodeInternal, err)
-		}
-		if !allowed {
-			metrics.Default().RecordAuthRejection(ctx, "forbidden")
-			return connect.NewError(connect.CodePermissionDenied, nil)
-		}
-
-		// Add user to context
-		ctx = authctx.SetUser(ctx, user)
-
-		return next(ctx, conn)
+		return next(newCtx, conn)
 	}
 }
 
@@ -193,7 +236,9 @@ func extractAction(method string) string {
 	if strings.HasPrefix(method, "update") {
 		return "update"
 	}
-	if strings.HasPrefix(method, "delete") {
+	if strings.HasPrefix(method, "delete") || strings.HasPrefix(method, "revoke") {
+		// Revoking and deleting are different DB writes but the same authority:
+		// you cannot revoke a token without the ability to remove it.
 		return "delete"
 	}
 	if strings.HasPrefix(method, "get") || strings.HasPrefix(method, "list") {
@@ -208,4 +253,15 @@ func extractAction(method string) string {
 // Deprecated: use authctx.GetUser directly. Kept for callers outside this package.
 func GetUserFromContext(ctx context.Context) (*entities.APIUser, bool) {
 	return authctx.GetUser(ctx)
+}
+
+// TokenIDFromContext returns the api_token ID set by the middleware when a request
+// was authenticated with a service-account token. Returns (uuid.Nil, false) for
+// user-authed requests.
+func TokenIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	actor, ok := authctx.GetActor(ctx)
+	if !ok || actor.Type != entities.ActorTypeAPIToken || actor.ID == nil {
+		return uuid.Nil, false
+	}
+	return *actor.ID, true
 }

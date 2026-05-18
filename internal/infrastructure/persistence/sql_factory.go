@@ -35,6 +35,7 @@ type sqlRepositoryFactory struct {
 	scopedSigningKeyRepo         repositories.ScopedSigningKeyRepository
 	clusterRepo                 repositories.ClusterRepository
 	apiUserRepo                 repositories.APIUserRepository
+	apiTokenRepo                repositories.APITokenRepository
 	eventRepo                   repositories.EventRepository
 	webhookSubscriptionRepo     repositories.WebhookSubscriptionRepository
 	webhookDeliveryRepo         repositories.WebhookDeliveryRepository
@@ -301,6 +302,13 @@ func (f *sqlRepositoryFactory) APIUserRepository() repositories.APIUserRepositor
 		f.apiUserRepo = sqlRepo.NewAPIUserRepo(f.gormDB)
 	}
 	return f.apiUserRepo
+}
+
+func (f *sqlRepositoryFactory) APITokenRepository() repositories.APITokenRepository {
+	if f.apiTokenRepo == nil {
+		f.apiTokenRepo = sqlRepo.NewAPITokenRepo(f.gormDB)
+	}
+	return f.apiTokenRepo
 }
 
 func (f *sqlRepositoryFactory) EventRepository() repositories.EventRepository {
