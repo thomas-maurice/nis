@@ -12,6 +12,9 @@ export default defineConfig({
   base: '/',
   server: {
     port: 5173,
+    fs: {
+      allow: ['..']
+    },
     proxy: {
       '/nis.v1': {
         target: 'http://localhost:8080',

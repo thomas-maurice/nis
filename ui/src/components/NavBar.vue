@@ -59,6 +59,12 @@
               Webhooks
             </router-link>
           </li>
+          <li class="nav-item">
+            <router-link class="nav-link" to="/docs">
+              <font-awesome-icon :icon="['fas', 'book']" class="me-1" />
+              Docs
+            </router-link>
+          </li>
         </ul>
 
         <ul class="navbar-nav">

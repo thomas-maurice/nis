@@ -105,6 +105,12 @@ const router = createRouter({
       name: 'api-tokens',
       component: () => import('@/views/ApiTokensView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/docs',
+      name: 'docs',
+      component: () => import('@/views/DocsView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

@@ -46,6 +46,8 @@ import {
   faFileImport,
   faArrowUpRightFromSquare,
   faBan,
+  faBook,
+  faTerminal,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -79,7 +81,9 @@ library.add(
   faFileExport,
   faFileImport,
   faArrowUpRightFromSquare,
-  faBan
+  faBan,
+  faBook,
+  faTerminal
 )
 
 const app = createApp(App)
