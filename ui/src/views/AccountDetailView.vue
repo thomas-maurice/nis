@@ -47,11 +47,11 @@
                   </span>
                 </dd>
 
-                <dt class="col-sm-4">Revocations:</dt>
+                <dt class="col-sm-4">Revoked users:</dt>
                 <dd class="col-sm-8">
                   <span
                     :class="activeRevocations > 0 ? 'badge bg-danger' : 'badge bg-secondary'"
-                    :title="`${activeRevocations} user(s) in this account currently revoked`"
+                    :title="`${activeRevocations} user(s) in this account currently flagged as revoked. Does not reflect entries still present in the account JWT's Revocations map after Regenerate Credentials.`"
                   >
                     {{ activeRevocations }}
                   </span>
