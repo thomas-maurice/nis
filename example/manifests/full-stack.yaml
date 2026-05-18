@@ -1,0 +1,136 @@
+# Full-stack example: ACME production identity tree
+#
+# This multi-document manifest declares the complete identity tree for a
+# fictional "ACME" organisation: one operator, one cluster, two accounts
+# (payments and billing), scoped signing keys for each, and application users.
+#
+# Apply order enforced by `nisctl apply`: Operator → Cluster → Account →
+# ScopedSigningKey → User. Delete reverses the order automatically.
+#
+# Reserved entities NOT declared here (auto-created by the server):
+#   - $SYS account (auto-created with every operator)
+#   - system user  (auto-created under $SYS)
+#   - default ScopedSigningKey (auto-created per account; omitted to keep defaults)
+#
+# Run with:
+#   nisctl apply -f full-stack.yaml
+#   nisctl diff  -f full-stack.yaml    # dry-run
+#   nisctl delete -f full-stack.yaml   # teardown
+---
+apiVersion: nis/v1
+kind: Operator
+metadata:
+  name: acme-prod
+spec:
+  description: ACME production operator
+  jwtPolicy:
+    userJWTTTL: 720h # user credentials expire after 30 days
+    accountJWTTTL: 8760h # account JWTs rotate annually
+    warnWindow: 168h # warn 7 days before expiry
+    autoRenew: true
+---
+apiVersion: nis/v1
+kind: Cluster
+metadata:
+  name: acme-prod-us-east
+  operator: acme-prod
+spec:
+  description: US-East production NATS cluster
+  serverURLs:
+    - nats://nats-1.us-east.acme.internal:4222
+    - nats://nats-2.us-east.acme.internal:4222
+    - nats://nats-3.us-east.acme.internal:4222
+---
+# payments account — JetStream enabled for persistent event streams
+apiVersion: nis/v1
+kind: Account
+metadata:
+  name: payments
+  operator: acme-prod
+spec:
+  description: Payment processing account
+  jetStream:
+    enabled: true
+    maxMemory: 512Mi
+    maxStorage: 10Gi
+    maxStreams: 20
+    maxConsumers: 100
+---
+# billing account — JetStream enabled for invoice and ledger streams
+apiVersion: nis/v1
+kind: Account
+metadata:
+  name: billing
+  operator: acme-prod
+spec:
+  description: Billing and invoice account
+  jetStream:
+    enabled: true
+    maxMemory: 256Mi
+    maxStorage: 5Gi
+    maxStreams: 10
+    maxConsumers: 50
+---
+# Scoped signing key for the payments service — writer permissions
+apiVersion: nis/v1
+kind: ScopedSigningKey
+metadata:
+  name: payments-writer
+  operator: acme-prod
+  account: payments
+spec:
+  description: Publish access for the payments microservice
+  pubAllow:
+    - payments.>
+    - payments.commands.*
+  pubDeny:
+    - payments.admin.>
+  subAllow:
+    - payments.responses.>
+    - _INBOX.>
+  subDeny: []
+  responseMaxMsgs: 1
+  responseTTL: 30s
+---
+# Scoped signing key for billing — read-only consumer
+apiVersion: nis/v1
+kind: ScopedSigningKey
+metadata:
+  name: billing-reader
+  operator: acme-prod
+  account: billing
+spec:
+  description: Subscribe-only access for billing consumers
+  pubAllow: []
+  pubDeny: []
+  subAllow:
+    - billing.events.>
+    - billing.invoices.>
+    - _INBOX.>
+  subDeny: []
+  responseMaxMsgs: 0
+  responseTTL: 0s
+---
+# Service account for the payments microservice
+apiVersion: nis/v1
+kind: User
+metadata:
+  name: payments-svc
+  operator: acme-prod
+  account: payments
+spec:
+  description: Service account for the payments microservice
+  scopedKey: payments-writer
+  jwtTTL: 168h
+---
+# Service account for the billing consumer
+apiVersion: nis/v1
+kind: User
+metadata:
+  name: billing-consumer
+  operator: acme-prod
+  account: billing
+spec:
+  description: Read-only service account for the billing consumer
+  scopedKey: billing-reader
+  jwtTTL: 720h

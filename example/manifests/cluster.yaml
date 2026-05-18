@@ -1,0 +1,20 @@
+# Kind: Cluster
+# Registers a NATS cluster that NIS will push account JWTs to.
+# The cluster management user (used for $SYS.REQ.CLAIMS.UPDATE) is auto-created by the server.
+#
+# Required fields: apiVersion, kind, metadata.name, metadata.operator, spec.serverURLs
+# Optional fields: spec.description
+#
+# v1 limitation: cluster spec fields cannot be updated via manifest apply.
+# Use `nisctl cluster update` or the UI for in-place changes.
+apiVersion: nis/v1
+kind: Cluster
+metadata:
+  name: acme-prod-us-east
+  operator: acme-prod
+spec:
+  description: "US-East production NATS cluster"
+  serverURLs:
+    - nats://nats-1.us-east.acme.internal:4222
+    - nats://nats-2.us-east.acme.internal:4222
+    - nats://nats-3.us-east.acme.internal:4222

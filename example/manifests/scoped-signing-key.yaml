@@ -1,0 +1,33 @@
+# Kind: ScopedSigningKey
+# Declares a named signing key that constrains the publish/subscribe permissions
+# of users assigned to it. Every account has a "default" key (auto-created);
+# declaring it here lets you customize its permissions.
+#
+# Required fields: apiVersion, kind, metadata.name, metadata.operator, metadata.account
+# Optional fields: all spec fields
+#
+# pubAllow / pubDeny / subAllow / subDeny: NATS subject patterns (wildcards * and > accepted).
+# responseMaxMsgs: max reply messages for request/reply flows (0 = unlimited).
+# responseTTL: how long a reply inbox is valid (duration string, 0s = no limit).
+#
+# The "default" name is reserved — it cannot be deleted via manifest, but may be declared
+# here to update its permissions.
+apiVersion: nis/v1
+kind: ScopedSigningKey
+metadata:
+  name: payments-writer
+  operator: acme-prod
+  account: payments
+spec:
+  description: "Allows publishing to the payments service subjects"
+  pubAllow:
+    - "payments.>"        # all subjects under the payments hierarchy
+    - "payments.commands.*"
+  pubDeny:
+    - "payments.admin.>"  # block the admin sub-hierarchy
+  subAllow:
+    - "payments.responses.>"
+    - "_INBOX.>"          # required for request/reply
+  subDeny: []
+  responseMaxMsgs: 1      # request/reply: at most 1 reply per request
+  responseTTL: 30s        # reply inbox valid for 30 seconds

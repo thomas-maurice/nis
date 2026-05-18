@@ -25,6 +25,7 @@ Mark each proposal `Yes` / `No` / `Defer`. Notes welcome.
 | P10 |        |       |
 | P11 |        |       |
 | P12 |        |       |
+| P13 |        | Added 2026-05-18 — surface NATS-side revocations honestly in the UI (label fix + dedicated list). |
 | A1  | **Done 2026-05-13** | Repository factory gained `WithTx(ctx, fn func(tx RepositoryFactory) error) error` (GORM-backed). `OperatorService.CreateOperator` (4 writes incl. nested `$SYS` account create), `OperatorService.DeleteOperator` (operator → accounts → users cascade), `AccountService.CreateAccount` + Update + UpdateJetStreamLimits, and `ScopedSigningKeyService.Create`/Update/Delete (mutation + `regenerateAccountJWT`) all run inside a single tx so a partial failure rolls the whole tree back. Manual-rollback hacks removed (`account_service.go` 130-136, `scoped_signing_key_service.go` 149-153). Live `sqlRepositoryFactory.Connect` now sets `SetMaxOpenConns(1)` for SQLite so longer write txs don't deadlock with concurrent reads. NATS pushes stay outside the tx; the existing 60s cluster-sync loop reconciles any DB-ahead-of-resolver window. Regression coverage: 4 new tests in `internal/infrastructure/persistence/withtx_test.go` (commit/rollback/panic/intra-tx-read), plus 3 service-layer partial-failure tests in `internal/application/services/partial_failure_test.go` (CreateOperator, CreateScopedSigningKey, ImportFromNSC) backed by a fault-injecting encryptor that confirms no orphan rows survive. All existing unit + integration + e2e suites green. **2026-05-13 follow-up:** `ExportService.ImportFromNSC` is now also tx-wrapped — added `SetSystemAccountTx`/`CreateUserTx`/`UpdateClusterCredentialsTx` so its inner service calls participate in the import-level tx; archive extraction stays OUTSIDE the tx (filesystem state isn't rolled back; `defer os.RemoveAll` handles it). |
 | A2  |        |       |
 | A3  |        |       |
@@ -132,6 +133,19 @@ Today's search is per-list. To find "which scoped key allows pub on `metrics.>`"
 ### P12. Scheduled backup + restore-verify — M
 
 `nisctl export operator` exists but backups are someone's homework. This adds config-driven cron, encrypted blob to S3-compatible storage, retention policy, and a `verify` command that boots a shadow NIS in a tmpdir and imports the backup to confirm it works. Backup encryption key must be separate from data key.
+
+### P13. Surface NATS-side revocations honestly in the UI — S
+
+**Problem.** The "Revocations" badge on `AccountDetailView.vue` (line 50, computed line 185) counts users where `user.revoked_at != null`. That's a count of *currently-flagged users*, NOT a count of active entries in `user_jwt_revocations` — and the two diverge as soon as an operator runs **Regenerate credentials** on a revoked user. `RegenerateUserJWT` (`internal/application/services/user_revocation_service.go:211`) clears `user.revoked_at` (reinstate semantic — correct, see P2 notes) but intentionally leaves the `user_jwt_revocations` row with `pruned_at IS NULL` so the old JWT stays rejected by NATS until its `JWTExp`. Net effect: the UI shows "0 revocations" while the on-NATS account JWT still carries the revocation entry in its `Revocations` map. Misleading for operators trying to reason about what NATS will and won't accept. Discovered 2026-05-18 during a revoke-then-regen experiment.
+
+**Proposal.**
+
+1. **Rename the badge** in `ui/src/views/AccountDetailView.vue` from "Revocations" to "Revoked users" (or "Currently revoked"). The computed value is correct; the label is the lie. Single-line change, no service work.
+2. **Add an "Active JWT revocations" panel** on `AccountDetailView.vue`, sourced from a new RPC `ListAccountJWTRevocations(account_id)` that wraps `UserJWTRevocationRepository.ListActiveByAccount`. Columns: user name (if `user_id` still resolves), public key (short-form), `revoked_at`, `jwt_exp`, `reason`, and a "still flagged?" indicator showing whether the user row's `revoked_at` is also set. This is the thing actually in NATS's account JWT — making it visible closes the gap between "what NIS DB says" and "what NATS enforces". Optional follow-up: an admin-only "Force prune" button that calls `UserJWTRevocationRepository.MarkPruned` for one row, regenerates the parent account JWT, and pushes it — for the (rare) case where an operator genuinely wants to release a revocation before its `JWTExp`. Gate behind admin via `PermissionService.CanForcePruneRevocation` (new). Likely v1.1 — not in the first cut.
+
+**Why now.** The state-machine semantics from P2 are correct (don't change them); the operator-facing display lied. Cheap to fix (1) and high-leverage if operators are audit-conscious. (2) makes "did my revoke actually land on NATS?" answerable without `nats account info` or DB introspection.
+
+**Out of scope.** Changing the `RegenerateUserJWT` behavior to prune the revocation row would re-legitimize cached old creds — security regression, do not pursue.
 
 ---
 

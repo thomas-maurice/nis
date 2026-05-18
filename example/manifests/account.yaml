@@ -1,0 +1,24 @@
+# Kind: Account
+# Declares a NATS account under an operator.
+# The $SYS account is reserved and auto-created — do not declare it here.
+# A "default" ScopedSigningKey is auto-created for every new account.
+#
+# Required fields: apiVersion, kind, metadata.name, metadata.operator
+# Optional fields: spec.description, spec.jetStream (all sub-fields optional)
+#
+# spec.jetStream enables JetStream on the account with resource limits.
+# If omitted, the account is created without JetStream enabled.
+# maxMemory / maxStorage: binary-unit strings (Ki, Mi, Gi, Ti) or bare byte count.
+apiVersion: nis/v1
+kind: Account
+metadata:
+  name: payments
+  operator: acme-prod
+spec:
+  description: "Payment processing account"
+  jetStream:
+    enabled: true
+    maxMemory: 512Mi    # 512 MiB working memory for JetStream
+    maxStorage: 10Gi    # 10 GiB persistent stream storage
+    maxStreams: 20       # maximum number of streams
+    maxConsumers: 100   # maximum number of consumers across all streams

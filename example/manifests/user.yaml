@@ -1,0 +1,26 @@
+# Kind: User
+# Declares a NATS user under an account. The user's .creds file is retrieved
+# separately via `nisctl user creds NAME --operator OP --account ACC`.
+# The "system" user name is reserved — do not declare it here.
+#
+# Required fields: apiVersion, kind, metadata.name, metadata.operator, metadata.account
+# Optional fields: spec.description, spec.scopedKey, spec.jwtTTL
+#
+# spec.scopedKey: name of a ScopedSigningKey in the same operator+account.
+#   If omitted, the user is signed by the account's "default" key.
+#   v1 limitation: scopedKey reassignment via apply is not supported — changing
+#   this field would silently invalidate existing .creds files. To reassign,
+#   delete the user and recreate it.
+#
+# spec.jwtTTL: per-user JWT expiry override. Overrides the operator-level
+#   jwtPolicy.userJWTTTL for this user only. Omit to inherit the operator default.
+apiVersion: nis/v1
+kind: User
+metadata:
+  name: payments-svc
+  operator: acme-prod
+  account: payments
+spec:
+  description: "Service account for the payments microservice"
+  scopedKey: payments-writer   # reference to a ScopedSigningKey in this account
+  jwtTTL: 168h                 # 7-day expiry, overrides operator-level policy

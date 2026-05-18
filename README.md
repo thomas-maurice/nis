@@ -547,6 +547,99 @@ grpcurl -plaintext \
 Also works with **Postman**, **Bruno**, **Kreya**, and any other Connect/gRPC
 client that supports reflection. Point them at your NIS URL.
 
+## Bulk operations (manifest apply/diff/delete/dump)
+
+NIS supports a declarative, kubectl-style workflow for managing the full
+identity tree. You describe the desired state in YAML, and `nisctl apply`
+creates or updates only the entities that differ from what is already on the
+server. A multi-document YAML file (documents separated by `---`) can declare
+all five kinds in a single file and apply them in the correct topological order
+(Operator → Cluster → Account → ScopedSigningKey → User).
+
+### Quick example
+
+```yaml
+---
+apiVersion: nis/v1
+kind: Operator
+metadata:
+  name: acme-prod
+spec:
+  description: "ACME production operator"
+---
+apiVersion: nis/v1
+kind: Account
+metadata:
+  name: payments
+  operator: acme-prod
+spec:
+  description: "Payment processing account"
+---
+apiVersion: nis/v1
+kind: User
+metadata:
+  name: payments-svc
+  operator: acme-prod
+  account: payments
+spec:
+  description: "Service account for the payments microservice"
+  jwtTTL: 168h
+```
+
+### Commands
+
+```bash
+# Compute what would change and print the plan — no server writes
+nisctl diff -f manifest.yaml
+# or equivalently:
+nisctl apply -f manifest.yaml --dry-run
+
+# Apply the plan; prompts for confirmation unless -y is given
+nisctl apply -f manifest.yaml
+nisctl apply -f manifest.yaml -y
+
+# Delete every entity declared in the file (reverse topo order: User first, Operator last)
+nisctl delete -f manifest.yaml
+nisctl delete -f manifest.yaml -y
+
+# Dump an existing operator tree to stdout as a manifest
+nisctl dump operator OPERATOR_NAME
+nisctl dump operator OPERATOR_NAME -o acme-prod.yaml
+# Restrict to specific kinds (comma-separated):
+nisctl dump operator OPERATOR_NAME --kinds=Account,User
+```
+
+### Reserved names
+
+The following entities cannot be declared or deleted via manifest:
+
+- **`$SYS` Account** — auto-created with every operator; not manageable via manifest.
+- **`system` User** — auto-created under `$SYS`; not manageable via manifest.
+- **`default` ScopedSigningKey** — auto-created per account; may be declared in a
+  manifest to update its permissions, but cannot be deleted via manifest.
+
+### Bulk-manifest workflow tip
+
+```bash
+# Capture current state
+nisctl dump operator acme-prod > acme-prod.yaml
+# Edit the file, then preview the delta
+nisctl diff -f acme-prod.yaml
+# Apply when happy
+nisctl apply -f acme-prod.yaml
+```
+
+### v1 limitations
+
+- **Cluster updates** are not supported via manifest; the `apply` command will
+  error on an existing Cluster that differs from the server state. Use
+  `nisctl cluster update` or the UI for in-place cluster edits.
+- **User `scopedKey` reassignment** via apply is not supported. Changing
+  `spec.scopedKey` on an existing user would invalidate the user's current
+  `.creds` file. Delete and recreate the user explicitly instead.
+
+Full per-kind examples with annotated fields: [`example/manifests/`](example/manifests/).
+
 ## Observability
 
 NIS exports Prometheus metrics, OpenTelemetry traces, and three HTTP probe

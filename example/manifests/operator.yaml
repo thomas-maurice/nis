@@ -1,0 +1,22 @@
+# Kind: Operator
+# Declares the top-level trust anchor for a NATS identity tree.
+# Creating an operator auto-creates a $SYS account and system user — do not declare those here.
+#
+# Required fields: apiVersion, kind, metadata.name
+# Optional fields: spec.description, spec.jwtPolicy (all sub-fields optional)
+#
+# spec.jwtPolicy sets the operator-wide default JWT expiry/renewal policy.
+# Zero values (omitted fields) mean "no expiry, no auto-renew" — back-compat default.
+# Per-user overrides are possible via spec.jwtTTL on a User manifest.
+apiVersion: nis/v1
+kind: Operator
+metadata:
+  name: acme-prod
+spec:
+  description: "ACME production operator"
+  jwtPolicy:
+    # Duration strings: plain Go format (e.g. 720h, 30m, 10s) or NIS shorthand (720h0m0s).
+    userJWTTTL: 720h       # user credentials expire after 30 days
+    accountJWTTTL: 8760h   # account JWTs rotate every 365 days
+    warnWindow: 168h       # emit expiry-warning events 7 days before expiry
+    autoRenew: true        # automatically renew user JWTs before they expire
