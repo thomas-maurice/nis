@@ -354,6 +354,15 @@ func (h *harness) createScopedKey(t *testing.T, accountID, name string, perms *n
 	return resp.Msg.Key.Id
 }
 
+func (h *harness) regenerateUserCredentials(t *testing.T, userID string) {
+	t.Helper()
+	if _, err := h.userCli.RegenerateUserCredentials(context.Background(), connect.NewRequest(&nisv1.RegenerateUserCredentialsRequest{
+		Id: userID,
+	})); err != nil {
+		t.Fatalf("RegenerateUserCredentials(%s): %v", userID, err)
+	}
+}
+
 func (h *harness) syncCluster(t *testing.T, clusterID string) {
 	t.Helper()
 	if _, err := h.clusterCli.SyncCluster(context.Background(), connect.NewRequest(&nisv1.SyncClusterRequest{

@@ -208,3 +208,40 @@ func TestE2E_RBAC_FilterOperatorsHidesOthers(t *testing.T) {
 		t.Fatalf("operator-admin should see only their own operator; got %v", names)
 	}
 }
+
+// TestE2E_RBAC_ListAccountJWTRevocationsScope pins the P13 panel's authz
+// boundary: an operator-admin scoped to operator A must not be able to list
+// revocations for an account belonging to operator B. The handler runs the
+// same CanReadAccount gate as GetAccount; this test exists so a future
+// refactor that drops the gate gets caught at the boundary.
+func TestE2E_RBAC_ListAccountJWTRevocationsScope(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	operatorAID := h.createOperator(t, "rbac-rev-op-a")
+	operatorBID := h.createOperator(t, "rbac-rev-op-b")
+	accountBID := h.createAccount(t, operatorBID, "rbac-rev-acc-b")
+
+	const opAdminUser = "rbac-rev-op-admin"
+	const opAdminPass = "rbac-rev-op-admin-password"
+	if _, err := h.loginAs(t, adminUsername, adminPassword).authCli.CreateAPIUser(ctx, connect.NewRequest(&nisv1.CreateAPIUserRequest{
+		Username:    opAdminUser,
+		Password:    opAdminPass,
+		Permissions: []string{"operator-admin"},
+		OperatorId:  &operatorAID,
+	})); err != nil {
+		t.Fatalf("CreateAPIUser(operator-admin): %v", err)
+	}
+
+	opAdmin := h.loginAs(t, opAdminUser, opAdminPass)
+
+	_, err := opAdmin.accountCli.ListAccountJWTRevocations(ctx, connect.NewRequest(&nisv1.ListAccountJWTRevocationsRequest{
+		AccountId: accountBID,
+	}))
+	if err == nil {
+		t.Fatal("operator-admin of A must NOT list revocations on B's account, but call succeeded")
+	}
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied, got %v: %v", got, err)
+	}
+}

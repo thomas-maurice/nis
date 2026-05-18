@@ -257,3 +257,71 @@ func (s *UserRevocationServiceTestSuite) TestRegenerateUserJWT_SetsExpWhenOperat
 		updated.JWTExpiresAt.After(lo) && updated.JWTExpiresAt.Before(hi),
 		"JWTExpiresAt %v should be within ±5s of now+%v", updated.JWTExpiresAt, ttl)
 }
+
+// TestAccountService_ListJWTRevocations_StillFlaggedAfterRevoke covers the
+// happy path of P13: a fresh revocation surfaces with UserStillFlagged=true
+// and the resolved UserName.
+func (s *UserRevocationServiceTestSuite) TestAccountService_ListJWTRevocations_StillFlaggedAfterRevoke() {
+	_, accID, userID := s.scaffoldTree("listrev-flagged")
+
+	_, err := s.revSvc.RevokeUser(s.ctx, userID, "incident-123")
+	require.NoError(s.T(), err)
+
+	views, err := s.accountSvc.ListJWTRevocations(s.ctx, accID)
+	require.NoError(s.T(), err)
+	require.Len(s.T(), views, 1)
+
+	v := views[0]
+	require.NotNil(s.T(), v.Revocation)
+	assert.Equal(s.T(), "incident-123", v.Revocation.Reason)
+	assert.Equal(s.T(), "listrev-flagged-user", v.UserName)
+	assert.True(s.T(), v.UserStillFlagged, "UserStillFlagged must be true while users.revoked_at is set")
+	require.NotNil(s.T(), v.Revocation.UserID)
+	assert.Equal(s.T(), userID, *v.Revocation.UserID)
+}
+
+// TestAccountService_ListJWTRevocations_NotFlaggedAfterRegenerate is the
+// motivating P13 scenario: after RegenerateUserJWT clears users.revoked_at,
+// the revocation row stays active (NATS still rejects until JWTExp) but
+// UserStillFlagged flips to false. This is the divergence the UI must surface.
+func (s *UserRevocationServiceTestSuite) TestAccountService_ListJWTRevocations_NotFlaggedAfterRegenerate() {
+	_, accID, userID := s.scaffoldTree("listrev-regen")
+
+	_, err := s.revSvc.RevokeUser(s.ctx, userID, "before-regen")
+	require.NoError(s.T(), err)
+
+	_, err = s.revSvc.RegenerateUserJWT(s.ctx, userID)
+	require.NoError(s.T(), err)
+
+	views, err := s.accountSvc.ListJWTRevocations(s.ctx, accID)
+	require.NoError(s.T(), err)
+	require.Len(s.T(), views, 1, "revocation row must remain active until JWTExp")
+	assert.False(s.T(), views[0].UserStillFlagged,
+		"UserStillFlagged must be false after RegenerateUserJWT clears users.revoked_at")
+	assert.Equal(s.T(), "listrev-regen-user", views[0].UserName)
+}
+
+// TestAccountService_ListJWTRevocations_UserHardDeleted covers the case where
+// a user row is hard-deleted after revocation. The revocation row outlives
+// the user; UserName must be empty and UserStillFlagged must be false. The
+// revocation row's UserID is nullable for exactly this reason.
+func (s *UserRevocationServiceTestSuite) TestAccountService_ListJWTRevocations_UserHardDeleted() {
+	_, accID, userID := s.scaffoldTree("listrev-deleted")
+
+	_, err := s.revSvc.RevokeUser(s.ctx, userID, "going-away")
+	require.NoError(s.T(), err)
+
+	// Null out user_id directly to mimic the on-delete-set-null behavior of
+	// the FK without actually deleting (the FK is ON DELETE CASCADE on users
+	// today, so this directly exercises the nil-UserID display path).
+	require.NoError(s.T(),
+		s.db.Exec("UPDATE user_jwt_revocations SET user_id = NULL WHERE account_id = ?", accID).Error,
+	)
+
+	views, err := s.accountSvc.ListJWTRevocations(s.ctx, accID)
+	require.NoError(s.T(), err)
+	require.Len(s.T(), views, 1)
+	assert.Nil(s.T(), views[0].Revocation.UserID)
+	assert.Empty(s.T(), views[0].UserName, "UserName must be empty when UserID is nil")
+	assert.False(s.T(), views[0].UserStillFlagged, "UserStillFlagged must be false when UserID is nil")
+}

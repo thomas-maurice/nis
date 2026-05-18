@@ -223,6 +223,8 @@ nisctl user revoke alice --operator my-op --account my-acc --reason "leaked lapt
 nisctl user regenerate-creds alice --operator my-op --account my-acc   # reinstates: clears revoked_at, mints fresh creds
 ```
 
+The Account detail page exposes an **Active JWT revocations** panel listing the entries currently flattened into the account JWT's `Revocations` map. The "Still flagged" column shows whether the underlying user row's `revoked_at` is also set — it flips to **No** after `nisctl user regenerate-creds`, but the revocation row itself stays active in the account JWT until its `jwt_exp` (NATS keeps rejecting the old credential until then). This panel is the source of truth for "what NATS will actually reject right now."
+
 **Already-expired credentials are NEVER auto-renewed.** If NIS was down through a TTL window and user JWTs expired, the sweeper emits `user.cred.expired` and waits — silently re-signing dead credentials defeats the point of expiry. An operator must run `nisctl user regenerate-creds` (or hit "Regenerate" in the UI) to issue a fresh JWT.
 
 **Sweeper.** A single background goroutine runs every `jwt_policy.sweep_interval_seconds` (default `3600`). Phases per tick:

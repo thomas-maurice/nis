@@ -57,6 +57,9 @@ const (
 	// AccountServicePushAccountJWTProcedure is the fully-qualified name of the AccountService's
 	// PushAccountJWT RPC.
 	AccountServicePushAccountJWTProcedure = "/nis.v1.AccountService/PushAccountJWT"
+	// AccountServiceListAccountJWTRevocationsProcedure is the fully-qualified name of the
+	// AccountService's ListAccountJWTRevocations RPC.
+	AccountServiceListAccountJWTRevocationsProcedure = "/nis.v1.AccountService/ListAccountJWTRevocations"
 )
 
 // AccountServiceClient is a client for the nis.v1.AccountService service.
@@ -69,6 +72,7 @@ type AccountServiceClient interface {
 	UpdateJetStreamLimits(context.Context, *connect.Request[v1.UpdateJetStreamLimitsRequest]) (*connect.Response[v1.UpdateJetStreamLimitsResponse], error)
 	DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[v1.DeleteAccountResponse], error)
 	PushAccountJWT(context.Context, *connect.Request[v1.PushAccountJWTRequest]) (*connect.Response[v1.PushAccountJWTResponse], error)
+	ListAccountJWTRevocations(context.Context, *connect.Request[v1.ListAccountJWTRevocationsRequest]) (*connect.Response[v1.ListAccountJWTRevocationsResponse], error)
 }
 
 // NewAccountServiceClient constructs a client for the nis.v1.AccountService service. By default, it
@@ -130,19 +134,26 @@ func NewAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(accountServiceMethods.ByName("PushAccountJWT")),
 			connect.WithClientOptions(opts...),
 		),
+		listAccountJWTRevocations: connect.NewClient[v1.ListAccountJWTRevocationsRequest, v1.ListAccountJWTRevocationsResponse](
+			httpClient,
+			baseURL+AccountServiceListAccountJWTRevocationsProcedure,
+			connect.WithSchema(accountServiceMethods.ByName("ListAccountJWTRevocations")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // accountServiceClient implements AccountServiceClient.
 type accountServiceClient struct {
-	createAccount         *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
-	getAccount            *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
-	getAccountByName      *connect.Client[v1.GetAccountByNameRequest, v1.GetAccountByNameResponse]
-	listAccounts          *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
-	updateAccount         *connect.Client[v1.UpdateAccountRequest, v1.UpdateAccountResponse]
-	updateJetStreamLimits *connect.Client[v1.UpdateJetStreamLimitsRequest, v1.UpdateJetStreamLimitsResponse]
-	deleteAccount         *connect.Client[v1.DeleteAccountRequest, v1.DeleteAccountResponse]
-	pushAccountJWT        *connect.Client[v1.PushAccountJWTRequest, v1.PushAccountJWTResponse]
+	createAccount             *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
+	getAccount                *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
+	getAccountByName          *connect.Client[v1.GetAccountByNameRequest, v1.GetAccountByNameResponse]
+	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	updateAccount             *connect.Client[v1.UpdateAccountRequest, v1.UpdateAccountResponse]
+	updateJetStreamLimits     *connect.Client[v1.UpdateJetStreamLimitsRequest, v1.UpdateJetStreamLimitsResponse]
+	deleteAccount             *connect.Client[v1.DeleteAccountRequest, v1.DeleteAccountResponse]
+	pushAccountJWT            *connect.Client[v1.PushAccountJWTRequest, v1.PushAccountJWTResponse]
+	listAccountJWTRevocations *connect.Client[v1.ListAccountJWTRevocationsRequest, v1.ListAccountJWTRevocationsResponse]
 }
 
 // CreateAccount calls nis.v1.AccountService.CreateAccount.
@@ -185,6 +196,11 @@ func (c *accountServiceClient) PushAccountJWT(ctx context.Context, req *connect.
 	return c.pushAccountJWT.CallUnary(ctx, req)
 }
 
+// ListAccountJWTRevocations calls nis.v1.AccountService.ListAccountJWTRevocations.
+func (c *accountServiceClient) ListAccountJWTRevocations(ctx context.Context, req *connect.Request[v1.ListAccountJWTRevocationsRequest]) (*connect.Response[v1.ListAccountJWTRevocationsResponse], error) {
+	return c.listAccountJWTRevocations.CallUnary(ctx, req)
+}
+
 // AccountServiceHandler is an implementation of the nis.v1.AccountService service.
 type AccountServiceHandler interface {
 	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.CreateAccountResponse], error)
@@ -195,6 +211,7 @@ type AccountServiceHandler interface {
 	UpdateJetStreamLimits(context.Context, *connect.Request[v1.UpdateJetStreamLimitsRequest]) (*connect.Response[v1.UpdateJetStreamLimitsResponse], error)
 	DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[v1.DeleteAccountResponse], error)
 	PushAccountJWT(context.Context, *connect.Request[v1.PushAccountJWTRequest]) (*connect.Response[v1.PushAccountJWTResponse], error)
+	ListAccountJWTRevocations(context.Context, *connect.Request[v1.ListAccountJWTRevocationsRequest]) (*connect.Response[v1.ListAccountJWTRevocationsResponse], error)
 }
 
 // NewAccountServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -252,6 +269,12 @@ func NewAccountServiceHandler(svc AccountServiceHandler, opts ...connect.Handler
 		connect.WithSchema(accountServiceMethods.ByName("PushAccountJWT")),
 		connect.WithHandlerOptions(opts...),
 	)
+	accountServiceListAccountJWTRevocationsHandler := connect.NewUnaryHandler(
+		AccountServiceListAccountJWTRevocationsProcedure,
+		svc.ListAccountJWTRevocations,
+		connect.WithSchema(accountServiceMethods.ByName("ListAccountJWTRevocations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.AccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AccountServiceCreateAccountProcedure:
@@ -270,6 +293,8 @@ func NewAccountServiceHandler(svc AccountServiceHandler, opts ...connect.Handler
 			accountServiceDeleteAccountHandler.ServeHTTP(w, r)
 		case AccountServicePushAccountJWTProcedure:
 			accountServicePushAccountJWTHandler.ServeHTTP(w, r)
+		case AccountServiceListAccountJWTRevocationsProcedure:
+			accountServiceListAccountJWTRevocationsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -309,4 +334,8 @@ func (UnimplementedAccountServiceHandler) DeleteAccount(context.Context, *connec
 
 func (UnimplementedAccountServiceHandler) PushAccountJWT(context.Context, *connect.Request[v1.PushAccountJWTRequest]) (*connect.Response[v1.PushAccountJWTResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.AccountService.PushAccountJWT is not implemented"))
+}
+
+func (UnimplementedAccountServiceHandler) ListAccountJWTRevocations(context.Context, *connect.Request[v1.ListAccountJWTRevocationsRequest]) (*connect.Response[v1.ListAccountJWTRevocationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.AccountService.ListAccountJWTRevocations is not implemented"))
 }

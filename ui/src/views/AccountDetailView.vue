@@ -111,6 +111,87 @@
           </div>
         </div>
       </div>
+
+      <div class="row g-4 mt-1">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">
+                Active JWT revocations
+                <span
+                  class="badge ms-2"
+                  :class="revocations.length > 0 ? 'bg-danger' : 'bg-secondary'"
+                >
+                  {{ revocations.length }}
+                </span>
+              </h5>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                :disabled="revocationsLoading"
+                @click="loadRevocations"
+              >
+                <span v-if="revocationsLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                Refresh
+              </button>
+            </div>
+            <div class="card-body">
+              <div v-if="revocationsError" class="alert alert-warning mb-3">
+                {{ revocationsError }}
+              </div>
+              <div v-if="revocations.length === 0 && !revocationsLoading" class="text-muted">
+                No active revocations on the account JWT.
+              </div>
+              <div v-else-if="revocations.length > 0" class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Public key</th>
+                      <th>Revoked at</th>
+                      <th>JWT exp</th>
+                      <th>Reason</th>
+                      <th>Still flagged</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="rev in revocations" :key="rev.id">
+                      <td>
+                        <router-link
+                          v-if="rev.userId"
+                          :to="`/users/${rev.userId}`"
+                        >{{ rev.userName || rev.userId }}</router-link>
+                        <span v-else class="text-muted" title="User row hard-deleted; revocation outlives it until JWT exp">—</span>
+                      </td>
+                      <td><ClickablePubKey :pubkey="rev.userPublicKey" /></td>
+                      <td>{{ formatDate(rev.revokedAt) }}</td>
+                      <td>
+                        <span :title="formatDate(rev.jwtExp)">
+                          {{ formatJWTExp(rev.jwtExp) }}
+                        </span>
+                      </td>
+                      <td>{{ rev.reason || '-' }}</td>
+                      <td>
+                        <span
+                          :class="rev.userStillFlagged ? 'badge bg-warning text-dark' : 'badge bg-success'"
+                          :title="rev.userStillFlagged
+                            ? 'users.revoked_at is set on the user row.'
+                            : 'User credential was regenerated. The revocation still applies in NATS until JWT exp.'"
+                        >
+                          {{ rev.userStillFlagged ? 'Yes' : 'No' }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-muted small mb-0 mt-3">
+                Entries remain in the account JWT's <code>Revocations</code> map until their JWT exp elapses,
+                even after Regenerate Credentials. NATS rejects connections using the revoked credential until then.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -129,6 +210,9 @@ const operator = ref(null)
 const loading = ref(false)
 const error = ref('')
 const activeRevocations = ref(0)
+const revocations = ref([])
+const revocationsLoading = ref(false)
+const revocationsError = ref('')
 
 // Account JWT exp (P2). The exp lives in the signed JWT itself; decoding is
 // the cheapest read. NB: jwt-decode does NOT verify the signature — it's
@@ -187,11 +271,45 @@ const loadAccount = async () => {
       // Non-fatal — badge stays 0
       console.error('Failed to load users for revocation count:', err)
     }
+
+    await loadRevocations()
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load account'
   } finally {
     loading.value = false
   }
+}
+
+const loadRevocations = async () => {
+  revocationsLoading.value = true
+  revocationsError.value = ''
+  try {
+    const resp = await apiClient.post('/nis.v1.AccountService/ListAccountJWTRevocations', {
+      accountId: route.params.id
+    })
+    revocations.value = resp.data.revocations || []
+  } catch (err) {
+    revocationsError.value = err.response?.data?.message || 'Failed to load active revocations'
+    revocations.value = []
+  } finally {
+    revocationsLoading.value = false
+  }
+}
+
+const formatJWTExp = (dateStr) => {
+  if (!dateStr) return 'Never'
+  const exp = new Date(dateStr).getTime()
+  const now = Date.now()
+  const diff = exp - now
+  const day = 86400000
+  if (diff > 0) {
+    const days = Math.floor(diff / day)
+    if (days === 0) return 'Expires today'
+    return `Expires in ${days}d`
+  }
+  const days = Math.floor((now - exp) / day)
+  if (days === 0) return 'Expired today'
+  return `Expired ${days}d ago`
 }
 
 const formatDate = (dateStr) => {

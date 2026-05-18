@@ -1,8 +1,9 @@
 package mappers
 
 import (
-	"github.com/thomas-maurice/nis/internal/domain/entities"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -49,4 +50,36 @@ func ProtoToJetStreamLimits(limits *pb.JetStreamLimits) (bool, int64, int64, int
 		limits.MaxStorage,
 		int64(limits.MaxStreams),
 		int64(limits.MaxConsumers)
+}
+
+// AccountJWTRevocationViewToProto converts a service-level revocation view
+// (entity + denormalised user fields) to its protobuf representation.
+func AccountJWTRevocationViewToProto(v *services.AccountJWTRevocationView) *pb.AccountJWTRevocation {
+	if v == nil || v.Revocation == nil {
+		return nil
+	}
+	rev := v.Revocation
+	out := &pb.AccountJWTRevocation{
+		Id:               UUIDToString(rev.ID),
+		AccountId:        UUIDToString(rev.AccountID),
+		UserName:         v.UserName,
+		UserPublicKey:    rev.UserPublicKey,
+		RevokedAt:        timestamppb.New(rev.RevokedAt),
+		JwtExp:           timestamppb.New(rev.JWTExp),
+		Reason:           rev.Reason,
+		UserStillFlagged: v.UserStillFlagged,
+	}
+	if rev.UserID != nil {
+		out.UserId = UUIDToString(*rev.UserID)
+	}
+	return out
+}
+
+// AccountJWTRevocationViewsToProto maps a slice.
+func AccountJWTRevocationViewsToProto(vs []*services.AccountJWTRevocationView) []*pb.AccountJWTRevocation {
+	out := make([]*pb.AccountJWTRevocation, len(vs))
+	for i, v := range vs {
+		out[i] = AccountJWTRevocationViewToProto(v)
+	}
+	return out
 }

@@ -899,6 +899,214 @@ func (*PushAccountJWTResponse) Descriptor() ([]byte, []int) {
 	return file_nis_v1_account_proto_rawDescGZIP(), []int{16}
 }
 
+// AccountJWTRevocation is one active entry in the parent account JWT's
+// NATS-native Revocations map. Surfaced so operators can see what NATS is
+// actually rejecting, independent of whether the user row's revoked_at is
+// still set (which RegenerateUserCredentials clears).
+type AccountJWTRevocation struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	AccountId string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	// user_id is empty when the user row has been hard-deleted but the
+	// revocation must remain in the account JWT until jwt_exp.
+	UserId string `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// user_name is empty if user_id is empty.
+	UserName      string                 `protobuf:"bytes,4,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	UserPublicKey string                 `protobuf:"bytes,5,opt,name=user_public_key,json=userPublicKey,proto3" json:"user_public_key,omitempty"`
+	RevokedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	JwtExp        *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=jwt_exp,json=jwtExp,proto3" json:"jwt_exp,omitempty"`
+	Reason        string                 `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
+	// user_still_flagged is true if the user row's revoked_at is non-nil.
+	// false after RegenerateUserCredentials — the revocation row stays
+	// active until jwt_exp regardless.
+	UserStillFlagged bool `protobuf:"varint,9,opt,name=user_still_flagged,json=userStillFlagged,proto3" json:"user_still_flagged,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AccountJWTRevocation) Reset() {
+	*x = AccountJWTRevocation{}
+	mi := &file_nis_v1_account_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountJWTRevocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountJWTRevocation) ProtoMessage() {}
+
+func (x *AccountJWTRevocation) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountJWTRevocation.ProtoReflect.Descriptor instead.
+func (*AccountJWTRevocation) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AccountJWTRevocation) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AccountJWTRevocation) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *AccountJWTRevocation) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *AccountJWTRevocation) GetUserName() string {
+	if x != nil {
+		return x.UserName
+	}
+	return ""
+}
+
+func (x *AccountJWTRevocation) GetUserPublicKey() string {
+	if x != nil {
+		return x.UserPublicKey
+	}
+	return ""
+}
+
+func (x *AccountJWTRevocation) GetRevokedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RevokedAt
+	}
+	return nil
+}
+
+func (x *AccountJWTRevocation) GetJwtExp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.JwtExp
+	}
+	return nil
+}
+
+func (x *AccountJWTRevocation) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *AccountJWTRevocation) GetUserStillFlagged() bool {
+	if x != nil {
+		return x.UserStillFlagged
+	}
+	return false
+}
+
+// ListAccountJWTRevocationsRequest lists active revocations for the account.
+type ListAccountJWTRevocationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAccountJWTRevocationsRequest) Reset() {
+	*x = ListAccountJWTRevocationsRequest{}
+	mi := &file_nis_v1_account_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAccountJWTRevocationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAccountJWTRevocationsRequest) ProtoMessage() {}
+
+func (x *ListAccountJWTRevocationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAccountJWTRevocationsRequest.ProtoReflect.Descriptor instead.
+func (*ListAccountJWTRevocationsRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListAccountJWTRevocationsRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+// ListAccountJWTRevocationsResponse returns the active revocations.
+type ListAccountJWTRevocationsResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Revocations   []*AccountJWTRevocation `protobuf:"bytes,1,rep,name=revocations,proto3" json:"revocations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAccountJWTRevocationsResponse) Reset() {
+	*x = ListAccountJWTRevocationsResponse{}
+	mi := &file_nis_v1_account_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAccountJWTRevocationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAccountJWTRevocationsResponse) ProtoMessage() {}
+
+func (x *ListAccountJWTRevocationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAccountJWTRevocationsResponse.ProtoReflect.Descriptor instead.
+func (*ListAccountJWTRevocationsResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListAccountJWTRevocationsResponse) GetRevocations() []*AccountJWTRevocation {
+	if x != nil {
+		return x.Revocations
+	}
+	return nil
+}
+
 var File_nis_v1_account_proto protoreflect.FileDescriptor
 
 const file_nis_v1_account_proto_rawDesc = "" +
@@ -960,7 +1168,24 @@ const file_nis_v1_account_proto_rawDesc = "" +
 	"\x15DeleteAccountResponse\"'\n" +
 	"\x15PushAccountJWTRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x18\n" +
-	"\x16PushAccountJWTResponse2\x98\x05\n" +
+	"\x16PushAccountJWTResponse\"\xd9\x02\n" +
+	"\x14AccountJWTRevocation\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x02 \x01(\tR\taccountId\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\x12\x1b\n" +
+	"\tuser_name\x18\x04 \x01(\tR\buserName\x12&\n" +
+	"\x0fuser_public_key\x18\x05 \x01(\tR\ruserPublicKey\x129\n" +
+	"\n" +
+	"revoked_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x123\n" +
+	"\ajwt_exp\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x06jwtExp\x12\x16\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason\x12,\n" +
+	"\x12user_still_flagged\x18\t \x01(\bR\x10userStillFlagged\"A\n" +
+	" ListAccountJWTRevocationsRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"c\n" +
+	"!ListAccountJWTRevocationsResponse\x12>\n" +
+	"\vrevocations\x18\x01 \x03(\v2\x1c.nis.v1.AccountJWTRevocationR\vrevocations2\x8a\x06\n" +
 	"\x0eAccountService\x12L\n" +
 	"\rCreateAccount\x12\x1c.nis.v1.CreateAccountRequest\x1a\x1d.nis.v1.CreateAccountResponse\x12C\n" +
 	"\n" +
@@ -970,7 +1195,8 @@ const file_nis_v1_account_proto_rawDesc = "" +
 	"\rUpdateAccount\x12\x1c.nis.v1.UpdateAccountRequest\x1a\x1d.nis.v1.UpdateAccountResponse\x12d\n" +
 	"\x15UpdateJetStreamLimits\x12$.nis.v1.UpdateJetStreamLimitsRequest\x1a%.nis.v1.UpdateJetStreamLimitsResponse\x12L\n" +
 	"\rDeleteAccount\x12\x1c.nis.v1.DeleteAccountRequest\x1a\x1d.nis.v1.DeleteAccountResponse\x12O\n" +
-	"\x0ePushAccountJWT\x12\x1d.nis.v1.PushAccountJWTRequest\x1a\x1e.nis.v1.PushAccountJWTResponseB\x83\x01\n" +
+	"\x0ePushAccountJWT\x12\x1d.nis.v1.PushAccountJWTRequest\x1a\x1e.nis.v1.PushAccountJWTResponse\x12p\n" +
+	"\x19ListAccountJWTRevocations\x12(.nis.v1.ListAccountJWTRevocationsRequest\x1a).nis.v1.ListAccountJWTRevocationsResponseB\x83\x01\n" +
 	"\n" +
 	"com.nis.v1B\fAccountProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -986,63 +1212,71 @@ func file_nis_v1_account_proto_rawDescGZIP() []byte {
 	return file_nis_v1_account_proto_rawDescData
 }
 
-var file_nis_v1_account_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_nis_v1_account_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_nis_v1_account_proto_goTypes = []any{
-	(*Account)(nil),                       // 0: nis.v1.Account
-	(*CreateAccountRequest)(nil),          // 1: nis.v1.CreateAccountRequest
-	(*CreateAccountResponse)(nil),         // 2: nis.v1.CreateAccountResponse
-	(*GetAccountRequest)(nil),             // 3: nis.v1.GetAccountRequest
-	(*GetAccountResponse)(nil),            // 4: nis.v1.GetAccountResponse
-	(*GetAccountByNameRequest)(nil),       // 5: nis.v1.GetAccountByNameRequest
-	(*GetAccountByNameResponse)(nil),      // 6: nis.v1.GetAccountByNameResponse
-	(*ListAccountsRequest)(nil),           // 7: nis.v1.ListAccountsRequest
-	(*ListAccountsResponse)(nil),          // 8: nis.v1.ListAccountsResponse
-	(*UpdateAccountRequest)(nil),          // 9: nis.v1.UpdateAccountRequest
-	(*UpdateAccountResponse)(nil),         // 10: nis.v1.UpdateAccountResponse
-	(*UpdateJetStreamLimitsRequest)(nil),  // 11: nis.v1.UpdateJetStreamLimitsRequest
-	(*UpdateJetStreamLimitsResponse)(nil), // 12: nis.v1.UpdateJetStreamLimitsResponse
-	(*DeleteAccountRequest)(nil),          // 13: nis.v1.DeleteAccountRequest
-	(*DeleteAccountResponse)(nil),         // 14: nis.v1.DeleteAccountResponse
-	(*PushAccountJWTRequest)(nil),         // 15: nis.v1.PushAccountJWTRequest
-	(*PushAccountJWTResponse)(nil),        // 16: nis.v1.PushAccountJWTResponse
-	(*JetStreamLimits)(nil),               // 17: nis.v1.JetStreamLimits
-	(*timestamppb.Timestamp)(nil),         // 18: google.protobuf.Timestamp
-	(*ListOptions)(nil),                   // 19: nis.v1.ListOptions
+	(*Account)(nil),                           // 0: nis.v1.Account
+	(*CreateAccountRequest)(nil),              // 1: nis.v1.CreateAccountRequest
+	(*CreateAccountResponse)(nil),             // 2: nis.v1.CreateAccountResponse
+	(*GetAccountRequest)(nil),                 // 3: nis.v1.GetAccountRequest
+	(*GetAccountResponse)(nil),                // 4: nis.v1.GetAccountResponse
+	(*GetAccountByNameRequest)(nil),           // 5: nis.v1.GetAccountByNameRequest
+	(*GetAccountByNameResponse)(nil),          // 6: nis.v1.GetAccountByNameResponse
+	(*ListAccountsRequest)(nil),               // 7: nis.v1.ListAccountsRequest
+	(*ListAccountsResponse)(nil),              // 8: nis.v1.ListAccountsResponse
+	(*UpdateAccountRequest)(nil),              // 9: nis.v1.UpdateAccountRequest
+	(*UpdateAccountResponse)(nil),             // 10: nis.v1.UpdateAccountResponse
+	(*UpdateJetStreamLimitsRequest)(nil),      // 11: nis.v1.UpdateJetStreamLimitsRequest
+	(*UpdateJetStreamLimitsResponse)(nil),     // 12: nis.v1.UpdateJetStreamLimitsResponse
+	(*DeleteAccountRequest)(nil),              // 13: nis.v1.DeleteAccountRequest
+	(*DeleteAccountResponse)(nil),             // 14: nis.v1.DeleteAccountResponse
+	(*PushAccountJWTRequest)(nil),             // 15: nis.v1.PushAccountJWTRequest
+	(*PushAccountJWTResponse)(nil),            // 16: nis.v1.PushAccountJWTResponse
+	(*AccountJWTRevocation)(nil),              // 17: nis.v1.AccountJWTRevocation
+	(*ListAccountJWTRevocationsRequest)(nil),  // 18: nis.v1.ListAccountJWTRevocationsRequest
+	(*ListAccountJWTRevocationsResponse)(nil), // 19: nis.v1.ListAccountJWTRevocationsResponse
+	(*JetStreamLimits)(nil),                   // 20: nis.v1.JetStreamLimits
+	(*timestamppb.Timestamp)(nil),             // 21: google.protobuf.Timestamp
+	(*ListOptions)(nil),                       // 22: nis.v1.ListOptions
 }
 var file_nis_v1_account_proto_depIdxs = []int32{
-	17, // 0: nis.v1.Account.jetstream_limits:type_name -> nis.v1.JetStreamLimits
-	18, // 1: nis.v1.Account.created_at:type_name -> google.protobuf.Timestamp
-	18, // 2: nis.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
-	17, // 3: nis.v1.CreateAccountRequest.jetstream_limits:type_name -> nis.v1.JetStreamLimits
+	20, // 0: nis.v1.Account.jetstream_limits:type_name -> nis.v1.JetStreamLimits
+	21, // 1: nis.v1.Account.created_at:type_name -> google.protobuf.Timestamp
+	21, // 2: nis.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
+	20, // 3: nis.v1.CreateAccountRequest.jetstream_limits:type_name -> nis.v1.JetStreamLimits
 	0,  // 4: nis.v1.CreateAccountResponse.account:type_name -> nis.v1.Account
 	0,  // 5: nis.v1.GetAccountResponse.account:type_name -> nis.v1.Account
 	0,  // 6: nis.v1.GetAccountByNameResponse.account:type_name -> nis.v1.Account
-	19, // 7: nis.v1.ListAccountsRequest.options:type_name -> nis.v1.ListOptions
+	22, // 7: nis.v1.ListAccountsRequest.options:type_name -> nis.v1.ListOptions
 	0,  // 8: nis.v1.ListAccountsResponse.accounts:type_name -> nis.v1.Account
 	0,  // 9: nis.v1.UpdateAccountResponse.account:type_name -> nis.v1.Account
-	17, // 10: nis.v1.UpdateJetStreamLimitsRequest.limits:type_name -> nis.v1.JetStreamLimits
+	20, // 10: nis.v1.UpdateJetStreamLimitsRequest.limits:type_name -> nis.v1.JetStreamLimits
 	0,  // 11: nis.v1.UpdateJetStreamLimitsResponse.account:type_name -> nis.v1.Account
-	1,  // 12: nis.v1.AccountService.CreateAccount:input_type -> nis.v1.CreateAccountRequest
-	3,  // 13: nis.v1.AccountService.GetAccount:input_type -> nis.v1.GetAccountRequest
-	5,  // 14: nis.v1.AccountService.GetAccountByName:input_type -> nis.v1.GetAccountByNameRequest
-	7,  // 15: nis.v1.AccountService.ListAccounts:input_type -> nis.v1.ListAccountsRequest
-	9,  // 16: nis.v1.AccountService.UpdateAccount:input_type -> nis.v1.UpdateAccountRequest
-	11, // 17: nis.v1.AccountService.UpdateJetStreamLimits:input_type -> nis.v1.UpdateJetStreamLimitsRequest
-	13, // 18: nis.v1.AccountService.DeleteAccount:input_type -> nis.v1.DeleteAccountRequest
-	15, // 19: nis.v1.AccountService.PushAccountJWT:input_type -> nis.v1.PushAccountJWTRequest
-	2,  // 20: nis.v1.AccountService.CreateAccount:output_type -> nis.v1.CreateAccountResponse
-	4,  // 21: nis.v1.AccountService.GetAccount:output_type -> nis.v1.GetAccountResponse
-	6,  // 22: nis.v1.AccountService.GetAccountByName:output_type -> nis.v1.GetAccountByNameResponse
-	8,  // 23: nis.v1.AccountService.ListAccounts:output_type -> nis.v1.ListAccountsResponse
-	10, // 24: nis.v1.AccountService.UpdateAccount:output_type -> nis.v1.UpdateAccountResponse
-	12, // 25: nis.v1.AccountService.UpdateJetStreamLimits:output_type -> nis.v1.UpdateJetStreamLimitsResponse
-	14, // 26: nis.v1.AccountService.DeleteAccount:output_type -> nis.v1.DeleteAccountResponse
-	16, // 27: nis.v1.AccountService.PushAccountJWT:output_type -> nis.v1.PushAccountJWTResponse
-	20, // [20:28] is the sub-list for method output_type
-	12, // [12:20] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	21, // 12: nis.v1.AccountJWTRevocation.revoked_at:type_name -> google.protobuf.Timestamp
+	21, // 13: nis.v1.AccountJWTRevocation.jwt_exp:type_name -> google.protobuf.Timestamp
+	17, // 14: nis.v1.ListAccountJWTRevocationsResponse.revocations:type_name -> nis.v1.AccountJWTRevocation
+	1,  // 15: nis.v1.AccountService.CreateAccount:input_type -> nis.v1.CreateAccountRequest
+	3,  // 16: nis.v1.AccountService.GetAccount:input_type -> nis.v1.GetAccountRequest
+	5,  // 17: nis.v1.AccountService.GetAccountByName:input_type -> nis.v1.GetAccountByNameRequest
+	7,  // 18: nis.v1.AccountService.ListAccounts:input_type -> nis.v1.ListAccountsRequest
+	9,  // 19: nis.v1.AccountService.UpdateAccount:input_type -> nis.v1.UpdateAccountRequest
+	11, // 20: nis.v1.AccountService.UpdateJetStreamLimits:input_type -> nis.v1.UpdateJetStreamLimitsRequest
+	13, // 21: nis.v1.AccountService.DeleteAccount:input_type -> nis.v1.DeleteAccountRequest
+	15, // 22: nis.v1.AccountService.PushAccountJWT:input_type -> nis.v1.PushAccountJWTRequest
+	18, // 23: nis.v1.AccountService.ListAccountJWTRevocations:input_type -> nis.v1.ListAccountJWTRevocationsRequest
+	2,  // 24: nis.v1.AccountService.CreateAccount:output_type -> nis.v1.CreateAccountResponse
+	4,  // 25: nis.v1.AccountService.GetAccount:output_type -> nis.v1.GetAccountResponse
+	6,  // 26: nis.v1.AccountService.GetAccountByName:output_type -> nis.v1.GetAccountByNameResponse
+	8,  // 27: nis.v1.AccountService.ListAccounts:output_type -> nis.v1.ListAccountsResponse
+	10, // 28: nis.v1.AccountService.UpdateAccount:output_type -> nis.v1.UpdateAccountResponse
+	12, // 29: nis.v1.AccountService.UpdateJetStreamLimits:output_type -> nis.v1.UpdateJetStreamLimitsResponse
+	14, // 30: nis.v1.AccountService.DeleteAccount:output_type -> nis.v1.DeleteAccountResponse
+	16, // 31: nis.v1.AccountService.PushAccountJWT:output_type -> nis.v1.PushAccountJWTResponse
+	19, // 32: nis.v1.AccountService.ListAccountJWTRevocations:output_type -> nis.v1.ListAccountJWTRevocationsResponse
+	24, // [24:33] is the sub-list for method output_type
+	15, // [15:24] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_account_proto_init() }
@@ -1058,7 +1292,7 @@ func file_nis_v1_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_account_proto_rawDesc), len(file_nis_v1_account_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

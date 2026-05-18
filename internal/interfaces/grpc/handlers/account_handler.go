@@ -250,3 +250,35 @@ func (h *AccountHandler) PushAccountJWT(
 	// TODO: Implement when NATS client integration is added
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
+
+// ListAccountJWTRevocations returns the active revocation entries currently
+// flattened into the account JWT's NATS Revocations map. These are the
+// entries NATS actually rejects on — distinct from users flagged via
+// users.revoked_at, which RegenerateUserCredentials clears.
+func (h *AccountHandler) ListAccountJWTRevocations(
+	ctx context.Context,
+	req *connect.Request[pb.ListAccountJWTRevocationsRequest],
+) (*connect.Response[pb.ListAccountJWTRevocationsResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if err := h.permService.CanReadAccount(ctx, requestingUser, accountID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	views, err := h.service.ListJWTRevocations(ctx, accountID)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	return connect.NewResponse(&pb.ListAccountJWTRevocationsResponse{
+		Revocations: mappers.AccountJWTRevocationViewsToProto(views),
+	}), nil
+}

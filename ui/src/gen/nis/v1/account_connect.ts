@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateAccountRequest, CreateAccountResponse, DeleteAccountRequest, DeleteAccountResponse, GetAccountByNameRequest, GetAccountByNameResponse, GetAccountRequest, GetAccountResponse, ListAccountsRequest, ListAccountsResponse, PushAccountJWTRequest, PushAccountJWTResponse, UpdateAccountRequest, UpdateAccountResponse, UpdateJetStreamLimitsRequest, UpdateJetStreamLimitsResponse } from "./account_pb.js";
+import { CreateAccountRequest, CreateAccountResponse, DeleteAccountRequest, DeleteAccountResponse, GetAccountByNameRequest, GetAccountByNameResponse, GetAccountRequest, GetAccountResponse, ListAccountJWTRevocationsRequest, ListAccountJWTRevocationsResponse, ListAccountsRequest, ListAccountsResponse, PushAccountJWTRequest, PushAccountJWTResponse, UpdateAccountRequest, UpdateAccountResponse, UpdateJetStreamLimitsRequest, UpdateJetStreamLimitsResponse } from "./account_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -84,6 +84,15 @@ export const AccountService = {
       name: "PushAccountJWT",
       I: PushAccountJWTRequest,
       O: PushAccountJWTResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc nis.v1.AccountService.ListAccountJWTRevocations
+     */
+    listAccountJWTRevocations: {
+      name: "ListAccountJWTRevocations",
+      I: ListAccountJWTRevocationsRequest,
+      O: ListAccountJWTRevocationsResponse,
       kind: MethodKind.Unary,
     },
   }

@@ -465,3 +465,47 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error 
 		return nil
 	})
 }
+
+// AccountJWTRevocationView denormalises a UserJWTRevocation with the user's
+// current Name and whether the user row is still flagged as revoked. The
+// "still flagged" bit diverges from the revocation row's mere existence after
+// RegenerateUserCredentials clears users.revoked_at — the revocation row stays
+// active in the parent account JWT until its JWTExp regardless.
+type AccountJWTRevocationView struct {
+	Revocation       *entities.UserJWTRevocation
+	UserName         string
+	UserStillFlagged bool
+}
+
+// ListJWTRevocations returns the active (PrunedAt IS NULL) user-JWT revocations
+// for the account, joined with the current user row for display purposes.
+// Read-only — no transaction needed.
+func (s *AccountService) ListJWTRevocations(ctx context.Context, accountID uuid.UUID) ([]*AccountJWTRevocationView, error) {
+	revRepo := s.factory.UserJWTRevocationRepository()
+	userRepo := s.factory.UserRepository()
+
+	revs, err := revRepo.ListActiveByAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list active revocations: %w", err)
+	}
+
+	views := make([]*AccountJWTRevocationView, 0, len(revs))
+	for _, rev := range revs {
+		view := &AccountJWTRevocationView{Revocation: rev}
+		if rev.UserID != nil {
+			user, err := userRepo.GetByID(ctx, *rev.UserID)
+			switch {
+			case err == nil:
+				view.UserName = user.Name
+				view.UserStillFlagged = user.RevokedAt != nil
+			case errors.Is(err, repositories.ErrNotFound):
+				// User hard-deleted after revocation; revocation outlives it
+				// by design. Leave UserName empty, UserStillFlagged false.
+			default:
+				return nil, fmt.Errorf("get user %s for revocation %s: %w", rev.UserID, rev.ID, err)
+			}
+		}
+		views = append(views, view)
+	}
+	return views, nil
+}

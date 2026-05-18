@@ -265,6 +265,9 @@ func (c *fakeAccountClient) DeleteAccount(_ context.Context, req *connect.Reques
 func (c *fakeAccountClient) PushAccountJWT(_ context.Context, _ *connect.Request[nisv1.PushAccountJWTRequest]) (*connect.Response[nisv1.PushAccountJWTResponse], error) {
 	panic("not used in apply/delete")
 }
+func (c *fakeAccountClient) ListAccountJWTRevocations(_ context.Context, _ *connect.Request[nisv1.ListAccountJWTRevocationsRequest]) (*connect.Response[nisv1.ListAccountJWTRevocationsResponse], error) {
+	panic("not used in apply/delete")
+}
 
 // ---- user client ----
 

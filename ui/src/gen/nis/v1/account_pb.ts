@@ -754,3 +754,180 @@ export class PushAccountJWTResponse extends Message<PushAccountJWTResponse> {
   }
 }
 
+/**
+ * AccountJWTRevocation is one active entry in the parent account JWT's
+ * NATS-native Revocations map. Surfaced so operators can see what NATS is
+ * actually rejecting, independent of whether the user row's revoked_at is
+ * still set (which RegenerateUserCredentials clears).
+ *
+ * @generated from message nis.v1.AccountJWTRevocation
+ */
+export class AccountJWTRevocation extends Message<AccountJWTRevocation> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: string account_id = 2;
+   */
+  accountId = "";
+
+  /**
+   * user_id is empty when the user row has been hard-deleted but the
+   * revocation must remain in the account JWT until jwt_exp.
+   *
+   * @generated from field: string user_id = 3;
+   */
+  userId = "";
+
+  /**
+   * user_name is empty if user_id is empty.
+   *
+   * @generated from field: string user_name = 4;
+   */
+  userName = "";
+
+  /**
+   * @generated from field: string user_public_key = 5;
+   */
+  userPublicKey = "";
+
+  /**
+   * @generated from field: google.protobuf.Timestamp revoked_at = 6;
+   */
+  revokedAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp jwt_exp = 7;
+   */
+  jwtExp?: Timestamp;
+
+  /**
+   * @generated from field: string reason = 8;
+   */
+  reason = "";
+
+  /**
+   * user_still_flagged is true if the user row's revoked_at is non-nil.
+   * false after RegenerateUserCredentials — the revocation row stays
+   * active until jwt_exp regardless.
+   *
+   * @generated from field: bool user_still_flagged = 9;
+   */
+  userStillFlagged = false;
+
+  constructor(data?: PartialMessage<AccountJWTRevocation>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.AccountJWTRevocation";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "user_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "user_public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "revoked_at", kind: "message", T: Timestamp },
+    { no: 7, name: "jwt_exp", kind: "message", T: Timestamp },
+    { no: 8, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "user_still_flagged", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AccountJWTRevocation {
+    return new AccountJWTRevocation().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AccountJWTRevocation {
+    return new AccountJWTRevocation().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AccountJWTRevocation {
+    return new AccountJWTRevocation().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AccountJWTRevocation | PlainMessage<AccountJWTRevocation> | undefined, b: AccountJWTRevocation | PlainMessage<AccountJWTRevocation> | undefined): boolean {
+    return proto3.util.equals(AccountJWTRevocation, a, b);
+  }
+}
+
+/**
+ * ListAccountJWTRevocationsRequest lists active revocations for the account.
+ *
+ * @generated from message nis.v1.ListAccountJWTRevocationsRequest
+ */
+export class ListAccountJWTRevocationsRequest extends Message<ListAccountJWTRevocationsRequest> {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId = "";
+
+  constructor(data?: PartialMessage<ListAccountJWTRevocationsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ListAccountJWTRevocationsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAccountJWTRevocationsRequest {
+    return new ListAccountJWTRevocationsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListAccountJWTRevocationsRequest {
+    return new ListAccountJWTRevocationsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListAccountJWTRevocationsRequest {
+    return new ListAccountJWTRevocationsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListAccountJWTRevocationsRequest | PlainMessage<ListAccountJWTRevocationsRequest> | undefined, b: ListAccountJWTRevocationsRequest | PlainMessage<ListAccountJWTRevocationsRequest> | undefined): boolean {
+    return proto3.util.equals(ListAccountJWTRevocationsRequest, a, b);
+  }
+}
+
+/**
+ * ListAccountJWTRevocationsResponse returns the active revocations.
+ *
+ * @generated from message nis.v1.ListAccountJWTRevocationsResponse
+ */
+export class ListAccountJWTRevocationsResponse extends Message<ListAccountJWTRevocationsResponse> {
+  /**
+   * @generated from field: repeated nis.v1.AccountJWTRevocation revocations = 1;
+   */
+  revocations: AccountJWTRevocation[] = [];
+
+  constructor(data?: PartialMessage<ListAccountJWTRevocationsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ListAccountJWTRevocationsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "revocations", kind: "message", T: AccountJWTRevocation, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAccountJWTRevocationsResponse {
+    return new ListAccountJWTRevocationsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListAccountJWTRevocationsResponse {
+    return new ListAccountJWTRevocationsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListAccountJWTRevocationsResponse {
+    return new ListAccountJWTRevocationsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListAccountJWTRevocationsResponse | PlainMessage<ListAccountJWTRevocationsResponse> | undefined, b: ListAccountJWTRevocationsResponse | PlainMessage<ListAccountJWTRevocationsResponse> | undefined): boolean {
+    return proto3.util.equals(ListAccountJWTRevocationsResponse, a, b);
+  }
+}
+

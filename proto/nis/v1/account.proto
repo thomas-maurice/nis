@@ -104,6 +104,38 @@ message PushAccountJWTRequest {
 // PushAccountJWTResponse is the response from pushing account JWT
 message PushAccountJWTResponse {}
 
+// AccountJWTRevocation is one active entry in the parent account JWT's
+// NATS-native Revocations map. Surfaced so operators can see what NATS is
+// actually rejecting, independent of whether the user row's revoked_at is
+// still set (which RegenerateUserCredentials clears).
+message AccountJWTRevocation {
+  string id = 1;
+  string account_id = 2;
+  // user_id is empty when the user row has been hard-deleted but the
+  // revocation must remain in the account JWT until jwt_exp.
+  string user_id = 3;
+  // user_name is empty if user_id is empty.
+  string user_name = 4;
+  string user_public_key = 5;
+  google.protobuf.Timestamp revoked_at = 6;
+  google.protobuf.Timestamp jwt_exp = 7;
+  string reason = 8;
+  // user_still_flagged is true if the user row's revoked_at is non-nil.
+  // false after RegenerateUserCredentials — the revocation row stays
+  // active until jwt_exp regardless.
+  bool user_still_flagged = 9;
+}
+
+// ListAccountJWTRevocationsRequest lists active revocations for the account.
+message ListAccountJWTRevocationsRequest {
+  string account_id = 1;
+}
+
+// ListAccountJWTRevocationsResponse returns the active revocations.
+message ListAccountJWTRevocationsResponse {
+  repeated AccountJWTRevocation revocations = 1;
+}
+
 // AccountService manages NATS accounts
 service AccountService {
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
@@ -114,4 +146,5 @@ service AccountService {
   rpc UpdateJetStreamLimits(UpdateJetStreamLimitsRequest) returns (UpdateJetStreamLimitsResponse);
   rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
   rpc PushAccountJWT(PushAccountJWTRequest) returns (PushAccountJWTResponse);
+  rpc ListAccountJWTRevocations(ListAccountJWTRevocationsRequest) returns (ListAccountJWTRevocationsResponse);
 }
