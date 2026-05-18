@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateUserRequest, CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserByNameRequest, GetUserByNameResponse, GetUserCredentialsRequest, GetUserCredentialsResponse, GetUserRequest, GetUserResponse, ListUsersRequest, ListUsersResponse, UpdateUserRequest, UpdateUserResponse } from "./user_pb.js";
+import { CreateUserRequest, CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserByNameRequest, GetUserByNameResponse, GetUserCredentialsRequest, GetUserCredentialsResponse, GetUserRequest, GetUserResponse, ListUsersRequest, ListUsersResponse, RegenerateUserCredentialsRequest, RegenerateUserCredentialsResponse, RevokeUserRequest, RevokeUserResponse, UpdateUserRequest, UpdateUserResponse } from "./user_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -75,6 +75,28 @@ export const UserService = {
       name: "GetUserCredentials",
       I: GetUserCredentialsRequest,
       O: GetUserCredentialsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RevokeUser revokes the user via the parent account JWT's Revocations map (P2).
+     *
+     * @generated from rpc nis.v1.UserService.RevokeUser
+     */
+    revokeUser: {
+      name: "RevokeUser",
+      I: RevokeUserRequest,
+      O: RevokeUserResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RegenerateUserCredentials issues a fresh user JWT, returning new creds (P2).
+     *
+     * @generated from rpc nis.v1.UserService.RegenerateUserCredentials
+     */
+    regenerateUserCredentials: {
+      name: "RegenerateUserCredentials",
+      I: RegenerateUserCredentialsRequest,
+      O: RegenerateUserCredentialsResponse,
       kind: MethodKind.Unary,
     },
   }

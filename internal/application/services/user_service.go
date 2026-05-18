@@ -21,6 +21,7 @@ type UserService struct {
 	repo          repositories.UserRepository
 	accountRepo   repositories.AccountRepository
 	scopedKeyRepo repositories.ScopedSigningKeyRepository
+	operatorRepo  repositories.OperatorRepository
 	jwtService    *JWTService
 	encryptor     encryption.Encryptor
 	factory       persistence.RepositoryFactory // optional; set via WithFactory for event emission
@@ -31,6 +32,7 @@ func NewUserService(
 	repo repositories.UserRepository,
 	accountRepo repositories.AccountRepository,
 	scopedKeyRepo repositories.ScopedSigningKeyRepository,
+	operatorRepo repositories.OperatorRepository,
 	jwtService *JWTService,
 	encryptor encryption.Encryptor,
 ) *UserService {
@@ -38,6 +40,7 @@ func NewUserService(
 		repo:          repo,
 		accountRepo:   accountRepo,
 		scopedKeyRepo: scopedKeyRepo,
+		operatorRepo:  operatorRepo,
 		jwtService:    jwtService,
 		encryptor:     encryptor,
 	}
@@ -56,17 +59,21 @@ type CreateUserRequest struct {
 	AccountID          uuid.UUID
 	Name               string
 	Description        string
-	ScopedSigningKeyID *uuid.UUID // Optional - if provided, user JWT will be signed by scoped key
+	ScopedSigningKeyID *uuid.UUID     // Optional - if provided, user JWT will be signed by scoped key
+	JWTTTLOverride     *time.Duration // Optional - per-user TTL override; nil = inherit operator default
 }
 
 // CreateUser creates a new user with generated keys and JWT
 func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*entities.User, error) {
 	if s.factory == nil {
-		return s.createUserWith(ctx, s.repo, s.accountRepo, s.scopedKeyRepo, req)
+		// Test/no-factory path: use the service's own repos. The operatorRepo
+		// dep is needed to resolve TTL; tests that don't wire WithFactory must
+		// supply operatorRepo through the constructor anyway.
+		return s.createUserWith(ctx, s.repo, s.accountRepo, s.scopedKeyRepo, s.operatorRepo, req)
 	}
 	var result *entities.User
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
-		user, err := s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), req)
+		user, err := s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), tx.OperatorRepository(), req)
 		if err != nil {
 			return err
 		}
@@ -98,7 +105,7 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*e
 // account/scoped-key lookups see uncommitted writes from the surrounding tx,
 // and the user.Create participates in the same rollback boundary.
 func (s *UserService) CreateUserTx(ctx context.Context, tx persistence.RepositoryFactory, req CreateUserRequest) (*entities.User, error) {
-	user, err := s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), req)
+	user, err := s.createUserWith(ctx, tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), tx.OperatorRepository(), req)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +129,7 @@ func (s *UserService) CreateUserTx(ctx context.Context, tx persistence.Repositor
 // createUserWith is the shared body. It takes the three repos as parameters so
 // the public method and the *Tx variant can hand it either the global repos or
 // tx-scoped ones without duplicating logic.
-func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository, req CreateUserRequest) (*entities.User, error) {
+func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository, operatorRepo repositories.OperatorRepository, req CreateUserRequest) (*entities.User, error) {
 	// Validate request
 	if req.Name == "" {
 		return nil, fmt.Errorf("user name is required")
@@ -132,6 +139,12 @@ func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.
 	account, err := accountRepo.GetByID(ctx, req.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account: %w", err)
+	}
+
+	// Load parent operator for TTL policy.
+	operator, err := operatorRepo.GetByID(ctx, account.OperatorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator: %w", err)
 	}
 
 	// Check if user with this name already exists for this account
@@ -167,7 +180,7 @@ func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.
 		return nil, fmt.Errorf("failed to encrypt user seed: %w", err)
 	}
 
-	// Create user entity
+	// Create user entity (TTL override applied via req)
 	user := &entities.User{
 		ID:                 uuid.New(),
 		AccountID:          req.AccountID,
@@ -176,16 +189,20 @@ func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.
 		EncryptedSeed:      encryptedSeed,
 		PublicKey:          pubKey,
 		ScopedSigningKeyID: req.ScopedSigningKeyID,
+		JWTTTL:             req.JWTTTLOverride,
 		CreatedAt:          time.Now(),
 		UpdatedAt:          time.Now(),
 	}
 
-	// Generate JWT (signed by account or scoped signing key)
-	jwt, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey)
+	// Generate JWT (signed by account or scoped signing key). TTL resolves to
+	// the per-user override if set, else the operator default, else 0 (no exp).
+	mint, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey, user.EffectiveJWTTTL(operator))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate user JWT: %w", err)
 	}
-	user.JWT = jwt
+	user.JWT = mint.Token
+	user.JWTIssuedAt = &mint.IssuedAt
+	user.JWTExpiresAt = mint.ExpiresAt
 
 	// Save to repository
 	if err := userRepo.Create(ctx, user); err != nil {
@@ -229,11 +246,18 @@ func (s *UserService) ListUsersByScopedKey(ctx context.Context, scopedKeyID uuid
 type UpdateUserRequest struct {
 	Name        *string
 	Description *string
+	// JWTTTL: when SetJWTTTL is true, JWTTTL is applied as the per-user override.
+	// JWTTTL == nil with SetJWTTTL=true means "clear the override" (inherit
+	// operator default). Without SetJWTTTL the field is untouched. Decoupling
+	// the two avoids the proto3-optional ambiguity for "field absent" vs "field
+	// set to zero".
+	JWTTTL    *time.Duration
+	SetJWTTTL bool
 }
 
 // UpdateUser updates a user's metadata and regenerates JWT
 func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*entities.User, error) {
-	updateFn := func(userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository) (*entities.User, error) {
+	updateFn := func(userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository, operatorRepo repositories.OperatorRepository) (*entities.User, error) {
 		// Get existing user
 		user, err := userRepo.GetByID(ctx, id)
 		if err != nil {
@@ -260,16 +284,25 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 			updated = true
 		}
 
+		if req.SetJWTTTL {
+			user.JWTTTL = req.JWTTTL
+			updated = true
+		}
+
 		if !updated {
 			return user, nil
 		}
 
 		user.UpdatedAt = time.Now()
 
-		// Get account and optional scoped key to regenerate JWT
+		// Get account, operator, and optional scoped key to regenerate JWT
 		account, err := accountRepo.GetByID(ctx, user.AccountID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get account: %w", err)
+		}
+		operator, err := operatorRepo.GetByID(ctx, account.OperatorID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get operator: %w", err)
 		}
 
 		var scopedKey *entities.ScopedSigningKey
@@ -280,12 +313,17 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 			}
 		}
 
-		// Regenerate JWT with updated metadata
-		jwt, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey)
+		// Regenerate JWT with updated metadata and the effective TTL.
+		mint, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey, user.EffectiveJWTTTL(operator))
 		if err != nil {
 			return nil, fmt.Errorf("failed to regenerate user JWT: %w", err)
 		}
-		user.JWT = jwt
+		user.JWT = mint.Token
+		user.JWTIssuedAt = &mint.IssuedAt
+		user.JWTExpiresAt = mint.ExpiresAt
+		// New iat means previous expiring/expired alerts no longer apply.
+		user.LastExpiringWarnIAT = nil
+		user.LastExpiredAlertIAT = nil
 
 		// Save changes
 		if err := userRepo.Update(ctx, user); err != nil {
@@ -296,12 +334,12 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 	}
 
 	if s.factory == nil {
-		return updateFn(s.repo, s.accountRepo, s.scopedKeyRepo)
+		return updateFn(s.repo, s.accountRepo, s.scopedKeyRepo, s.operatorRepo)
 	}
 
 	var result *entities.User
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
-		user, err := updateFn(tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository())
+		user, err := updateFn(tx.UserRepository(), tx.AccountRepository(), tx.ScopedSigningKeyRepository(), tx.OperatorRepository())
 		if err != nil {
 			return err
 		}

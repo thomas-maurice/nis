@@ -155,12 +155,15 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 			UpdatedAt:          time.Now(),
 		}
 
-		// Generate system user JWT
-		sysUserJWT, err := s.jwtService.GenerateUserJWT(ctx, sysUser, sysAccount, nil)
+		// Generate system user JWT. TTL=0 — the system user is operator-internal
+		// and is not subject to the per-operator user-JWT TTL policy.
+		sysUserMint, err := s.jwtService.GenerateUserJWT(ctx, sysUser, sysAccount, nil, 0)
 		if err != nil {
 			return fmt.Errorf("failed to generate system user JWT: %w", err)
 		}
-		sysUser.JWT = sysUserJWT
+		sysUser.JWT = sysUserMint.Token
+		sysUser.JWTIssuedAt = &sysUserMint.IssuedAt
+		sysUser.JWTExpiresAt = sysUserMint.ExpiresAt
 
 		// Save system user
 		if err := userRepo.Create(ctx, sysUser); err != nil {
@@ -299,6 +302,82 @@ func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req 
 			return fmt.Errorf("emit operator.updated: %w", err)
 		}
 
+		result = operator
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// JWTPolicyUpdate is the SetJWTPolicy request shape — each pointer is nil
+// when the caller doesn't want to change that field. Set the pointer to a
+// *zero* duration (or to false) to explicitly disable that knob.
+type JWTPolicyUpdate struct {
+	UserJWTTTL    *time.Duration
+	AccountJWTTTL *time.Duration
+	JWTWarnWindow *time.Duration
+	JWTAutoRenew  *bool
+}
+
+// SetJWTPolicy updates the operator's JWT lifecycle policy (P2). The
+// operator JWT itself is NOT regenerated — policy doesn't go into the
+// operator claims; it's a NIS-side setting that flows into newly-minted user
+// and account JWTs at sign time.
+//
+// Note: changing the policy does NOT retroactively re-sign existing user
+// JWTs. They keep whatever exp they were minted with until their next
+// renewal/regenerate. This is intentional — bulk re-signing is a separate
+// operation (and one the sweeper handles when auto-renew is enabled).
+func (s *OperatorService) SetJWTPolicy(ctx context.Context, id uuid.UUID, p JWTPolicyUpdate) (*entities.Operator, error) {
+	var result *entities.Operator
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		repo := tx.OperatorRepository()
+		operator, err := repo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		changed := false
+		if p.UserJWTTTL != nil && *p.UserJWTTTL != operator.UserJWTTTL {
+			operator.UserJWTTTL = *p.UserJWTTTL
+			changed = true
+		}
+		if p.AccountJWTTTL != nil && *p.AccountJWTTTL != operator.AccountJWTTTL {
+			operator.AccountJWTTTL = *p.AccountJWTTTL
+			changed = true
+		}
+		if p.JWTWarnWindow != nil && *p.JWTWarnWindow != operator.JWTWarnWindow {
+			operator.JWTWarnWindow = *p.JWTWarnWindow
+			changed = true
+		}
+		if p.JWTAutoRenew != nil && *p.JWTAutoRenew != operator.JWTAutoRenew {
+			operator.JWTAutoRenew = *p.JWTAutoRenew
+			changed = true
+		}
+		if !changed {
+			result = operator
+			return nil
+		}
+		operator.UpdatedAt = time.Now()
+		if err := repo.Update(ctx, operator); err != nil {
+			return fmt.Errorf("failed to update operator JWT policy: %w", err)
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeOperatorUpdated,
+			OperatorID:   &operator.ID,
+			ResourceType: "operator",
+			ResourceID:   operator.ID.String(),
+			Payload: map[string]any{
+				"changed":                 []string{"jwt_policy"},
+				"user_jwt_ttl_seconds":    int64(operator.UserJWTTTL.Seconds()),
+				"account_jwt_ttl_seconds": int64(operator.AccountJWTTTL.Seconds()),
+				"jwt_warn_window_seconds": int64(operator.JWTWarnWindow.Seconds()),
+				"jwt_auto_renew":          operator.JWTAutoRenew,
+			},
+		}); err != nil {
+			return fmt.Errorf("emit operator.updated (jwt_policy): %w", err)
+		}
 		result = operator
 		return nil
 	})

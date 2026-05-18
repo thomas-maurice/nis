@@ -54,4 +54,10 @@ func registerConfigDefaults() {
 	viper.SetDefault("webhooks.backoff_cap_seconds", 600)
 	viper.SetDefault("webhooks.shutdown_timeout_seconds", 30)
 	viper.SetDefault("api_tokens.last_used_flush_interval_seconds", 30)
+	// JWT lifecycle sweeper (P2). The interval defaults to 1h — short enough
+	// to feel responsive after a policy change, long enough that the prune /
+	// expiring-soon / expired phases don't churn the DB. Batch is the
+	// per-phase row cap; 500 is a safe upper bound for one tick.
+	viper.SetDefault("jwt_policy.sweep_interval_seconds", 3600)
+	viper.SetDefault("jwt_policy.sweep_batch_limit", 500)
 }

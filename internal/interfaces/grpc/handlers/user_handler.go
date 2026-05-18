@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
@@ -12,15 +14,17 @@ import (
 
 // UserHandler implements the UserService gRPC service
 type UserHandler struct {
-	service     *services.UserService
-	permService *services.PermissionService
+	service        *services.UserService
+	permService    *services.PermissionService
+	revocationSvc  *services.UserRevocationService
 }
 
 // NewUserHandler creates a new UserHandler
-func NewUserHandler(service *services.UserService, permService *services.PermissionService) nisv1connect.UserServiceHandler {
+func NewUserHandler(service *services.UserService, permService *services.PermissionService, revocationSvc *services.UserRevocationService) nisv1connect.UserServiceHandler {
 	return &UserHandler{
-		service:     service,
-		permService: permService,
+		service:       service,
+		permService:   permService,
+		revocationSvc: revocationSvc,
 	}
 }
 
@@ -203,10 +207,22 @@ func (h *UserHandler) UpdateUser(
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	user, err := h.service.UpdateUser(ctx, id, services.UpdateUserRequest{
+	updateReq := services.UpdateUserRequest{
 		Name:        req.Msg.Name,
 		Description: req.Msg.Description,
-	})
+	}
+	// Two semantics for clearing/setting the TTL override; see proto comments.
+	switch {
+	case req.Msg.ClearJwtTtl:
+		updateReq.SetJWTTTL = true
+		updateReq.JWTTTL = nil
+	case req.Msg.JwtTtlSeconds != nil:
+		d := time.Duration(*req.Msg.JwtTtlSeconds) * time.Second
+		updateReq.SetJWTTTL = true
+		updateReq.JWTTTL = &d
+	}
+
+	user, err := h.service.UpdateUser(ctx, id, updateReq)
 	if err != nil {
 		return nil, repoErrToConnect(err)
 	}
@@ -284,6 +300,70 @@ func (h *UserHandler) GetUserCredentials(
 	}
 
 	return connect.NewResponse(&pb.GetUserCredentialsResponse{
+		Credentials: creds,
+	}), nil
+}
+
+// RevokeUser revokes a user's NATS credential via the parent account JWT's
+// Revocations map. See P2 in PROPOSALS.md.
+func (h *UserHandler) RevokeUser(
+	ctx context.Context,
+	req *connect.Request[pb.RevokeUserRequest],
+) (*connect.Response[pb.RevokeUserResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := h.permService.CanRevokeUser(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	user, err := h.revocationSvc.RevokeUser(ctx, id, req.Msg.Reason)
+	if err != nil {
+		if errors.Is(err, services.ErrUserAlreadyRevoked) {
+			// Idempotent: return current state. Clients can tell from
+			// user.revoked_at that the revocation was a no-op.
+			return connect.NewResponse(&pb.RevokeUserResponse{
+				User: mappers.UserToProto(user),
+			}), nil
+		}
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&pb.RevokeUserResponse{
+		User: mappers.UserToProto(user),
+	}), nil
+}
+
+// RegenerateUserCredentials mints a fresh user JWT (replaces the previous one)
+// and returns the new .creds file in the response. Clears revoked_at if set.
+func (h *UserHandler) RegenerateUserCredentials(
+	ctx context.Context,
+	req *connect.Request[pb.RegenerateUserCredentialsRequest],
+) (*connect.Response[pb.RegenerateUserCredentialsResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := h.permService.CanRegenerateUserCredentials(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	user, err := h.revocationSvc.RegenerateUserJWT(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	creds, err := h.service.GetUserCredentials(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&pb.RegenerateUserCredentialsResponse{
+		User:        mappers.UserToProto(user),
 		Credentials: creds,
 	}), nil
 }

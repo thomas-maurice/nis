@@ -57,6 +57,12 @@ const (
 	// OperatorServiceGenerateIncludeProcedure is the fully-qualified name of the OperatorService's
 	// GenerateInclude RPC.
 	OperatorServiceGenerateIncludeProcedure = "/nis.v1.OperatorService/GenerateInclude"
+	// OperatorServiceSetJWTPolicyProcedure is the fully-qualified name of the OperatorService's
+	// SetJWTPolicy RPC.
+	OperatorServiceSetJWTPolicyProcedure = "/nis.v1.OperatorService/SetJWTPolicy"
+	// OperatorServiceRunJWTExpirySweepProcedure is the fully-qualified name of the OperatorService's
+	// RunJWTExpirySweep RPC.
+	OperatorServiceRunJWTExpirySweepProcedure = "/nis.v1.OperatorService/RunJWTExpirySweep"
 )
 
 // OperatorServiceClient is a client for the nis.v1.OperatorService service.
@@ -70,6 +76,10 @@ type OperatorServiceClient interface {
 	DeleteOperator(context.Context, *connect.Request[v1.DeleteOperatorRequest]) (*connect.Response[v1.DeleteOperatorResponse], error)
 	// GenerateInclude generates NATS server configuration for the operator
 	GenerateInclude(context.Context, *connect.Request[v1.GenerateIncludeRequest]) (*connect.Response[v1.GenerateIncludeResponse], error)
+	// SetJWTPolicy updates the operator's JWT lifecycle policy (P2).
+	SetJWTPolicy(context.Context, *connect.Request[v1.SetJWTPolicyRequest]) (*connect.Response[v1.SetJWTPolicyResponse], error)
+	// RunJWTExpirySweep forces an immediate sweep tick (admin only).
+	RunJWTExpirySweep(context.Context, *connect.Request[v1.RunJWTExpirySweepRequest]) (*connect.Response[v1.RunJWTExpirySweepResponse], error)
 }
 
 // NewOperatorServiceClient constructs a client for the nis.v1.OperatorService service. By default,
@@ -131,6 +141,18 @@ func NewOperatorServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(operatorServiceMethods.ByName("GenerateInclude")),
 			connect.WithClientOptions(opts...),
 		),
+		setJWTPolicy: connect.NewClient[v1.SetJWTPolicyRequest, v1.SetJWTPolicyResponse](
+			httpClient,
+			baseURL+OperatorServiceSetJWTPolicyProcedure,
+			connect.WithSchema(operatorServiceMethods.ByName("SetJWTPolicy")),
+			connect.WithClientOptions(opts...),
+		),
+		runJWTExpirySweep: connect.NewClient[v1.RunJWTExpirySweepRequest, v1.RunJWTExpirySweepResponse](
+			httpClient,
+			baseURL+OperatorServiceRunJWTExpirySweepProcedure,
+			connect.WithSchema(operatorServiceMethods.ByName("RunJWTExpirySweep")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -144,6 +166,8 @@ type operatorServiceClient struct {
 	setSystemAccount  *connect.Client[v1.SetSystemAccountRequest, v1.SetSystemAccountResponse]
 	deleteOperator    *connect.Client[v1.DeleteOperatorRequest, v1.DeleteOperatorResponse]
 	generateInclude   *connect.Client[v1.GenerateIncludeRequest, v1.GenerateIncludeResponse]
+	setJWTPolicy      *connect.Client[v1.SetJWTPolicyRequest, v1.SetJWTPolicyResponse]
+	runJWTExpirySweep *connect.Client[v1.RunJWTExpirySweepRequest, v1.RunJWTExpirySweepResponse]
 }
 
 // CreateOperator calls nis.v1.OperatorService.CreateOperator.
@@ -186,6 +210,16 @@ func (c *operatorServiceClient) GenerateInclude(ctx context.Context, req *connec
 	return c.generateInclude.CallUnary(ctx, req)
 }
 
+// SetJWTPolicy calls nis.v1.OperatorService.SetJWTPolicy.
+func (c *operatorServiceClient) SetJWTPolicy(ctx context.Context, req *connect.Request[v1.SetJWTPolicyRequest]) (*connect.Response[v1.SetJWTPolicyResponse], error) {
+	return c.setJWTPolicy.CallUnary(ctx, req)
+}
+
+// RunJWTExpirySweep calls nis.v1.OperatorService.RunJWTExpirySweep.
+func (c *operatorServiceClient) RunJWTExpirySweep(ctx context.Context, req *connect.Request[v1.RunJWTExpirySweepRequest]) (*connect.Response[v1.RunJWTExpirySweepResponse], error) {
+	return c.runJWTExpirySweep.CallUnary(ctx, req)
+}
+
 // OperatorServiceHandler is an implementation of the nis.v1.OperatorService service.
 type OperatorServiceHandler interface {
 	CreateOperator(context.Context, *connect.Request[v1.CreateOperatorRequest]) (*connect.Response[v1.CreateOperatorResponse], error)
@@ -197,6 +231,10 @@ type OperatorServiceHandler interface {
 	DeleteOperator(context.Context, *connect.Request[v1.DeleteOperatorRequest]) (*connect.Response[v1.DeleteOperatorResponse], error)
 	// GenerateInclude generates NATS server configuration for the operator
 	GenerateInclude(context.Context, *connect.Request[v1.GenerateIncludeRequest]) (*connect.Response[v1.GenerateIncludeResponse], error)
+	// SetJWTPolicy updates the operator's JWT lifecycle policy (P2).
+	SetJWTPolicy(context.Context, *connect.Request[v1.SetJWTPolicyRequest]) (*connect.Response[v1.SetJWTPolicyResponse], error)
+	// RunJWTExpirySweep forces an immediate sweep tick (admin only).
+	RunJWTExpirySweep(context.Context, *connect.Request[v1.RunJWTExpirySweepRequest]) (*connect.Response[v1.RunJWTExpirySweepResponse], error)
 }
 
 // NewOperatorServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -254,6 +292,18 @@ func NewOperatorServiceHandler(svc OperatorServiceHandler, opts ...connect.Handl
 		connect.WithSchema(operatorServiceMethods.ByName("GenerateInclude")),
 		connect.WithHandlerOptions(opts...),
 	)
+	operatorServiceSetJWTPolicyHandler := connect.NewUnaryHandler(
+		OperatorServiceSetJWTPolicyProcedure,
+		svc.SetJWTPolicy,
+		connect.WithSchema(operatorServiceMethods.ByName("SetJWTPolicy")),
+		connect.WithHandlerOptions(opts...),
+	)
+	operatorServiceRunJWTExpirySweepHandler := connect.NewUnaryHandler(
+		OperatorServiceRunJWTExpirySweepProcedure,
+		svc.RunJWTExpirySweep,
+		connect.WithSchema(operatorServiceMethods.ByName("RunJWTExpirySweep")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.OperatorService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case OperatorServiceCreateOperatorProcedure:
@@ -272,6 +322,10 @@ func NewOperatorServiceHandler(svc OperatorServiceHandler, opts ...connect.Handl
 			operatorServiceDeleteOperatorHandler.ServeHTTP(w, r)
 		case OperatorServiceGenerateIncludeProcedure:
 			operatorServiceGenerateIncludeHandler.ServeHTTP(w, r)
+		case OperatorServiceSetJWTPolicyProcedure:
+			operatorServiceSetJWTPolicyHandler.ServeHTTP(w, r)
+		case OperatorServiceRunJWTExpirySweepProcedure:
+			operatorServiceRunJWTExpirySweepHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -311,4 +365,12 @@ func (UnimplementedOperatorServiceHandler) DeleteOperator(context.Context, *conn
 
 func (UnimplementedOperatorServiceHandler) GenerateInclude(context.Context, *connect.Request[v1.GenerateIncludeRequest]) (*connect.Response[v1.GenerateIncludeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.OperatorService.GenerateInclude is not implemented"))
+}
+
+func (UnimplementedOperatorServiceHandler) SetJWTPolicy(context.Context, *connect.Request[v1.SetJWTPolicyRequest]) (*connect.Response[v1.SetJWTPolicyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.OperatorService.SetJWTPolicy is not implemented"))
+}
+
+func (UnimplementedOperatorServiceHandler) RunJWTExpirySweep(context.Context, *connect.Request[v1.RunJWTExpirySweepRequest]) (*connect.Response[v1.RunJWTExpirySweepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.OperatorService.RunJWTExpirySweep is not implemented"))
 }

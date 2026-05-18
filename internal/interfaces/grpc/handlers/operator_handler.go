@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
@@ -14,13 +15,16 @@ import (
 type OperatorHandler struct {
 	service     *services.OperatorService
 	permService *services.PermissionService
+	sweeper     *services.JWTExpirySweeper
 }
 
-// NewOperatorHandler creates a new OperatorHandler
-func NewOperatorHandler(service *services.OperatorService, permService *services.PermissionService) nisv1connect.OperatorServiceHandler {
+// NewOperatorHandler creates a new OperatorHandler. sweeper may be nil for
+// tests that don't exercise RunJWTExpirySweep.
+func NewOperatorHandler(service *services.OperatorService, permService *services.PermissionService, sweeper *services.JWTExpirySweeper) nisv1connect.OperatorServiceHandler {
 	return &OperatorHandler{
 		service:     service,
 		permService: permService,
+		sweeper:     sweeper,
 	}
 }
 
@@ -248,5 +252,78 @@ func (h *OperatorHandler) GenerateInclude(
 
 	return connect.NewResponse(&pb.GenerateIncludeResponse{
 		Config: config,
+	}), nil
+}
+
+// SetJWTPolicy updates the operator's JWT lifecycle policy (P2). Admin-only.
+func (h *OperatorHandler) SetJWTPolicy(
+	ctx context.Context,
+	req *connect.Request[pb.SetJWTPolicyRequest],
+) (*connect.Response[pb.SetJWTPolicyResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := h.permService.CanSetOperatorJWTPolicy(requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	policy := services.JWTPolicyUpdate{}
+	if req.Msg.UserJwtTtlSeconds != nil {
+		d := time.Duration(*req.Msg.UserJwtTtlSeconds) * time.Second
+		policy.UserJWTTTL = &d
+	}
+	if req.Msg.AccountJwtTtlSeconds != nil {
+		d := time.Duration(*req.Msg.AccountJwtTtlSeconds) * time.Second
+		policy.AccountJWTTTL = &d
+	}
+	if req.Msg.JwtWarnWindowSeconds != nil {
+		d := time.Duration(*req.Msg.JwtWarnWindowSeconds) * time.Second
+		policy.JWTWarnWindow = &d
+	}
+	if req.Msg.JwtAutoRenew != nil {
+		v := *req.Msg.JwtAutoRenew
+		policy.JWTAutoRenew = &v
+	}
+
+	operator, err := h.service.SetJWTPolicy(ctx, id, policy)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&pb.SetJWTPolicyResponse{
+		Operator: mappers.OperatorToProto(operator),
+	}), nil
+}
+
+// RunJWTExpirySweep forces an immediate sweep tick. Admin-only. Useful for
+// tests and for ops who want to confirm an immediate response to a policy
+// change.
+func (h *OperatorHandler) RunJWTExpirySweep(
+	ctx context.Context,
+	req *connect.Request[pb.RunJWTExpirySweepRequest],
+) (*connect.Response[pb.RunJWTExpirySweepResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.permService.CanRunJWTExpirySweep(requestingUser); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	if h.sweeper == nil {
+		return nil, connect.NewError(connect.CodeUnavailable, errSweeperNotConfigured)
+	}
+	res, err := h.sweeper.Tick(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&pb.RunJWTExpirySweepResponse{
+		RevocationsPruned:    int32(res.RevocationsPruned),
+		ExpiringSoonEmitted:  int32(res.ExpiringSoonEmitted),
+		ExpiredAlertsEmitted: int32(res.ExpiredAlertsEmitted),
+		AutoRenewed:          int32(res.AutoRenewed),
 	}), nil
 }

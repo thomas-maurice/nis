@@ -67,7 +67,11 @@ func (s *ScopedSigningKeyService) regenerateAccountJWTTx(ctx context.Context, tx
 	if err != nil {
 		return fmt.Errorf("failed to list scoped signing keys: %w", err)
 	}
-	newJWT, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys)
+	revs, err := tx.UserJWTRevocationRepository().ListActiveByAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to list active revocations: %w", err)
+	}
+	newJWT, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, scopedKeys, revs, operator.AccountJWTTTL)
 	if err != nil {
 		return fmt.Errorf("failed to regenerate account JWT: %w", err)
 	}

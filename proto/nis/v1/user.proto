@@ -18,6 +18,13 @@ message User {
   string scoped_signing_key_id = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+
+  // JWT lifecycle metadata (P2).
+  optional int64 jwt_ttl_seconds = 10;  // per-user override; unset = inherit from operator
+  google.protobuf.Timestamp jwt_issued_at = 11;
+  google.protobuf.Timestamp jwt_expires_at = 12;
+  google.protobuf.Timestamp revoked_at = 13;
+  string revocation_reason = 14;
 }
 
 // CreateUserRequest is the request to create a new user
@@ -70,6 +77,15 @@ message UpdateUserRequest {
   string id = 1;
   optional string name = 2;
   optional string description = 3;
+  // jwt_ttl_seconds overrides the operator's default user-JWT TTL for this
+  // user. Set to 0 to mean "never expire". Omit (unset) to clear the override
+  // and inherit the operator default.
+  optional int64 jwt_ttl_seconds = 4;
+  // clear_jwt_ttl, when true, removes any per-user override regardless of
+  // jwt_ttl_seconds. The two-flag shape is because proto3 cannot distinguish
+  // "field absent" from "field set to 0" via optional alone when the caller
+  // wants to clear an override back to nil rather than to zero.
+  bool clear_jwt_ttl = 5;
 }
 
 // UpdateUserResponse is the response from updating a user
@@ -95,6 +111,36 @@ message GetUserCredentialsResponse {
   string credentials = 1;
 }
 
+// RevokeUserRequest is the request to revoke a user. The user row stays put;
+// the user's NATS public key gets added to the parent account JWT's
+// Revocations map and pushed to the resolver. NATS will reject any user JWT
+// signed by this user's key from now on (or until the JWT's exp passes —
+// whichever comes first).
+message RevokeUserRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+// RevokeUserResponse returns the updated user (with revoked_at set).
+message RevokeUserResponse {
+  User user = 1;
+}
+
+// RegenerateUserCredentialsRequest issues a fresh user JWT, replacing the
+// current one. Clears the revoked_at flag if it was set ("reinstate"). The
+// new credentials are returned ONCE; the client is responsible for
+// distributing the new .creds file to whoever needs it.
+message RegenerateUserCredentialsRequest {
+  string id = 1;
+}
+
+// RegenerateUserCredentialsResponse returns the updated user and the fresh
+// .creds file contents.
+message RegenerateUserCredentialsResponse {
+  User user = 1;
+  string credentials = 2;
+}
+
 // UserService manages NATS users
 service UserService {
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
@@ -104,4 +150,8 @@ service UserService {
   rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
   rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
   rpc GetUserCredentials(GetUserCredentialsRequest) returns (GetUserCredentialsResponse);
+  // RevokeUser revokes the user via the parent account JWT's Revocations map (P2).
+  rpc RevokeUser(RevokeUserRequest) returns (RevokeUserResponse);
+  // RegenerateUserCredentials issues a fresh user JWT, returning new creds (P2).
+  rpc RegenerateUserCredentials(RegenerateUserCredentialsRequest) returns (RegenerateUserCredentialsResponse);
 }

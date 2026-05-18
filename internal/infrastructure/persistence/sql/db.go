@@ -21,7 +21,13 @@ func NewDB(driver, dsn string) (*gorm.DB, error) {
 		if dsn == "" {
 			return nil, fmt.Errorf("SQLite path is required")
 		}
-		dialector = sqlite.Open(dsn + "?_foreign_keys=on")
+		// _loc=UTC forces the SQLite driver to bind and read time.Time values
+		// as UTC. Without it, time fields round-trip via the connection's local
+		// time, which makes lexical timestamp comparisons (e.g. `jwt_exp <= ?`
+		// in the JWT-lifecycle sweeper, P2) silently wrong whenever the host
+		// running the migrations is not in UTC. Foreign keys are kept on for
+		// CASCADE behaviour.
+		dialector = sqlite.Open(dsn + "?_foreign_keys=on&_loc=UTC")
 
 	case "postgres":
 		dialector = postgres.Open(dsn)

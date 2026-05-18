@@ -89,6 +89,7 @@ func (s *RBACIsolationTestSuite) SetupSuite() {
 		repoFactory.UserRepository(),
 		repoFactory.AccountRepository(),
 		repoFactory.ScopedSigningKeyRepository(),
+		repoFactory.OperatorRepository(),
 		s.jwtService,
 		encryptor,
 	)

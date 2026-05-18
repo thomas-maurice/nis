@@ -323,6 +323,54 @@ func (s *PermissionService) CanDeleteUser(ctx context.Context, apiUser *entities
 	return nil
 }
 
+// CanRevokeUser: admin or operator-admin owning the user's account.
+// Account-admins cannot revoke (mirrors CanDeleteUser semantics — revocation
+// is a security-impacting mutation that touches the parent account JWT).
+func (s *PermissionService) CanRevokeUser(ctx context.Context, apiUser *entities.APIUser, userID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	if apiUser.Role == entities.RoleAccountAdmin {
+		return denyf("account admins cannot revoke users")
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	ok, err := s.ownsAccount(ctx, apiUser, user.AccountID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return denyf("cannot revoke user %s", userID)
+	}
+	return nil
+}
+
+// CanRegenerateUserCredentials: any role that owns the user's account. Mirrors
+// CanUpdateUser — regenerating credentials is the credential equivalent of an
+// update, not a deletion. Account-admins CAN regenerate creds for their own
+// users (otherwise tenants can't recover from a leaked .creds without going
+// up the chain).
+func (s *PermissionService) CanRegenerateUserCredentials(ctx context.Context, apiUser *entities.APIUser, userID uuid.UUID) error {
+	return s.CanUpdateUser(ctx, apiUser, userID)
+}
+
+// CanSetOperatorJWTPolicy: admin only. The JWT lifecycle policy is a global
+// per-operator setting and changing it affects every user in the operator —
+// keep the bar high until there's an explicit operator-admin self-policy
+// story.
+func (s *PermissionService) CanSetOperatorJWTPolicy(apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	_ = operatorID // reserved for future operator-admin self-update
+	return s.requireRole(apiUser, entities.RoleAdmin)
+}
+
+// CanRunJWTExpirySweep: admin only. Useful for tests and for ops who want to
+// force an immediate sweep without waiting for the periodic tick.
+func (s *PermissionService) CanRunJWTExpirySweep(apiUser *entities.APIUser) error {
+	return s.requireRole(apiUser, entities.RoleAdmin)
+}
+
 // FilterUsers returns only the users visible to apiUser. Note that this still
 // makes O(n) account lookups; see proposal A7 (filter+cursor pagination) for the
 // proper SQL-level fix.

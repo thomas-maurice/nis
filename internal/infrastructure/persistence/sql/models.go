@@ -10,15 +10,19 @@ import (
 
 // OperatorModel represents the GORM model for operators
 type OperatorModel struct {
-	ID                  string `gorm:"primaryKey;type:text"`
-	Name                string `gorm:"type:text;uniqueIndex;not null"`
-	Description         string `gorm:"type:text"`
-	EncryptedSeed       string `gorm:"type:text;not null"`
-	PublicKey           string `gorm:"type:text;uniqueIndex;not null"`
-	JWT                 string `gorm:"type:text;not null"`
-	SystemAccountPubKey string `gorm:"type:text"`
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                   string `gorm:"primaryKey;type:text"`
+	Name                 string `gorm:"type:text;uniqueIndex;not null"`
+	Description          string `gorm:"type:text"`
+	EncryptedSeed        string `gorm:"type:text;not null"`
+	PublicKey            string `gorm:"type:text;uniqueIndex;not null"`
+	JWT                  string `gorm:"type:text;not null"`
+	SystemAccountPubKey  string `gorm:"type:text"`
+	UserJWTTTLSeconds    int64  `gorm:"column:user_jwt_ttl_seconds;not null;default:0"`
+	AccountJWTTTLSeconds int64  `gorm:"column:account_jwt_ttl_seconds;not null;default:0"`
+	JWTWarnWindowSeconds int64  `gorm:"column:jwt_warn_window_seconds;not null;default:1209600"`
+	JWTAutoRenew         bool   `gorm:"column:jwt_auto_renew;not null;default:false"`
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 func (OperatorModel) TableName() string {
@@ -35,6 +39,10 @@ func (m *OperatorModel) ToEntity() *entities.Operator {
 		PublicKey:           m.PublicKey,
 		JWT:                 m.JWT,
 		SystemAccountPubKey: m.SystemAccountPubKey,
+		UserJWTTTL:          time.Duration(m.UserJWTTTLSeconds) * time.Second,
+		AccountJWTTTL:       time.Duration(m.AccountJWTTTLSeconds) * time.Second,
+		JWTWarnWindow:       time.Duration(m.JWTWarnWindowSeconds) * time.Second,
+		JWTAutoRenew:        m.JWTAutoRenew,
 		CreatedAt:           m.CreatedAt,
 		UpdatedAt:           m.UpdatedAt,
 	}
@@ -43,15 +51,19 @@ func (m *OperatorModel) ToEntity() *entities.Operator {
 // FromEntity converts domain entity to GORM model
 func OperatorModelFromEntity(e *entities.Operator) *OperatorModel {
 	return &OperatorModel{
-		ID:                  e.ID.String(),
-		Name:                e.Name,
-		Description:         e.Description,
-		EncryptedSeed:       e.EncryptedSeed,
-		PublicKey:           e.PublicKey,
-		JWT:                 e.JWT,
-		SystemAccountPubKey: e.SystemAccountPubKey,
-		CreatedAt:           e.CreatedAt,
-		UpdatedAt:           e.UpdatedAt,
+		ID:                   e.ID.String(),
+		Name:                 e.Name,
+		Description:          e.Description,
+		EncryptedSeed:        e.EncryptedSeed,
+		PublicKey:            e.PublicKey,
+		JWT:                  e.JWT,
+		SystemAccountPubKey:  e.SystemAccountPubKey,
+		UserJWTTTLSeconds:    int64(e.UserJWTTTL.Seconds()),
+		AccountJWTTTLSeconds: int64(e.AccountJWTTTL.Seconds()),
+		JWTWarnWindowSeconds: int64(e.JWTWarnWindow.Seconds()),
+		JWTAutoRenew:         e.JWTAutoRenew,
+		CreatedAt:            e.CreatedAt,
+		UpdatedAt:            e.UpdatedAt,
 	}
 }
 
@@ -177,14 +189,21 @@ func ScopedSigningKeyModelFromEntity(e *entities.ScopedSigningKey) *ScopedSignin
 
 // UserModel represents the GORM model for users
 type UserModel struct {
-	ID                  string  `gorm:"primaryKey;type:text"`
-	AccountID           string  `gorm:"type:text;not null;index:idx_users_account_id"`
-	Name                string  `gorm:"type:text;not null"`
-	Description         string  `gorm:"type:text"`
-	EncryptedSeed       string  `gorm:"type:text;not null"`
-	PublicKey           string  `gorm:"type:text;uniqueIndex;not null"`
-	JWT                 string  `gorm:"type:text;not null"`
-	ScopedSigningKeyID  *string `gorm:"type:text;index:idx_users_scoped_signing_key_id"`
+	ID                  string     `gorm:"primaryKey;type:text"`
+	AccountID           string     `gorm:"type:text;not null;index:idx_users_account_id"`
+	Name                string     `gorm:"type:text;not null"`
+	Description         string     `gorm:"type:text"`
+	EncryptedSeed       string     `gorm:"type:text;not null"`
+	PublicKey           string     `gorm:"type:text;uniqueIndex;not null"`
+	JWT                 string     `gorm:"type:text;not null"`
+	ScopedSigningKeyID  *string    `gorm:"type:text;index:idx_users_scoped_signing_key_id"`
+	JWTTTLSeconds       *int64     `gorm:"column:jwt_ttl_seconds"`
+	JWTIssuedAt         *time.Time `gorm:"column:jwt_issued_at"`
+	JWTExpiresAt        *time.Time `gorm:"column:jwt_expires_at;index:idx_users_jwt_expires_at"`
+	RevokedAt           *time.Time `gorm:"column:revoked_at;index:idx_users_revoked_at"`
+	RevocationReason    string     `gorm:"column:revocation_reason;type:text;not null;default:''"`
+	LastExpiringWarnIAT *time.Time `gorm:"column:last_expiring_warn_iat"`
+	LastExpiredAlertIAT *time.Time `gorm:"column:last_expired_alert_iat"`
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -199,18 +218,30 @@ func (m *UserModel) ToEntity() *entities.User {
 		id := uuid.MustParse(*m.ScopedSigningKeyID)
 		scopedKeyID = &id
 	}
+	var ttl *time.Duration
+	if m.JWTTTLSeconds != nil {
+		d := time.Duration(*m.JWTTTLSeconds) * time.Second
+		ttl = &d
+	}
 
 	return &entities.User{
-		ID:                 uuid.MustParse(m.ID),
-		AccountID:          uuid.MustParse(m.AccountID),
-		Name:               m.Name,
-		Description:        m.Description,
-		EncryptedSeed:      m.EncryptedSeed,
-		PublicKey:          m.PublicKey,
-		JWT:                m.JWT,
-		ScopedSigningKeyID: scopedKeyID,
-		CreatedAt:          m.CreatedAt,
-		UpdatedAt:          m.UpdatedAt,
+		ID:                  uuid.MustParse(m.ID),
+		AccountID:           uuid.MustParse(m.AccountID),
+		Name:                m.Name,
+		Description:         m.Description,
+		EncryptedSeed:       m.EncryptedSeed,
+		PublicKey:           m.PublicKey,
+		JWT:                 m.JWT,
+		ScopedSigningKeyID:  scopedKeyID,
+		JWTTTL:              ttl,
+		JWTIssuedAt:         m.JWTIssuedAt,
+		JWTExpiresAt:        m.JWTExpiresAt,
+		RevokedAt:           m.RevokedAt,
+		RevocationReason:    m.RevocationReason,
+		LastExpiringWarnIAT: m.LastExpiringWarnIAT,
+		LastExpiredAlertIAT: m.LastExpiredAlertIAT,
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
 	}
 }
 
@@ -220,19 +251,84 @@ func UserModelFromEntity(e *entities.User) *UserModel {
 		s := e.ScopedSigningKeyID.String()
 		scopedKeyID = &s
 	}
+	var ttlSecs *int64
+	if e.JWTTTL != nil {
+		s := int64(e.JWTTTL.Seconds())
+		ttlSecs = &s
+	}
 
 	return &UserModel{
-		ID:                 e.ID.String(),
-		AccountID:          e.AccountID.String(),
-		Name:               e.Name,
-		Description:        e.Description,
-		EncryptedSeed:      e.EncryptedSeed,
-		PublicKey:          e.PublicKey,
-		JWT:                e.JWT,
-		ScopedSigningKeyID: scopedKeyID,
-		CreatedAt:          e.CreatedAt,
-		UpdatedAt:          e.UpdatedAt,
+		ID:                  e.ID.String(),
+		AccountID:           e.AccountID.String(),
+		Name:                e.Name,
+		Description:         e.Description,
+		EncryptedSeed:       e.EncryptedSeed,
+		PublicKey:           e.PublicKey,
+		JWT:                 e.JWT,
+		ScopedSigningKeyID:  scopedKeyID,
+		JWTTTLSeconds:       ttlSecs,
+		JWTIssuedAt:         e.JWTIssuedAt,
+		JWTExpiresAt:        e.JWTExpiresAt,
+		RevokedAt:           e.RevokedAt,
+		RevocationReason:    e.RevocationReason,
+		LastExpiringWarnIAT: e.LastExpiringWarnIAT,
+		LastExpiredAlertIAT: e.LastExpiredAlertIAT,
+		CreatedAt:           e.CreatedAt,
+		UpdatedAt:           e.UpdatedAt,
 	}
+}
+
+// UserJWTRevocationModel is the GORM model for the user_jwt_revocations table.
+type UserJWTRevocationModel struct {
+	ID            string     `gorm:"primaryKey;type:text"`
+	AccountID     string     `gorm:"type:text;not null;index"`
+	UserID        *string    `gorm:"type:text"`
+	UserPublicKey string     `gorm:"type:text;not null"`
+	RevokedAt     time.Time  `gorm:"type:timestamp;not null"`
+	JWTExp        time.Time  `gorm:"column:jwt_exp;type:timestamp;not null;index"`
+	Reason        string     `gorm:"type:text;not null;default:''"`
+	PrunedAt      *time.Time `gorm:"type:timestamp;index"`
+	CreatedAt     time.Time
+}
+
+func (UserJWTRevocationModel) TableName() string {
+	return "user_jwt_revocations"
+}
+
+func (m *UserJWTRevocationModel) ToEntity() *entities.UserJWTRevocation {
+	out := &entities.UserJWTRevocation{
+		ID:            uuid.MustParse(m.ID),
+		AccountID:     uuid.MustParse(m.AccountID),
+		UserPublicKey: m.UserPublicKey,
+		RevokedAt:     m.RevokedAt,
+		JWTExp:        m.JWTExp,
+		Reason:        m.Reason,
+		PrunedAt:      m.PrunedAt,
+		CreatedAt:     m.CreatedAt,
+	}
+	if m.UserID != nil && *m.UserID != "" {
+		id := uuid.MustParse(*m.UserID)
+		out.UserID = &id
+	}
+	return out
+}
+
+func UserJWTRevocationModelFromEntity(e *entities.UserJWTRevocation) *UserJWTRevocationModel {
+	m := &UserJWTRevocationModel{
+		ID:            e.ID.String(),
+		AccountID:     e.AccountID.String(),
+		UserPublicKey: e.UserPublicKey,
+		RevokedAt:     e.RevokedAt,
+		JWTExp:        e.JWTExp,
+		Reason:        e.Reason,
+		PrunedAt:      e.PrunedAt,
+		CreatedAt:     e.CreatedAt,
+	}
+	if e.UserID != nil {
+		s := e.UserID.String()
+		m.UserID = &s
+	}
+	return m
 }
 
 // ClusterModel represents the GORM model for clusters

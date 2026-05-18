@@ -33,8 +33,13 @@ type Operator struct {
 	SystemAccountPubKey string                 `protobuf:"bytes,6,opt,name=system_account_pub_key,json=systemAccountPubKey,proto3" json:"system_account_pub_key,omitempty"`
 	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt           *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// JWT lifecycle policy (P2). 0 = no expiry / never renew (default).
+	UserJwtTtlSeconds    int64 `protobuf:"varint,9,opt,name=user_jwt_ttl_seconds,json=userJwtTtlSeconds,proto3" json:"user_jwt_ttl_seconds,omitempty"`
+	AccountJwtTtlSeconds int64 `protobuf:"varint,10,opt,name=account_jwt_ttl_seconds,json=accountJwtTtlSeconds,proto3" json:"account_jwt_ttl_seconds,omitempty"`
+	JwtWarnWindowSeconds int64 `protobuf:"varint,11,opt,name=jwt_warn_window_seconds,json=jwtWarnWindowSeconds,proto3" json:"jwt_warn_window_seconds,omitempty"`
+	JwtAutoRenew         bool  `protobuf:"varint,12,opt,name=jwt_auto_renew,json=jwtAutoRenew,proto3" json:"jwt_auto_renew,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Operator) Reset() {
@@ -121,6 +126,34 @@ func (x *Operator) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Operator) GetUserJwtTtlSeconds() int64 {
+	if x != nil {
+		return x.UserJwtTtlSeconds
+	}
+	return 0
+}
+
+func (x *Operator) GetAccountJwtTtlSeconds() int64 {
+	if x != nil {
+		return x.AccountJwtTtlSeconds
+	}
+	return 0
+}
+
+func (x *Operator) GetJwtWarnWindowSeconds() int64 {
+	if x != nil {
+		return x.JwtWarnWindowSeconds
+	}
+	return 0
+}
+
+func (x *Operator) GetJwtAutoRenew() bool {
+	if x != nil {
+		return x.JwtAutoRenew
+	}
+	return false
 }
 
 // CreateOperatorRequest is the request to create a new operator
@@ -867,11 +900,244 @@ func (x *GenerateIncludeResponse) GetConfig() string {
 	return ""
 }
 
+// SetJWTPolicyRequest configures the per-operator JWT lifecycle defaults.
+// Each field is optional; only fields present in the request are updated.
+// Pass user_jwt_ttl_seconds=0 (with the field set) to explicitly disable
+// expiry. Same for account_jwt_ttl_seconds.
+type SetJWTPolicyRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserJwtTtlSeconds    *int64                 `protobuf:"varint,2,opt,name=user_jwt_ttl_seconds,json=userJwtTtlSeconds,proto3,oneof" json:"user_jwt_ttl_seconds,omitempty"`
+	AccountJwtTtlSeconds *int64                 `protobuf:"varint,3,opt,name=account_jwt_ttl_seconds,json=accountJwtTtlSeconds,proto3,oneof" json:"account_jwt_ttl_seconds,omitempty"`
+	JwtWarnWindowSeconds *int64                 `protobuf:"varint,4,opt,name=jwt_warn_window_seconds,json=jwtWarnWindowSeconds,proto3,oneof" json:"jwt_warn_window_seconds,omitempty"`
+	JwtAutoRenew         *bool                  `protobuf:"varint,5,opt,name=jwt_auto_renew,json=jwtAutoRenew,proto3,oneof" json:"jwt_auto_renew,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *SetJWTPolicyRequest) Reset() {
+	*x = SetJWTPolicyRequest{}
+	mi := &file_nis_v1_operator_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetJWTPolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetJWTPolicyRequest) ProtoMessage() {}
+
+func (x *SetJWTPolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_operator_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetJWTPolicyRequest.ProtoReflect.Descriptor instead.
+func (*SetJWTPolicyRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_operator_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SetJWTPolicyRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SetJWTPolicyRequest) GetUserJwtTtlSeconds() int64 {
+	if x != nil && x.UserJwtTtlSeconds != nil {
+		return *x.UserJwtTtlSeconds
+	}
+	return 0
+}
+
+func (x *SetJWTPolicyRequest) GetAccountJwtTtlSeconds() int64 {
+	if x != nil && x.AccountJwtTtlSeconds != nil {
+		return *x.AccountJwtTtlSeconds
+	}
+	return 0
+}
+
+func (x *SetJWTPolicyRequest) GetJwtWarnWindowSeconds() int64 {
+	if x != nil && x.JwtWarnWindowSeconds != nil {
+		return *x.JwtWarnWindowSeconds
+	}
+	return 0
+}
+
+func (x *SetJWTPolicyRequest) GetJwtAutoRenew() bool {
+	if x != nil && x.JwtAutoRenew != nil {
+		return *x.JwtAutoRenew
+	}
+	return false
+}
+
+// SetJWTPolicyResponse returns the updated operator.
+type SetJWTPolicyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Operator      *Operator              `protobuf:"bytes,1,opt,name=operator,proto3" json:"operator,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetJWTPolicyResponse) Reset() {
+	*x = SetJWTPolicyResponse{}
+	mi := &file_nis_v1_operator_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetJWTPolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetJWTPolicyResponse) ProtoMessage() {}
+
+func (x *SetJWTPolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_operator_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetJWTPolicyResponse.ProtoReflect.Descriptor instead.
+func (*SetJWTPolicyResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_operator_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SetJWTPolicyResponse) GetOperator() *Operator {
+	if x != nil {
+		return x.Operator
+	}
+	return nil
+}
+
+// RunJWTExpirySweepRequest triggers an immediate sweep tick (admin only).
+// Useful for tests and for operators who want to force a recheck without
+// waiting for the next periodic tick.
+type RunJWTExpirySweepRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunJWTExpirySweepRequest) Reset() {
+	*x = RunJWTExpirySweepRequest{}
+	mi := &file_nis_v1_operator_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunJWTExpirySweepRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunJWTExpirySweepRequest) ProtoMessage() {}
+
+func (x *RunJWTExpirySweepRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_operator_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunJWTExpirySweepRequest.ProtoReflect.Descriptor instead.
+func (*RunJWTExpirySweepRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_operator_proto_rawDescGZIP(), []int{19}
+}
+
+// RunJWTExpirySweepResponse summarises the sweep result.
+type RunJWTExpirySweepResponse struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	RevocationsPruned    int32                  `protobuf:"varint,1,opt,name=revocations_pruned,json=revocationsPruned,proto3" json:"revocations_pruned,omitempty"`
+	ExpiringSoonEmitted  int32                  `protobuf:"varint,2,opt,name=expiring_soon_emitted,json=expiringSoonEmitted,proto3" json:"expiring_soon_emitted,omitempty"`
+	ExpiredAlertsEmitted int32                  `protobuf:"varint,3,opt,name=expired_alerts_emitted,json=expiredAlertsEmitted,proto3" json:"expired_alerts_emitted,omitempty"`
+	AutoRenewed          int32                  `protobuf:"varint,4,opt,name=auto_renewed,json=autoRenewed,proto3" json:"auto_renewed,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *RunJWTExpirySweepResponse) Reset() {
+	*x = RunJWTExpirySweepResponse{}
+	mi := &file_nis_v1_operator_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunJWTExpirySweepResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunJWTExpirySweepResponse) ProtoMessage() {}
+
+func (x *RunJWTExpirySweepResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_operator_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunJWTExpirySweepResponse.ProtoReflect.Descriptor instead.
+func (*RunJWTExpirySweepResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_operator_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *RunJWTExpirySweepResponse) GetRevocationsPruned() int32 {
+	if x != nil {
+		return x.RevocationsPruned
+	}
+	return 0
+}
+
+func (x *RunJWTExpirySweepResponse) GetExpiringSoonEmitted() int32 {
+	if x != nil {
+		return x.ExpiringSoonEmitted
+	}
+	return 0
+}
+
+func (x *RunJWTExpirySweepResponse) GetExpiredAlertsEmitted() int32 {
+	if x != nil {
+		return x.ExpiredAlertsEmitted
+	}
+	return 0
+}
+
+func (x *RunJWTExpirySweepResponse) GetAutoRenewed() int32 {
+	if x != nil {
+		return x.AutoRenewed
+	}
+	return 0
+}
+
 var File_nis_v1_operator_proto protoreflect.FileDescriptor
 
 const file_nis_v1_operator_proto_rawDesc = "" +
 	"\n" +
-	"\x15nis/v1/operator.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xac\x02\n" +
+	"\x15nis/v1/operator.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf1\x03\n" +
 	"\bOperator\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -883,7 +1149,12 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"M\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12/\n" +
+	"\x14user_jwt_ttl_seconds\x18\t \x01(\x03R\x11userJwtTtlSeconds\x125\n" +
+	"\x17account_jwt_ttl_seconds\x18\n" +
+	" \x01(\x03R\x14accountJwtTtlSeconds\x125\n" +
+	"\x17jwt_warn_window_seconds\x18\v \x01(\x03R\x14jwtWarnWindowSeconds\x12$\n" +
+	"\x0ejwt_auto_renew\x18\f \x01(\bR\fjwtAutoRenew\"M\n" +
 	"\x15CreateOperatorRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\"F\n" +
@@ -920,7 +1191,25 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\x16GenerateIncludeRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"1\n" +
 	"\x17GenerateIncludeResponse\x12\x16\n" +
-	"\x06config\x18\x01 \x01(\tR\x06config2\x9f\x05\n" +
+	"\x06config\x18\x01 \x01(\tR\x06config\"\xe2\x02\n" +
+	"\x13SetJWTPolicyRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x124\n" +
+	"\x14user_jwt_ttl_seconds\x18\x02 \x01(\x03H\x00R\x11userJwtTtlSeconds\x88\x01\x01\x12:\n" +
+	"\x17account_jwt_ttl_seconds\x18\x03 \x01(\x03H\x01R\x14accountJwtTtlSeconds\x88\x01\x01\x12:\n" +
+	"\x17jwt_warn_window_seconds\x18\x04 \x01(\x03H\x02R\x14jwtWarnWindowSeconds\x88\x01\x01\x12)\n" +
+	"\x0ejwt_auto_renew\x18\x05 \x01(\bH\x03R\fjwtAutoRenew\x88\x01\x01B\x17\n" +
+	"\x15_user_jwt_ttl_secondsB\x1a\n" +
+	"\x18_account_jwt_ttl_secondsB\x1a\n" +
+	"\x18_jwt_warn_window_secondsB\x11\n" +
+	"\x0f_jwt_auto_renew\"D\n" +
+	"\x14SetJWTPolicyResponse\x12,\n" +
+	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"\x1a\n" +
+	"\x18RunJWTExpirySweepRequest\"\xd7\x01\n" +
+	"\x19RunJWTExpirySweepResponse\x12-\n" +
+	"\x12revocations_pruned\x18\x01 \x01(\x05R\x11revocationsPruned\x122\n" +
+	"\x15expiring_soon_emitted\x18\x02 \x01(\x05R\x13expiringSoonEmitted\x124\n" +
+	"\x16expired_alerts_emitted\x18\x03 \x01(\x05R\x14expiredAlertsEmitted\x12!\n" +
+	"\fauto_renewed\x18\x04 \x01(\x05R\vautoRenewed2\xc4\x06\n" +
 	"\x0fOperatorService\x12O\n" +
 	"\x0eCreateOperator\x12\x1d.nis.v1.CreateOperatorRequest\x1a\x1e.nis.v1.CreateOperatorResponse\x12F\n" +
 	"\vGetOperator\x12\x1a.nis.v1.GetOperatorRequest\x1a\x1b.nis.v1.GetOperatorResponse\x12X\n" +
@@ -929,7 +1218,9 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\x0eUpdateOperator\x12\x1d.nis.v1.UpdateOperatorRequest\x1a\x1e.nis.v1.UpdateOperatorResponse\x12U\n" +
 	"\x10SetSystemAccount\x12\x1f.nis.v1.SetSystemAccountRequest\x1a .nis.v1.SetSystemAccountResponse\x12O\n" +
 	"\x0eDeleteOperator\x12\x1d.nis.v1.DeleteOperatorRequest\x1a\x1e.nis.v1.DeleteOperatorResponse\x12R\n" +
-	"\x0fGenerateInclude\x12\x1e.nis.v1.GenerateIncludeRequest\x1a\x1f.nis.v1.GenerateIncludeResponseB\x84\x01\n" +
+	"\x0fGenerateInclude\x12\x1e.nis.v1.GenerateIncludeRequest\x1a\x1f.nis.v1.GenerateIncludeResponse\x12I\n" +
+	"\fSetJWTPolicy\x12\x1b.nis.v1.SetJWTPolicyRequest\x1a\x1c.nis.v1.SetJWTPolicyResponse\x12X\n" +
+	"\x11RunJWTExpirySweep\x12 .nis.v1.RunJWTExpirySweepRequest\x1a!.nis.v1.RunJWTExpirySweepResponseB\x84\x01\n" +
 	"\n" +
 	"com.nis.v1B\rOperatorProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -945,7 +1236,7 @@ func file_nis_v1_operator_proto_rawDescGZIP() []byte {
 	return file_nis_v1_operator_proto_rawDescData
 }
 
-var file_nis_v1_operator_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_nis_v1_operator_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_nis_v1_operator_proto_goTypes = []any{
 	(*Operator)(nil),                  // 0: nis.v1.Operator
 	(*CreateOperatorRequest)(nil),     // 1: nis.v1.CreateOperatorRequest
@@ -964,40 +1255,49 @@ var file_nis_v1_operator_proto_goTypes = []any{
 	(*DeleteOperatorResponse)(nil),    // 14: nis.v1.DeleteOperatorResponse
 	(*GenerateIncludeRequest)(nil),    // 15: nis.v1.GenerateIncludeRequest
 	(*GenerateIncludeResponse)(nil),   // 16: nis.v1.GenerateIncludeResponse
-	(*timestamppb.Timestamp)(nil),     // 17: google.protobuf.Timestamp
-	(*ListOptions)(nil),               // 18: nis.v1.ListOptions
+	(*SetJWTPolicyRequest)(nil),       // 17: nis.v1.SetJWTPolicyRequest
+	(*SetJWTPolicyResponse)(nil),      // 18: nis.v1.SetJWTPolicyResponse
+	(*RunJWTExpirySweepRequest)(nil),  // 19: nis.v1.RunJWTExpirySweepRequest
+	(*RunJWTExpirySweepResponse)(nil), // 20: nis.v1.RunJWTExpirySweepResponse
+	(*timestamppb.Timestamp)(nil),     // 21: google.protobuf.Timestamp
+	(*ListOptions)(nil),               // 22: nis.v1.ListOptions
 }
 var file_nis_v1_operator_proto_depIdxs = []int32{
-	17, // 0: nis.v1.Operator.created_at:type_name -> google.protobuf.Timestamp
-	17, // 1: nis.v1.Operator.updated_at:type_name -> google.protobuf.Timestamp
+	21, // 0: nis.v1.Operator.created_at:type_name -> google.protobuf.Timestamp
+	21, // 1: nis.v1.Operator.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: nis.v1.CreateOperatorResponse.operator:type_name -> nis.v1.Operator
 	0,  // 3: nis.v1.GetOperatorResponse.operator:type_name -> nis.v1.Operator
 	0,  // 4: nis.v1.GetOperatorByNameResponse.operator:type_name -> nis.v1.Operator
-	18, // 5: nis.v1.ListOperatorsRequest.options:type_name -> nis.v1.ListOptions
+	22, // 5: nis.v1.ListOperatorsRequest.options:type_name -> nis.v1.ListOptions
 	0,  // 6: nis.v1.ListOperatorsResponse.operators:type_name -> nis.v1.Operator
 	0,  // 7: nis.v1.UpdateOperatorResponse.operator:type_name -> nis.v1.Operator
 	0,  // 8: nis.v1.SetSystemAccountResponse.operator:type_name -> nis.v1.Operator
-	1,  // 9: nis.v1.OperatorService.CreateOperator:input_type -> nis.v1.CreateOperatorRequest
-	3,  // 10: nis.v1.OperatorService.GetOperator:input_type -> nis.v1.GetOperatorRequest
-	5,  // 11: nis.v1.OperatorService.GetOperatorByName:input_type -> nis.v1.GetOperatorByNameRequest
-	7,  // 12: nis.v1.OperatorService.ListOperators:input_type -> nis.v1.ListOperatorsRequest
-	9,  // 13: nis.v1.OperatorService.UpdateOperator:input_type -> nis.v1.UpdateOperatorRequest
-	11, // 14: nis.v1.OperatorService.SetSystemAccount:input_type -> nis.v1.SetSystemAccountRequest
-	13, // 15: nis.v1.OperatorService.DeleteOperator:input_type -> nis.v1.DeleteOperatorRequest
-	15, // 16: nis.v1.OperatorService.GenerateInclude:input_type -> nis.v1.GenerateIncludeRequest
-	2,  // 17: nis.v1.OperatorService.CreateOperator:output_type -> nis.v1.CreateOperatorResponse
-	4,  // 18: nis.v1.OperatorService.GetOperator:output_type -> nis.v1.GetOperatorResponse
-	6,  // 19: nis.v1.OperatorService.GetOperatorByName:output_type -> nis.v1.GetOperatorByNameResponse
-	8,  // 20: nis.v1.OperatorService.ListOperators:output_type -> nis.v1.ListOperatorsResponse
-	10, // 21: nis.v1.OperatorService.UpdateOperator:output_type -> nis.v1.UpdateOperatorResponse
-	12, // 22: nis.v1.OperatorService.SetSystemAccount:output_type -> nis.v1.SetSystemAccountResponse
-	14, // 23: nis.v1.OperatorService.DeleteOperator:output_type -> nis.v1.DeleteOperatorResponse
-	16, // 24: nis.v1.OperatorService.GenerateInclude:output_type -> nis.v1.GenerateIncludeResponse
-	17, // [17:25] is the sub-list for method output_type
-	9,  // [9:17] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	0,  // 9: nis.v1.SetJWTPolicyResponse.operator:type_name -> nis.v1.Operator
+	1,  // 10: nis.v1.OperatorService.CreateOperator:input_type -> nis.v1.CreateOperatorRequest
+	3,  // 11: nis.v1.OperatorService.GetOperator:input_type -> nis.v1.GetOperatorRequest
+	5,  // 12: nis.v1.OperatorService.GetOperatorByName:input_type -> nis.v1.GetOperatorByNameRequest
+	7,  // 13: nis.v1.OperatorService.ListOperators:input_type -> nis.v1.ListOperatorsRequest
+	9,  // 14: nis.v1.OperatorService.UpdateOperator:input_type -> nis.v1.UpdateOperatorRequest
+	11, // 15: nis.v1.OperatorService.SetSystemAccount:input_type -> nis.v1.SetSystemAccountRequest
+	13, // 16: nis.v1.OperatorService.DeleteOperator:input_type -> nis.v1.DeleteOperatorRequest
+	15, // 17: nis.v1.OperatorService.GenerateInclude:input_type -> nis.v1.GenerateIncludeRequest
+	17, // 18: nis.v1.OperatorService.SetJWTPolicy:input_type -> nis.v1.SetJWTPolicyRequest
+	19, // 19: nis.v1.OperatorService.RunJWTExpirySweep:input_type -> nis.v1.RunJWTExpirySweepRequest
+	2,  // 20: nis.v1.OperatorService.CreateOperator:output_type -> nis.v1.CreateOperatorResponse
+	4,  // 21: nis.v1.OperatorService.GetOperator:output_type -> nis.v1.GetOperatorResponse
+	6,  // 22: nis.v1.OperatorService.GetOperatorByName:output_type -> nis.v1.GetOperatorByNameResponse
+	8,  // 23: nis.v1.OperatorService.ListOperators:output_type -> nis.v1.ListOperatorsResponse
+	10, // 24: nis.v1.OperatorService.UpdateOperator:output_type -> nis.v1.UpdateOperatorResponse
+	12, // 25: nis.v1.OperatorService.SetSystemAccount:output_type -> nis.v1.SetSystemAccountResponse
+	14, // 26: nis.v1.OperatorService.DeleteOperator:output_type -> nis.v1.DeleteOperatorResponse
+	16, // 27: nis.v1.OperatorService.GenerateInclude:output_type -> nis.v1.GenerateIncludeResponse
+	18, // 28: nis.v1.OperatorService.SetJWTPolicy:output_type -> nis.v1.SetJWTPolicyResponse
+	20, // 29: nis.v1.OperatorService.RunJWTExpirySweep:output_type -> nis.v1.RunJWTExpirySweepResponse
+	20, // [20:30] is the sub-list for method output_type
+	10, // [10:20] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_operator_proto_init() }
@@ -1007,13 +1307,14 @@ func file_nis_v1_operator_proto_init() {
 	}
 	file_nis_v1_common_proto_init()
 	file_nis_v1_operator_proto_msgTypes[9].OneofWrappers = []any{}
+	file_nis_v1_operator_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_operator_proto_rawDesc), len(file_nis_v1_operator_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -78,7 +78,7 @@ func (s *ExportServiceTestSuite) SetupSuite() {
 	// Create services
 	s.accountService = NewAccountService(factory, s.jwtService, s.encryptor)
 	s.operatorService = NewOperatorService(factory, s.accountService, s.jwtService, s.encryptor)
-	s.userService = NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
+	s.userService = NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, s.operatorRepo, s.jwtService, s.encryptor)
 	s.scopedKeyService = NewScopedSigningKeyService(factory, s.jwtService, s.encryptor)
 	s.clusterService = NewClusterService(s.clusterRepo, s.operatorRepo, s.accountRepo, s.userRepo, s.scopedSigningKeyRepo, s.encryptor, s.jwtService)
 	s.exportService = NewExportService(
@@ -532,7 +532,7 @@ func (s *ExportServiceTestSuite) freshExportService(enc encryption.Encryptor) *E
 	jwtSvc := NewJWTService(enc)
 	accountSvc := NewAccountService(factory, jwtSvc, enc)
 	operatorSvc := NewOperatorService(factory, accountSvc, jwtSvc, enc)
-	userSvc := NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, jwtSvc, enc)
+	userSvc := NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, s.operatorRepo, jwtSvc, enc)
 	scopedSvc := NewScopedSigningKeyService(factory, jwtSvc, enc)
 	clusterSvc := NewClusterService(s.clusterRepo, s.operatorRepo, s.accountRepo, s.userRepo, s.scopedSigningKeyRepo, enc, jwtSvc)
 	return NewExportService(

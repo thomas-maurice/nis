@@ -20,6 +20,10 @@ func OperatorToProto(op *entities.Operator) *pb.Operator {
 		SystemAccountPubKey:  op.SystemAccountPubKey,
 		CreatedAt:            timestamppb.New(op.CreatedAt),
 		UpdatedAt:            timestamppb.New(op.UpdatedAt),
+		UserJwtTtlSeconds:    int64(op.UserJWTTTL.Seconds()),
+		AccountJwtTtlSeconds: int64(op.AccountJWTTTL.Seconds()),
+		JwtWarnWindowSeconds: int64(op.JWTWarnWindow.Seconds()),
+		JwtAutoRenew:         op.JWTAutoRenew,
 	}
 }
 

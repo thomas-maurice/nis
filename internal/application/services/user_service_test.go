@@ -75,6 +75,7 @@ func (s *UserServiceTestSuite) SetupSuite() {
 		s.userRepo,
 		s.accountRepo,
 		s.scopedKeyRepo,
+		s.operatorRepo,
 		jwtService,
 		s.encryptor,
 	)

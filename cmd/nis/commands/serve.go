@@ -227,6 +227,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.UserRepository(),
 		repoFactory.AccountRepository(),
 		repoFactory.ScopedSigningKeyRepository(),
+		repoFactory.OperatorRepository(),
 		jwtService,
 		encryptor,
 	).WithFactory(repoFactory)
@@ -287,6 +288,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	authMiddleware := middleware.NewAuthInterceptor(authService, enforcer).
 		WithAPITokenService(apiTokenService, apiTokenFlusher)
 
+	// JWT lifecycle (P2) wiring: revocation service composes user mutations +
+	// account JWT regen + cluster push; the sweeper drives prune / expiring-soon /
+	// expired / auto-renew on the configured interval (and on demand via
+	// OperatorService.RunJWTExpirySweep).
+	userRevocationService := services.NewUserRevocationService(repoFactory, jwtService, clusterService, encryptor)
+	jwtSweepInterval := time.Duration(viper.GetInt("jwt_policy.sweep_interval_seconds")) * time.Second
+	jwtSweepBatch := viper.GetInt("jwt_policy.sweep_batch_limit")
+	jwtExpirySweeper := services.NewJWTExpirySweeper(repoFactory, jwtService, userRevocationService, clusterService, jwtSweepInterval, jwtSweepBatch)
+
 	// Initialize gRPC server with auth middleware
 	server := grpcServer.NewServer(
 		grpcServer.ServerConfig{
@@ -307,6 +317,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		eventService,
 		webhookService,
 		apiTokenService,
+		userRevocationService,
+		jwtExpirySweeper,
 		permissionService,
 		authMiddleware,
 	)
@@ -357,6 +369,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		24*time.Hour,
 	)
 	go retentionWorker.Run(ctx)
+
+	// JWT expiry sweeper (P2). Off-by-default behaviour comes from the per-
+	// operator policy (TTL=0 means the sweeper finds nothing to do). When an
+	// operator opts in, this loop emits expiring-soon/expired events, optionally
+	// auto-renews, and prunes the parent account's Revocations map.
+	go jwtExpirySweeper.Run(ctx)
 
 	// Webhook delivery worker. Poll interval is auto-detected by DB driver when
 	// the flag is left at its default of 0.

@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -58,10 +59,34 @@ var operatorGenerateIncludeCmd = &cobra.Command{
 	RunE:  runOperatorGenerateInclude,
 }
 
+var operatorSetJWTPolicyCmd = &cobra.Command{
+	Use:   "set-jwt-policy OPERATOR_ID_OR_NAME",
+	Short: "Set JWT lifecycle policy for an operator",
+	Long: `Configure per-operator JWT TTL and renewal defaults.
+
+Duration flags accept Go duration syntax (e.g. 8760h for 1 year, 2160h for 90 days).
+All flags are optional; only provided flags update the stored policy.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runOperatorSetJWTPolicy,
+}
+
+var operatorRunJWTSweepCmd = &cobra.Command{
+	Use:   "run-jwt-sweep",
+	Short: "Trigger an immediate JWT expiry sweep (admin only)",
+	Args:  cobra.NoArgs,
+	RunE:  runOperatorRunJWTSweep,
+}
+
 var (
 	operatorSystemAccountPubKey string
 	operatorDescription         string
 	operatorForce               bool
+
+	// set-jwt-policy flags
+	jwtPolicyUserTTL     string
+	jwtPolicyAccountTTL  string
+	jwtPolicyWarnWindow  string
+	jwtPolicyAutoRenew   bool
 )
 
 func init() {
@@ -73,6 +98,8 @@ func init() {
 	operatorCmd.AddCommand(operatorDeleteCmd)
 	operatorCmd.AddCommand(operatorSetSystemAccountCmd)
 	operatorCmd.AddCommand(operatorGenerateIncludeCmd)
+	operatorCmd.AddCommand(operatorSetJWTPolicyCmd)
+	operatorCmd.AddCommand(operatorRunJWTSweepCmd)
 
 	// Create flags
 	operatorCreateCmd.Flags().StringVar(&operatorDescription, "description", "", "operator description")
@@ -83,6 +110,12 @@ func init() {
 
 	// Delete flags
 	operatorDeleteCmd.Flags().BoolVarP(&operatorForce, "force", "f", false, "skip confirmation prompt")
+
+	// set-jwt-policy flags
+	operatorSetJWTPolicyCmd.Flags().StringVar(&jwtPolicyUserTTL, "user-ttl", "", "user JWT TTL as Go duration (e.g. 8760h = 1 year, 2160h = 90 days)")
+	operatorSetJWTPolicyCmd.Flags().StringVar(&jwtPolicyAccountTTL, "account-ttl", "", "account JWT TTL as Go duration (e.g. 8760h = 1 year)")
+	operatorSetJWTPolicyCmd.Flags().StringVar(&jwtPolicyWarnWindow, "warn-window", "", "warn-before-expiry window as Go duration (e.g. 168h = 1 week)")
+	operatorSetJWTPolicyCmd.Flags().BoolVar(&jwtPolicyAutoRenew, "auto-renew", false, "enable automatic JWT renewal before expiry")
 }
 
 func runOperatorCreate(cmd *cobra.Command, args []string) error {
@@ -381,5 +414,82 @@ jetstream: {
 	// Output the configuration
 	fmt.Print(config)
 
+	return nil
+}
+
+func runOperatorSetJWTPolicy(cmd *cobra.Command, args []string) error {
+	printer := client.NewPrinter(GetOutputFormat())
+
+	operatorID, err := resolveOperatorID(args[0])
+	if err != nil {
+		return err
+	}
+
+	req := &nisv1.SetJWTPolicyRequest{Id: operatorID}
+
+	if cmd.Flags().Changed("user-ttl") {
+		d, err := time.ParseDuration(jwtPolicyUserTTL)
+		if err != nil {
+			return fmt.Errorf("invalid --user-ttl: %w", err)
+		}
+		v := int64(d.Seconds())
+		req.UserJwtTtlSeconds = &v
+	}
+
+	if cmd.Flags().Changed("account-ttl") {
+		d, err := time.ParseDuration(jwtPolicyAccountTTL)
+		if err != nil {
+			return fmt.Errorf("invalid --account-ttl: %w", err)
+		}
+		v := int64(d.Seconds())
+		req.AccountJwtTtlSeconds = &v
+	}
+
+	if cmd.Flags().Changed("warn-window") {
+		d, err := time.ParseDuration(jwtPolicyWarnWindow)
+		if err != nil {
+			return fmt.Errorf("invalid --warn-window: %w", err)
+		}
+		v := int64(d.Seconds())
+		req.JwtWarnWindowSeconds = &v
+	}
+
+	if cmd.Flags().Changed("auto-renew") {
+		v := jwtPolicyAutoRenew
+		req.JwtAutoRenew = &v
+	}
+
+	resp, err := GetClient().Operator.SetJWTPolicy(context.Background(), connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("failed to set JWT policy: %w", err)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		printer.PrintID(resp.Msg.Operator.Id)
+		return nil
+	}
+
+	printer.PrintSuccess("JWT policy updated")
+	return printer.PrintObject(resp.Msg.Operator)
+}
+
+func runOperatorRunJWTSweep(cmd *cobra.Command, args []string) error {
+	printer := client.NewPrinter(GetOutputFormat())
+
+	resp, err := GetClient().Operator.RunJWTExpirySweep(context.Background(), connect.NewRequest(&nisv1.RunJWTExpirySweepRequest{}))
+	if err != nil {
+		return fmt.Errorf("failed to run JWT expiry sweep: %w", err)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		return nil
+	}
+
+	r := resp.Msg
+	printer.PrintSuccess("JWT expiry sweep complete")
+	printer.PrintMessage("  revocations_pruned:    %d", r.RevocationsPruned)
+	printer.PrintMessage("  expiring_soon_emitted: %d", r.ExpiringSoonEmitted)
+	printer.PrintMessage("  expired_alerts_emitted:%d", r.ExpiredAlertsEmitted)
+	printer.PrintMessage("  auto_renewed:          %d", r.AutoRenewed)
 	return nil
 }

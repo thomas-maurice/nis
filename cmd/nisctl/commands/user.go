@@ -11,6 +11,25 @@ import (
 	"github.com/thomas-maurice/nis/internal/client"
 )
 
+var userRevokeCmd = &cobra.Command{
+	Use:   "revoke NAME",
+	Short: "Revoke a user (JWT invalidated in parent account)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runUserRevoke,
+}
+
+var userRegenerateCredsCmd = &cobra.Command{
+	Use:   "regenerate-creds NAME",
+	Short: "Regenerate credentials for a user (new JWT + creds file)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runUserRegenerateCreds,
+}
+
+var (
+	userRevokeReason         string
+	userRegenerateOutputFile string
+)
+
 var userCmd = &cobra.Command{
 	Use:   "user",
 	Short: "Manage NATS users",
@@ -54,12 +73,12 @@ var userDeleteCmd = &cobra.Command{
 }
 
 var (
-	userOperatorID      string
-	userAccountID       string
-	userDescription     string
-	userScopedKeyID     string
-	userCredsOutputFile string
-	userForce           bool
+	userOperatorID          string
+	userAccountID           string
+	userDescription         string
+	userScopedKeyID         string
+	userCredsOutputFile     string
+	userForce               bool
 )
 
 func init() {
@@ -70,6 +89,8 @@ func init() {
 	userCmd.AddCommand(userGetCmd)
 	userCmd.AddCommand(userCredsCmd)
 	userCmd.AddCommand(userDeleteCmd)
+	userCmd.AddCommand(userRevokeCmd)
+	userCmd.AddCommand(userRegenerateCredsCmd)
 
 	// Create flags
 	userCreateCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
@@ -102,6 +123,20 @@ func init() {
 	userDeleteCmd.Flags().BoolVarP(&userForce, "force", "f", false, "skip confirmation prompt")
 	_ = userDeleteCmd.MarkFlagRequired("operator")
 	_ = userDeleteCmd.MarkFlagRequired("account")
+
+	// Revoke flags
+	userRevokeCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
+	userRevokeCmd.Flags().StringVar(&userAccountID, "account", "", "account name (required)")
+	userRevokeCmd.Flags().StringVar(&userRevokeReason, "reason", "", "reason for revocation")
+	_ = userRevokeCmd.MarkFlagRequired("operator")
+	_ = userRevokeCmd.MarkFlagRequired("account")
+
+	// Regenerate-creds flags
+	userRegenerateCredsCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
+	userRegenerateCredsCmd.Flags().StringVar(&userAccountID, "account", "", "account name (required)")
+	userRegenerateCredsCmd.Flags().StringVarP(&userRegenerateOutputFile, "output", "o", "", "output file (default: stdout)")
+	_ = userRegenerateCredsCmd.MarkFlagRequired("operator")
+	_ = userRegenerateCredsCmd.MarkFlagRequired("account")
 }
 
 func runUserCreate(cmd *cobra.Command, args []string) error {
@@ -335,6 +370,87 @@ func runUserDelete(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() != "quiet" {
 		printer.PrintSuccess("User '%s' deleted successfully", userName)
+	}
+
+	return nil
+}
+
+func runUserRevoke(cmd *cobra.Command, args []string) error {
+	userName := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	accountID, err := resolveAccountForUser()
+	if err != nil {
+		return err
+	}
+
+	userReq := connect.NewRequest(&nisv1.GetUserByNameRequest{
+		AccountId: accountID,
+		Name:      userName,
+	})
+	userResp, err := GetClient().User.GetUserByName(context.Background(), userReq)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	req := connect.NewRequest(&nisv1.RevokeUserRequest{
+		Id:     userResp.Msg.User.Id,
+		Reason: userRevokeReason,
+	})
+	resp, err := GetClient().User.RevokeUser(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to revoke user: %w", err)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		printer.PrintID(resp.Msg.User.Id)
+		return nil
+	}
+
+	u := resp.Msg.User
+	if u.RevokedAt != nil && userResp.Msg.User.RevokedAt != nil {
+		printer.PrintMessage("User '%s' was already revoked (idempotent)", u.Name)
+	} else {
+		printer.PrintSuccess("User '%s' revoked at %s", u.Name, u.RevokedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
+	return printer.PrintObject(u)
+}
+
+func runUserRegenerateCreds(cmd *cobra.Command, args []string) error {
+	userName := args[0]
+
+	accountID, err := resolveAccountForUser()
+	if err != nil {
+		return err
+	}
+
+	userReq := connect.NewRequest(&nisv1.GetUserByNameRequest{
+		AccountId: accountID,
+		Name:      userName,
+	})
+	userResp, err := GetClient().User.GetUserByName(context.Background(), userReq)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	req := connect.NewRequest(&nisv1.RegenerateUserCredentialsRequest{
+		Id: userResp.Msg.User.Id,
+	})
+	resp, err := GetClient().User.RegenerateUserCredentials(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to regenerate credentials: %w", err)
+	}
+
+	if userRegenerateOutputFile != "" {
+		if err := os.WriteFile(userRegenerateOutputFile, []byte(resp.Msg.Credentials), 0600); err != nil {
+			return fmt.Errorf("failed to write credentials file: %w", err)
+		}
+		if GetOutputFormat() != "quiet" {
+			printer := client.NewPrinter(GetOutputFormat())
+			printer.PrintSuccess("Credentials saved to %s", userRegenerateOutputFile)
+		}
+	} else {
+		fmt.Print(resp.Msg.Credentials)
 	}
 
 	return nil

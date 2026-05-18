@@ -15,6 +15,23 @@ type Operator struct {
 	PublicKey           string // NATS public key, starts with 'O'
 	JWT                 string // Operator JWT (self-signed)
 	SystemAccountPubKey string // Optional: public key of the designated system account
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+
+	// JWT lifecycle policy (P2). All zero values mean "no expiry / never renew" —
+	// the back-compat default. Set per operator via SetJWTPolicy.
+	//
+	// UserJWTTTL    : default TTL applied to a user JWT at mint time when the user
+	//                 has no per-row override. 0 = no expiry.
+	// AccountJWTTTL : TTL applied to the account JWT at sign time. 0 = no expiry.
+	// JWTWarnWindow : how far ahead of `exp` the sweeper fires user.cred.expiring_soon.
+	//                 Default 14 days. Ignored when UserJWTTTL == 0.
+	// JWTAutoRenew  : when true, the sweeper re-signs user JWTs that fall inside the
+	//                 warn window. Does NOT renew already-expired JWTs — those emit
+	//                 user.cred.expired and require explicit RegenerateUserJWT.
+	UserJWTTTL    time.Duration
+	AccountJWTTTL time.Duration
+	JWTWarnWindow time.Duration
+	JWTAutoRenew  bool
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

@@ -110,6 +110,74 @@
         </div>
       </div>
 
+      <!-- JWT Policy Card -->
+      <div class="row mt-4">
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">JWT Policy</h5>
+              <button
+                v-if="authStore.isAdmin || authStore.isOperatorAdmin"
+                class="btn btn-sm btn-outline-primary"
+                @click="openJWTPolicyModal"
+              >
+                <font-awesome-icon :icon="['fas', 'edit']" class="me-1" />
+                Edit
+              </button>
+            </div>
+            <div class="card-body">
+              <dl class="row mb-0">
+                <dt class="col-sm-6">User JWT TTL:</dt>
+                <dd class="col-sm-6">{{ formatTTLDays(operator.userJwtTtlSeconds) }}</dd>
+
+                <dt class="col-sm-6">Account JWT TTL:</dt>
+                <dd class="col-sm-6">{{ formatTTLDays(operator.accountJwtTtlSeconds) }}</dd>
+
+                <dt class="col-sm-6">Warn Window:</dt>
+                <dd class="col-sm-6">{{ formatTTLDays(operator.jwtWarnWindowSeconds) }}</dd>
+
+                <dt class="col-sm-6">Auto-Renew:</dt>
+                <dd class="col-sm-6">
+                  <span v-if="operator.jwtAutoRenew" class="badge bg-success">Yes</span>
+                  <span v-else class="badge bg-secondary">Off</span>
+                </dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin Tools -->
+        <div v-if="authStore.isAdmin" class="col-md-6">
+          <div class="card">
+            <div class="card-header">
+              <h5 class="mb-0">Admin Tools</h5>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small mb-3">
+                Force an immediate JWT expiry sweep across all operators. Normally runs on a periodic tick.
+              </p>
+              <button
+                class="btn btn-outline-warning"
+                :disabled="sweepRunning"
+                @click="runSweep"
+              >
+                <span v-if="sweepRunning" class="spinner-border spinner-border-sm me-2"></span>
+                <font-awesome-icon v-else :icon="['fas', 'sync']" class="me-2" />
+                Run JWT Expiry Sweep Now
+              </button>
+              <div v-if="sweepResult" class="alert alert-info mt-3 mb-0">
+                <strong>Sweep complete:</strong>
+                pruned {{ sweepResult.revocationsPruned }} revocation(s),
+                {{ sweepResult.expiringSoonEmitted }} expiring-soon event(s),
+                {{ sweepResult.expiredAlertsEmitted }} expired alert(s),
+                {{ sweepResult.autoRenewed }} auto-renewed.
+              </div>
+              <div v-if="sweepError" class="alert alert-danger mt-3 mb-0">{{ sweepError }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="config" class="row mt-4">
         <div class="col-12">
           <div class="card">
@@ -123,6 +191,77 @@
             <div class="card-body">
               <CodeBlock :content="config" label="" />
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JWT Policy Modal -->
+    <div v-if="showJWTPolicyModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit JWT Policy</h5>
+            <button type="button" class="btn-close" @click="closeJWTPolicyModal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label" for="userJwtTtlDays">User JWT TTL (days)</label>
+              <input
+                id="userJwtTtlDays"
+                v-model.number="jwtPolicyForm.userJwtTtlDays"
+                type="number"
+                min="0"
+                class="form-control"
+                placeholder="0 = never expires"
+              />
+              <div class="form-text">0 means user JWTs never expire.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="accountJwtTtlDays">Account JWT TTL (days)</label>
+              <input
+                id="accountJwtTtlDays"
+                v-model.number="jwtPolicyForm.accountJwtTtlDays"
+                type="number"
+                min="0"
+                class="form-control"
+                placeholder="0 = never expires"
+              />
+              <div class="form-text">0 means account JWTs never expire.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="warnWindowDays">Warn Window (days)</label>
+              <input
+                id="warnWindowDays"
+                v-model.number="jwtPolicyForm.warnWindowDays"
+                type="number"
+                min="0"
+                class="form-control"
+                placeholder="0 = off"
+              />
+              <div class="form-text">Emit expiry-warning events this many days before expiry. 0 = off.</div>
+            </div>
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input
+                  id="jwtAutoRenew"
+                  v-model="jwtPolicyForm.jwtAutoRenew"
+                  class="form-check-input"
+                  type="checkbox"
+                  role="switch"
+                />
+                <label class="form-check-label" for="jwtAutoRenew">Auto-Renew JWTs</label>
+              </div>
+              <div class="form-text">Automatically renew JWTs before they expire during the sweep.</div>
+            </div>
+            <div v-if="jwtPolicyError" class="alert alert-danger">{{ jwtPolicyError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeJWTPolicyModal">Cancel</button>
+            <button type="button" class="btn btn-primary" :disabled="savingJWTPolicy" @click="saveJWTPolicy">
+              <span v-if="savingJWTPolicy" class="spinner-border spinner-border-sm me-2"></span>
+              Save
+            </button>
           </div>
         </div>
       </div>
@@ -221,6 +360,17 @@ const checkingAdminAccount = ref(false)
 const creatingAdminAccount = ref(false)
 const adminAccountError = ref('')
 let refreshInterval = null
+
+// JWT Policy modal state
+const showJWTPolicyModal = ref(false)
+const jwtPolicyForm = ref({ userJwtTtlDays: 0, accountJwtTtlDays: 0, warnWindowDays: 0, jwtAutoRenew: false })
+const savingJWTPolicy = ref(false)
+const jwtPolicyError = ref('')
+
+// Sweep state
+const sweepRunning = ref(false)
+const sweepResult = ref(null)
+const sweepError = ref('')
 
 const loadOperator = async () => {
   loading.value = true
@@ -423,6 +573,66 @@ const handleExport = async () => {
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString()
+}
+
+// secondsVal may be a BigInt (from protobuf int64), a string, or a number.
+const formatTTLDays = (secondsVal) => {
+  const secs = Number(secondsVal)
+  if (!secs || secs === 0) return 'Never'
+  const days = Math.round(secs / 86400)
+  return days === 1 ? '1 day' : `${days} days`
+}
+
+const openJWTPolicyModal = () => {
+  const op = operator.value
+  jwtPolicyForm.value = {
+    userJwtTtlDays: op.userJwtTtlSeconds ? Math.round(Number(op.userJwtTtlSeconds) / 86400) : 0,
+    accountJwtTtlDays: op.accountJwtTtlSeconds ? Math.round(Number(op.accountJwtTtlSeconds) / 86400) : 0,
+    warnWindowDays: op.jwtWarnWindowSeconds ? Math.round(Number(op.jwtWarnWindowSeconds) / 86400) : 0,
+    jwtAutoRenew: op.jwtAutoRenew || false,
+  }
+  jwtPolicyError.value = ''
+  showJWTPolicyModal.value = true
+}
+
+const closeJWTPolicyModal = () => {
+  showJWTPolicyModal.value = false
+  jwtPolicyError.value = ''
+}
+
+const saveJWTPolicy = async () => {
+  savingJWTPolicy.value = true
+  jwtPolicyError.value = ''
+  try {
+    const f = jwtPolicyForm.value
+    const resp = await apiClient.post('/nis.v1.OperatorService/SetJWTPolicy', {
+      id: operator.value.id,
+      userJwtTtlSeconds: String(f.userJwtTtlDays * 86400),
+      accountJwtTtlSeconds: String(f.accountJwtTtlDays * 86400),
+      jwtWarnWindowSeconds: String(f.warnWindowDays * 86400),
+      jwtAutoRenew: f.jwtAutoRenew,
+    })
+    operator.value = resp.data.operator
+    closeJWTPolicyModal()
+  } catch (err) {
+    jwtPolicyError.value = err.response?.data?.message || 'Failed to save JWT policy'
+  } finally {
+    savingJWTPolicy.value = false
+  }
+}
+
+const runSweep = async () => {
+  sweepRunning.value = true
+  sweepResult.value = null
+  sweepError.value = ''
+  try {
+    const resp = await apiClient.post('/nis.v1.OperatorService/RunJWTExpirySweep', {})
+    sweepResult.value = resp.data
+  } catch (err) {
+    sweepError.value = err.response?.data?.message || 'Sweep failed'
+  } finally {
+    sweepRunning.value = false
+  }
 }
 
 const refreshData = async () => {

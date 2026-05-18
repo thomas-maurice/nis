@@ -2,9 +2,28 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
+)
+
+// ExpirySweepKind selects which subset of users the JWT expiry sweeper wants
+// to process on a given pass. Each kind is matched at the SQL level so we
+// don't pull rows the sweeper would have to skip.
+type ExpirySweepKind int
+
+const (
+	// ExpirySweepKindExpiringSoon — JWTs whose exp is in the future but inside
+	// the warn window. Used to fire user.cred.expiring_soon and to feed
+	// auto-renew. Filtered by jwt_expires_at < cutoff AND jwt_expires_at >= now.
+	ExpirySweepKindExpiringSoon ExpirySweepKind = iota
+
+	// ExpirySweepKindExpired — JWTs whose exp has already elapsed. Used to fire
+	// user.cred.expired. Auto-renew is intentionally skipped: silently re-
+	// signing a credential NATS already considers dead defeats the purpose of
+	// expiry, so the operator must consciously call RegenerateUserJWT.
+	ExpirySweepKindExpired
 )
 
 // UserRepository defines the interface for user persistence
@@ -29,6 +48,16 @@ type UserRepository interface {
 
 	// ListByScopedSigningKey retrieves users signed by a specific scoped signing key
 	ListByScopedSigningKey(ctx context.Context, scopedKeyID uuid.UUID, opts ListOptions) ([]*entities.User, error)
+
+	// ListForExpirySweep returns users that match the given sweep kind, scanned
+	// at most `limit` rows per call. Revoked users (revoked_at IS NOT NULL) are
+	// always excluded — they're being kept dead on purpose.
+	//
+	// Dedup is enforced at the SQL level via last_expiring_warn_iat / last_expired_alert_iat:
+	// rows are only returned when no warn has yet been emitted for the current
+	// jwt_issued_at. This survives sweeper restarts and clock skew (the dedup
+	// key is the JWT iat, not wallclock time).
+	ListForExpirySweep(ctx context.Context, kind ExpirySweepKind, now time.Time, warnWindow time.Duration, limit int) ([]*entities.User, error)
 
 	// Update updates an existing user
 	Update(ctx context.Context, user *entities.User) error

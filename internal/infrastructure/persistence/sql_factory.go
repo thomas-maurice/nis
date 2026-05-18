@@ -39,6 +39,7 @@ type sqlRepositoryFactory struct {
 	eventRepo                   repositories.EventRepository
 	webhookSubscriptionRepo     repositories.WebhookSubscriptionRepository
 	webhookDeliveryRepo         repositories.WebhookDeliveryRepository
+	userJWTRevocationRepo       repositories.UserJWTRevocationRepository
 }
 
 func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
@@ -65,13 +66,18 @@ func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
 
 	switch f.config.Driver {
 	case "sqlite":
-		// Enable foreign keys for SQLite
+		// Enable foreign keys for SQLite + force UTC for time.Time bindings.
+		// See sql/db.go for why _loc=UTC is mandatory; the short version is
+		// that without it, lexical timestamp comparisons drift by the host
+		// machine's offset and the JWT-lifecycle sweeper (P2) silently misses
+		// rows.
 		dsn := f.config.DSN
 		if dsn != ":memory:" && dsn != "" {
-			// Add foreign keys parameter if not already present
 			if len(dsn) > 0 && dsn[len(dsn)-1] != '?' {
-				dsn += "?_foreign_keys=on"
+				dsn += "?_foreign_keys=on&_loc=UTC"
 			}
+		} else if dsn == ":memory:" {
+			dsn = ":memory:?_foreign_keys=on&_loc=UTC"
 		}
 		gormDB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 		if err == nil {
@@ -330,6 +336,13 @@ func (f *sqlRepositoryFactory) WebhookDeliveryRepository() repositories.WebhookD
 		f.webhookDeliveryRepo = sqlRepo.NewWebhookDeliveryRepo(f.gormDB)
 	}
 	return f.webhookDeliveryRepo
+}
+
+func (f *sqlRepositoryFactory) UserJWTRevocationRepository() repositories.UserJWTRevocationRepository {
+	if f.userJWTRevocationRepo == nil {
+		f.userJWTRevocationRepo = sqlRepo.NewUserJWTRevocationRepo(f.gormDB)
+	}
+	return f.userJWTRevocationRepo
 }
 
 // WithTx runs fn inside a GORM transaction. The factory passed to fn hands out

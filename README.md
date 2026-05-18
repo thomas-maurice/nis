@@ -198,6 +198,57 @@ Imports are atomic: the whole flow runs in a single database transaction, so a m
 
 **Deleting an operator** is refused while clusters are still attached to it. `clusters.operator_id` is `ON DELETE RESTRICT` because clusters model live NATS servers configured with the operator's JWT — a silent cascade would lose track of running infrastructure. Delete (or detach by deleting) every attached cluster first, then the operator delete will succeed. The error message names the offending clusters so you know which to clean up.
 
+## JWT lifecycle (P2)
+
+NATS JWTs in NIS are **unbounded by default** — they carry no `exp`, matching the original behaviour. Per-operator policy can opt in to expiry, revocation, and auto-renew:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `user_jwt_ttl_seconds` | `0` (never) | TTL stamped on every newly-minted user JWT. |
+| `account_jwt_ttl_seconds` | `0` (never) | TTL stamped on the account JWT itself. Account JWTs live on the resolver; opt in only when you want signing-chain hygiene. |
+| `jwt_warn_window_seconds` | `1209600` (14d) | Sweeper fires `user.cred.expiring_soon` when a user JWT's `exp` falls inside this window. Ignored when TTL is 0. |
+| `jwt_auto_renew` | `false` | When `true`, sweeper re-signs an expiring-soon user JWT and emits `user.cred.renewed`. Holders still hold the old `.creds` — auto-renew makes a fresh JWT *available*, it does not redistribute. |
+
+Configure per operator:
+
+```bash
+nisctl operator set-jwt-policy my-operator --user-ttl=2160h --warn-window=336h --auto-renew=false
+# UI: Operators → <op> → "JWT Policy" card → Edit.
+```
+
+**Revocation.** A user revocation adds the user's NATS public key to the parent account JWT's NATS-native `Revocations` map and pushes the re-signed account JWT to every attached cluster. The user row is soft-revoked (`revoked_at` set); the row stays so audit + reinstatement work.
+
+```bash
+nisctl user revoke alice --operator my-op --account my-acc --reason "leaked laptop"
+nisctl user regenerate-creds alice --operator my-op --account my-acc   # reinstates: clears revoked_at, mints fresh creds
+```
+
+**Already-expired credentials are NEVER auto-renewed.** If NIS was down through a TTL window and user JWTs expired, the sweeper emits `user.cred.expired` and waits — silently re-signing dead credentials defeats the point of expiry. An operator must run `nisctl user regenerate-creds` (or hit "Regenerate" in the UI) to issue a fresh JWT.
+
+**Sweeper.** A single background goroutine runs every `jwt_policy.sweep_interval_seconds` (default `3600`). Phases per tick:
+
+1. **Prune.** Revocations whose `jwt_exp` is past get marked `pruned_at` and the parent account JWT is regenerated without them, then pushed to all clusters. (NATS would reject the revoked JWT on `exp` anyway, so the entry would only bloat the account JWT.)
+2. **Expiring-soon alert.** One `user.cred.expiring_soon` event per `iat` (dedup survives sweeper restarts).
+3. **Auto-renew** (if `jwt_auto_renew=true` for the operator). Calls `RegenerateUserCredentials` internally.
+4. **Expired alert.** `user.cred.expired` event for JWTs past `exp` — no auto-renew.
+
+Force an immediate tick (admin-only):
+
+```bash
+nisctl operator run-jwt-sweep
+# UI: Operators → <op> → "Admin Tools" card → "Run JWT Expiry Sweep Now".
+```
+
+**What expires what.** Regenerating a user JWT (manual or auto-renew) does NOT invalidate the previous JWT — the previously-issued `.creds` keeps working until its own `exp`. To forcibly invalidate the old creds, **revoke first**, then regenerate. Account permission changes (scoped-key edits, JetStream limits) re-sign and re-push the *account* JWT only — user JWTs already in the wild are unaffected; new permissions take effect on next reconnect because NATS reads scope templates off the account JWT, not the user JWT.
+
+Tunable config keys:
+
+```yaml
+jwt_policy:
+  sweep_interval_seconds: 3600
+  sweep_batch_limit: 500
+```
+
 ## Events & Webhooks
 
 Every mutation through NIS (create/update/delete on operators, accounts, users, scoped keys, clusters; cluster sync; cluster health transitions) is appended to a durable **events table** in the same transaction as the state change. Operators can subscribe HTTP endpoints to receive HMAC-signed POSTs when events fire. Used for audit trails, Slack/PagerDuty notifications, downstream cache invalidation.
@@ -215,6 +266,11 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `cluster.health_changed` | The 60s probe sees a healthy→unhealthy or unhealthy→healthy transition |
 | `webhook.test` | Operator clicks "Send Test" on a subscription |
 | `api_token.created` / `api_token.revoked` | Service-account API token lifecycle |
+| `user.revoked` | RevokeUser added a user's pubkey to the account JWT's revocations map |
+| `user.cred.expiring_soon` | Sweeper found a user JWT expiring inside the operator's warn window |
+| `user.cred.expired` | Sweeper found a user JWT past `exp` (auto-renew is NOT applied — explicit `RegenerateUserCredentials` required) |
+| `user.cred.renewed` | RegenerateUserCredentials minted a fresh user JWT (manual or sweeper auto-renew) |
+| `user.revocation_pruned` | Sweeper removed an expired revocation entry from an account JWT |
 
 Events carry `actor_type` (`user` for RPC-driven events from human logins, `api_token` for RPCs driven by a service-account token, `system` for background ones), `actor_id` (the API user OR the token ID, depending on actor_type), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
 

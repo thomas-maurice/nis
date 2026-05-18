@@ -34,6 +34,10 @@ func repoErrToConnect(err error) error {
 	}
 }
 
+// errSweeperNotConfigured is returned by RunJWTExpirySweep when the server was
+// built without a sweeper wired in (test paths only).
+var errSweeperNotConfigured = errors.New("jwt expiry sweeper is not configured on this server")
+
 // authedUser returns the API user attached to the request by the auth interceptor.
 // If the context has no user (request never passed through auth), the caller gets
 // an `Unauthenticated` error suitable for returning directly from a handler.

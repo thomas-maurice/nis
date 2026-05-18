@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -24,6 +25,21 @@ func NewUserRepo(db *gorm.DB) *UserRepo {
 // Create creates a new user
 func (r *UserRepo) Create(ctx context.Context, user *entities.User) error {
 	model := UserModelFromEntity(user)
+	// Normalize time fields to UTC — see Update for rationale.
+	normalizeUTC := func(t *time.Time) *time.Time {
+		if t == nil {
+			return nil
+		}
+		u := t.UTC()
+		return &u
+	}
+	model.JWTIssuedAt = normalizeUTC(model.JWTIssuedAt)
+	model.JWTExpiresAt = normalizeUTC(model.JWTExpiresAt)
+	model.RevokedAt = normalizeUTC(model.RevokedAt)
+	model.LastExpiringWarnIAT = normalizeUTC(model.LastExpiringWarnIAT)
+	model.LastExpiredAlertIAT = normalizeUTC(model.LastExpiredAlertIAT)
+	model.CreatedAt = model.CreatedAt.UTC()
+	model.UpdatedAt = model.UpdatedAt.UTC()
 
 	if err := r.db.WithContext(ctx).Create(model).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -155,9 +171,67 @@ func (r *UserRepo) ListByScopedSigningKey(ctx context.Context, scopedKeyID uuid.
 	return users, nil
 }
 
+// ListForExpirySweep returns rows matching the sweeper's target subset. See the
+// repositories.UserRepository docs for the dedup primitive.
+//
+// Times are forced to UTC for the WHERE clauses because SQLite stores
+// time.Time using the binding's Location; mixing local and UTC bindings
+// yields silently-wrong lexical comparisons.
+func (r *UserRepo) ListForExpirySweep(ctx context.Context, kind repositories.ExpirySweepKind, now time.Time, warnWindow time.Duration, limit int) ([]*entities.User, error) {
+	var models []UserModel
+	nowUTC := now.UTC()
+	q := r.db.WithContext(ctx).
+		Where("jwt_expires_at IS NOT NULL").
+		Where("revoked_at IS NULL")
+
+	switch kind {
+	case repositories.ExpirySweepKindExpiringSoon:
+		// JWT expires within the warn window, still in the future, AND no warn
+		// has yet been emitted for the current iat.
+		cutoff := nowUTC.Add(warnWindow)
+		q = q.Where("jwt_expires_at > ?", nowUTC).
+			Where("jwt_expires_at <= ?", cutoff).
+			Where("(last_expiring_warn_iat IS NULL OR last_expiring_warn_iat <> jwt_issued_at)")
+	case repositories.ExpirySweepKindExpired:
+		// JWT exp already past, and no expired-alert has been emitted for the
+		// current iat. Auto-renew is intentionally skipped at the service
+		// layer for this kind (see ExpirySweepKindExpired godoc).
+		q = q.Where("jwt_expires_at <= ?", nowUTC).
+			Where("(last_expired_alert_iat IS NULL OR last_expired_alert_iat <> jwt_issued_at)")
+	default:
+		return nil, fmt.Errorf("unknown expiry sweep kind: %d", kind)
+	}
+
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.Order("jwt_expires_at ASC").Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("failed to list users for expiry sweep: %w", err)
+	}
+	out := make([]*entities.User, len(models))
+	for i := range models {
+		out[i] = models[i].ToEntity()
+	}
+	return out, nil
+}
+
 // Update updates an existing user
 func (r *UserRepo) Update(ctx context.Context, user *entities.User) error {
 	model := UserModelFromEntity(user)
+	// Normalize time fields to UTC for consistent lexical comparison in SQLite.
+	normalizeUTC := func(t *time.Time) *time.Time {
+		if t == nil {
+			return nil
+		}
+		u := t.UTC()
+		return &u
+	}
+	model.JWTIssuedAt = normalizeUTC(model.JWTIssuedAt)
+	model.JWTExpiresAt = normalizeUTC(model.JWTExpiresAt)
+	model.RevokedAt = normalizeUTC(model.RevokedAt)
+	model.LastExpiringWarnIAT = normalizeUTC(model.LastExpiringWarnIAT)
+	model.LastExpiredAlertIAT = normalizeUTC(model.LastExpiredAlertIAT)
+	model.UpdatedAt = model.UpdatedAt.UTC()
 
 	result := r.db.WithContext(ctx).Model(&UserModel{}).
 		Where("id = ?", model.ID).

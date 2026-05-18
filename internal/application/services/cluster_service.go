@@ -390,6 +390,49 @@ type SyncError struct {
 	Error            string
 }
 
+// PushAccountToAllClusters pushes a single account's current JWT to every
+// cluster owned by the operator. Used by P2 revocation / prune paths and by
+// auto-renew: those operations re-sign the parent account JWT but don't want
+// to pay the cost of a full SyncCluster (which iterates every account).
+//
+// Returns one error per failed cluster; the caller is responsible for surfacing
+// them. A single cluster failure does NOT short-circuit the others.
+func (s *ClusterService) PushAccountToAllClusters(ctx context.Context, operatorID uuid.UUID, account *entities.Account) []SyncError {
+	if account == nil || account.JWT == "" {
+		return nil
+	}
+	clusters, err := s.repo.ListByOperator(ctx, operatorID, repositories.ListOptions{Limit: 1000})
+	if err != nil {
+		return []SyncError{{Error: fmt.Sprintf("list clusters for operator %s: %v", operatorID, err)}}
+	}
+	var errs []SyncError
+	for _, cluster := range clusters {
+		if cluster.EncryptedCreds == "" {
+			// Cluster has no creds yet — skip silently; nothing to push to.
+			continue
+		}
+		natsClient, _, openErr := s.openManagedCluster(ctx, cluster.ID)
+		if openErr != nil {
+			errs = append(errs, SyncError{
+				AccountPublicKey: account.PublicKey,
+				AccountName:      account.Name,
+				Error:            fmt.Sprintf("open cluster %s: %v", cluster.Name, openErr),
+			})
+			continue
+		}
+		pushErr := natsClient.PushAccountJWT(ctx, account)
+		_ = natsClient.Close()
+		if pushErr != nil {
+			errs = append(errs, SyncError{
+				AccountPublicKey: account.PublicKey,
+				AccountName:      account.Name,
+				Error:            fmt.Sprintf("push to cluster %s: %v", cluster.Name, pushErr),
+			})
+		}
+	}
+	return errs
+}
+
 // openManagedCluster fetches a cluster, decrypts its system credentials, and opens a NATS
 // connection. Returns the live client and the cluster entity. Caller MUST close the client.
 func (s *ClusterService) openManagedCluster(ctx context.Context, id uuid.UUID) (*nats.Client, *entities.Cluster, error) {

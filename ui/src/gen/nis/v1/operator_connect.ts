@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateOperatorRequest, CreateOperatorResponse, DeleteOperatorRequest, DeleteOperatorResponse, GenerateIncludeRequest, GenerateIncludeResponse, GetOperatorByNameRequest, GetOperatorByNameResponse, GetOperatorRequest, GetOperatorResponse, ListOperatorsRequest, ListOperatorsResponse, SetSystemAccountRequest, SetSystemAccountResponse, UpdateOperatorRequest, UpdateOperatorResponse } from "./operator_pb.js";
+import { CreateOperatorRequest, CreateOperatorResponse, DeleteOperatorRequest, DeleteOperatorResponse, GenerateIncludeRequest, GenerateIncludeResponse, GetOperatorByNameRequest, GetOperatorByNameResponse, GetOperatorRequest, GetOperatorResponse, ListOperatorsRequest, ListOperatorsResponse, RunJWTExpirySweepRequest, RunJWTExpirySweepResponse, SetJWTPolicyRequest, SetJWTPolicyResponse, SetSystemAccountRequest, SetSystemAccountResponse, UpdateOperatorRequest, UpdateOperatorResponse } from "./operator_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -86,6 +86,28 @@ export const OperatorService = {
       name: "GenerateInclude",
       I: GenerateIncludeRequest,
       O: GenerateIncludeResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetJWTPolicy updates the operator's JWT lifecycle policy (P2).
+     *
+     * @generated from rpc nis.v1.OperatorService.SetJWTPolicy
+     */
+    setJWTPolicy: {
+      name: "SetJWTPolicy",
+      I: SetJWTPolicyRequest,
+      O: SetJWTPolicyResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RunJWTExpirySweep forces an immediate sweep tick (admin only).
+     *
+     * @generated from rpc nis.v1.OperatorService.RunJWTExpirySweep
+     */
+    runJWTExpirySweep: {
+      name: "RunJWTExpirySweep",
+      I: RunJWTExpirySweepRequest,
+      O: RunJWTExpirySweepResponse,
       kind: MethodKind.Unary,
     },
   }

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -198,6 +199,10 @@ func (m *mockUserRepo) ListByScopedSigningKey(ctx context.Context, scopedKeyID u
 		}
 	}
 	return result, nil
+}
+
+func (m *mockUserRepo) ListForExpirySweep(ctx context.Context, kind repositories.ExpirySweepKind, now time.Time, warnWindow time.Duration, limit int) ([]*entities.User, error) {
+	return nil, nil
 }
 
 // Test fixtures
@@ -799,6 +804,179 @@ func TestCanCreateCluster(t *testing.T) {
 				assert.ErrorIs(t, err, ErrPermissionDenied)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// P2 — permission tests for revocation, JWT policy, sweep, and regen
+// ---------------------------------------------------------------------------
+
+// TestCanRevokeUser_AdminOK verifies that a global admin can revoke any user.
+func TestCanRevokeUser_AdminOK(t *testing.T) {
+	permService, _, _, userRepo, _, _, _, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	userID := uuid.New()
+	userRepo.users[userID] = &entities.User{ID: userID, AccountID: uuid.New()}
+
+	admin := &entities.APIUser{Role: entities.RoleAdmin}
+	err := permService.CanRevokeUser(ctx, admin, userID)
+	assert.NoError(t, err, "admin must be able to revoke any user")
+}
+
+// TestCanRevokeUser_OperatorAdminOwnOK verifies that an operator-admin can
+// revoke a user that belongs to an account in their operator.
+func TestCanRevokeUser_OperatorAdminOwnOK(t *testing.T) {
+	permService, _, _, userRepo, operator1ID, _, account1ID, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	userID := uuid.New()
+	userRepo.users[userID] = &entities.User{ID: userID, AccountID: account1ID}
+
+	opAdmin := &entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID}
+	err := permService.CanRevokeUser(ctx, opAdmin, userID)
+	assert.NoError(t, err, "operator-admin must be able to revoke users in their own operator")
+}
+
+// TestCanRevokeUser_OperatorAdminOtherDenied verifies that an operator-admin
+// cannot revoke a user that belongs to a different operator.
+func TestCanRevokeUser_OperatorAdminOtherDenied(t *testing.T) {
+	permService, _, _, userRepo, _, _, _, account2ID := setupPermissionTest()
+	ctx := context.Background()
+
+	userID := uuid.New()
+	// account2 belongs to operator2; a different operator1-admin should be denied.
+	userRepo.users[userID] = &entities.User{ID: userID, AccountID: account2ID}
+
+	// Use a fresh UUID that isn't in the fixture operators so ownsAccount returns false.
+	strangerOpID := uuid.New()
+	opAdmin := &entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &strangerOpID}
+	err := permService.CanRevokeUser(ctx, opAdmin, userID)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrPermissionDenied,
+		"operator-admin must not revoke users in another operator")
+}
+
+// TestCanRevokeUser_AccountAdminDenied verifies that an account-admin can never
+// revoke users.
+func TestCanRevokeUser_AccountAdminDenied(t *testing.T) {
+	permService, _, _, userRepo, _, _, account1ID, _ := setupPermissionTest()
+	ctx := context.Background()
+
+	userID := uuid.New()
+	userRepo.users[userID] = &entities.User{ID: userID, AccountID: account1ID}
+
+	accAdmin := &entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account1ID}
+	err := permService.CanRevokeUser(ctx, accAdmin, userID)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrPermissionDenied, "account-admin must not be allowed to revoke users")
+}
+
+// TestCanSetOperatorJWTPolicy_AdminOnly verifies that only admin can set the
+// JWT lifecycle policy on an operator.
+func TestCanSetOperatorJWTPolicy_AdminOnly(t *testing.T) {
+	permService, _, _, _, operator1ID, _, account1ID, _ := setupPermissionTest()
+
+	tests := []struct {
+		name      string
+		apiUser   *entities.APIUser
+		wantAllow bool
+	}{
+		{"admin", &entities.APIUser{Role: entities.RoleAdmin}, true},
+		{"operator-admin", &entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID}, false},
+		{"account-admin", &entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account1ID}, false},
+		{"nil", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := permService.CanSetOperatorJWTPolicy(tt.apiUser, operator1ID)
+			if tt.wantAllow {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrPermissionDenied)
+			}
+		})
+	}
+}
+
+// TestCanRunJWTExpirySweep_AdminOnly verifies that only admin can trigger a
+// manual sweep.
+func TestCanRunJWTExpirySweep_AdminOnly(t *testing.T) {
+	permService, _, _, _, operator1ID, _, account1ID, _ := setupPermissionTest()
+
+	tests := []struct {
+		name      string
+		apiUser   *entities.APIUser
+		wantAllow bool
+	}{
+		{"admin", &entities.APIUser{Role: entities.RoleAdmin}, true},
+		{"operator-admin", &entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID}, false},
+		{"account-admin", &entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account1ID}, false},
+		{"nil", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := permService.CanRunJWTExpirySweep(tt.apiUser)
+			if tt.wantAllow {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrPermissionDenied)
+			}
+		})
+	}
+}
+
+// TestCanRegenerateUserCredentials_FollowsCanUpdateUser verifies that
+// CanRegenerateUserCredentials delegates to CanUpdateUser semantics: any role
+// that owns the account can regenerate credentials (including account-admin).
+func TestCanRegenerateUserCredentials_FollowsCanUpdateUser(t *testing.T) {
+	permService, _, _, userRepo, operator1ID, _, account1ID, account2ID := setupPermissionTest()
+	ctx := context.Background()
+
+	userInAcc1 := uuid.New()
+	userRepo.users[userInAcc1] = &entities.User{ID: userInAcc1, AccountID: account1ID}
+
+	cases := []struct {
+		name      string
+		caller    *entities.APIUser
+		wantAllow bool
+	}{
+		{
+			"admin can regen any user",
+			&entities.APIUser{Role: entities.RoleAdmin},
+			true,
+		},
+		{
+			"operator-admin in own operator can regen",
+			&entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID},
+			true,
+		},
+		{
+			"account-admin in own account can regen (unlike revoke)",
+			&entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account1ID},
+			true,
+		},
+		{
+			"account-admin in other account denied",
+			&entities.APIUser{Role: entities.RoleAccountAdmin, AccountID: &account2ID},
+			false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := permService.CanRegenerateUserCredentials(ctx, tc.caller, userInAcc1)
+			if tc.wantAllow {
+				assert.NoError(t, err, tc.name)
+			} else {
+				assert.Error(t, err, tc.name)
+				assert.ErrorIs(t, err, ErrPermissionDenied)
 			}
 		})
 	}

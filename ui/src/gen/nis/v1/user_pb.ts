@@ -58,6 +58,35 @@ export class User extends Message<User> {
    */
   updatedAt?: Timestamp;
 
+  /**
+   * JWT lifecycle metadata (P2).
+   *
+   * per-user override; unset = inherit from operator
+   *
+   * @generated from field: optional int64 jwt_ttl_seconds = 10;
+   */
+  jwtTtlSeconds?: bigint;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp jwt_issued_at = 11;
+   */
+  jwtIssuedAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp jwt_expires_at = 12;
+   */
+  jwtExpiresAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp revoked_at = 13;
+   */
+  revokedAt?: Timestamp;
+
+  /**
+   * @generated from field: string revocation_reason = 14;
+   */
+  revocationReason = "";
+
   constructor(data?: PartialMessage<User>) {
     super();
     proto3.util.initPartial(data, this);
@@ -75,6 +104,11 @@ export class User extends Message<User> {
     { no: 7, name: "scoped_signing_key_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 8, name: "created_at", kind: "message", T: Timestamp },
     { no: 9, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 10, name: "jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 11, name: "jwt_issued_at", kind: "message", T: Timestamp },
+    { no: 12, name: "jwt_expires_at", kind: "message", T: Timestamp },
+    { no: 13, name: "revoked_at", kind: "message", T: Timestamp },
+    { no: 14, name: "revocation_reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): User {
@@ -457,6 +491,25 @@ export class UpdateUserRequest extends Message<UpdateUserRequest> {
    */
   description?: string;
 
+  /**
+   * jwt_ttl_seconds overrides the operator's default user-JWT TTL for this
+   * user. Set to 0 to mean "never expire". Omit (unset) to clear the override
+   * and inherit the operator default.
+   *
+   * @generated from field: optional int64 jwt_ttl_seconds = 4;
+   */
+  jwtTtlSeconds?: bigint;
+
+  /**
+   * clear_jwt_ttl, when true, removes any per-user override regardless of
+   * jwt_ttl_seconds. The two-flag shape is because proto3 cannot distinguish
+   * "field absent" from "field set to 0" via optional alone when the caller
+   * wants to clear an override back to nil rather than to zero.
+   *
+   * @generated from field: bool clear_jwt_ttl = 5;
+   */
+  clearJwtTtl = false;
+
   constructor(data?: PartialMessage<UpdateUserRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -468,6 +521,8 @@ export class UpdateUserRequest extends Message<UpdateUserRequest> {
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 3, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 4, name: "jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 5, name: "clear_jwt_ttl", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateUserRequest {
@@ -673,6 +728,182 @@ export class GetUserCredentialsResponse extends Message<GetUserCredentialsRespon
 
   static equals(a: GetUserCredentialsResponse | PlainMessage<GetUserCredentialsResponse> | undefined, b: GetUserCredentialsResponse | PlainMessage<GetUserCredentialsResponse> | undefined): boolean {
     return proto3.util.equals(GetUserCredentialsResponse, a, b);
+  }
+}
+
+/**
+ * RevokeUserRequest is the request to revoke a user. The user row stays put;
+ * the user's NATS public key gets added to the parent account JWT's
+ * Revocations map and pushed to the resolver. NATS will reject any user JWT
+ * signed by this user's key from now on (or until the JWT's exp passes —
+ * whichever comes first).
+ *
+ * @generated from message nis.v1.RevokeUserRequest
+ */
+export class RevokeUserRequest extends Message<RevokeUserRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: string reason = 2;
+   */
+  reason = "";
+
+  constructor(data?: PartialMessage<RevokeUserRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RevokeUserRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RevokeUserRequest {
+    return new RevokeUserRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RevokeUserRequest {
+    return new RevokeUserRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RevokeUserRequest {
+    return new RevokeUserRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RevokeUserRequest | PlainMessage<RevokeUserRequest> | undefined, b: RevokeUserRequest | PlainMessage<RevokeUserRequest> | undefined): boolean {
+    return proto3.util.equals(RevokeUserRequest, a, b);
+  }
+}
+
+/**
+ * RevokeUserResponse returns the updated user (with revoked_at set).
+ *
+ * @generated from message nis.v1.RevokeUserResponse
+ */
+export class RevokeUserResponse extends Message<RevokeUserResponse> {
+  /**
+   * @generated from field: nis.v1.User user = 1;
+   */
+  user?: User;
+
+  constructor(data?: PartialMessage<RevokeUserResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RevokeUserResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user", kind: "message", T: User },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RevokeUserResponse {
+    return new RevokeUserResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RevokeUserResponse {
+    return new RevokeUserResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RevokeUserResponse {
+    return new RevokeUserResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RevokeUserResponse | PlainMessage<RevokeUserResponse> | undefined, b: RevokeUserResponse | PlainMessage<RevokeUserResponse> | undefined): boolean {
+    return proto3.util.equals(RevokeUserResponse, a, b);
+  }
+}
+
+/**
+ * RegenerateUserCredentialsRequest issues a fresh user JWT, replacing the
+ * current one. Clears the revoked_at flag if it was set ("reinstate"). The
+ * new credentials are returned ONCE; the client is responsible for
+ * distributing the new .creds file to whoever needs it.
+ *
+ * @generated from message nis.v1.RegenerateUserCredentialsRequest
+ */
+export class RegenerateUserCredentialsRequest extends Message<RegenerateUserCredentialsRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  constructor(data?: PartialMessage<RegenerateUserCredentialsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RegenerateUserCredentialsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RegenerateUserCredentialsRequest {
+    return new RegenerateUserCredentialsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RegenerateUserCredentialsRequest {
+    return new RegenerateUserCredentialsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RegenerateUserCredentialsRequest {
+    return new RegenerateUserCredentialsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RegenerateUserCredentialsRequest | PlainMessage<RegenerateUserCredentialsRequest> | undefined, b: RegenerateUserCredentialsRequest | PlainMessage<RegenerateUserCredentialsRequest> | undefined): boolean {
+    return proto3.util.equals(RegenerateUserCredentialsRequest, a, b);
+  }
+}
+
+/**
+ * RegenerateUserCredentialsResponse returns the updated user and the fresh
+ * .creds file contents.
+ *
+ * @generated from message nis.v1.RegenerateUserCredentialsResponse
+ */
+export class RegenerateUserCredentialsResponse extends Message<RegenerateUserCredentialsResponse> {
+  /**
+   * @generated from field: nis.v1.User user = 1;
+   */
+  user?: User;
+
+  /**
+   * @generated from field: string credentials = 2;
+   */
+  credentials = "";
+
+  constructor(data?: PartialMessage<RegenerateUserCredentialsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RegenerateUserCredentialsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user", kind: "message", T: User },
+    { no: 2, name: "credentials", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RegenerateUserCredentialsResponse {
+    return new RegenerateUserCredentialsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RegenerateUserCredentialsResponse {
+    return new RegenerateUserCredentialsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RegenerateUserCredentialsResponse {
+    return new RegenerateUserCredentialsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RegenerateUserCredentialsResponse | PlainMessage<RegenerateUserCredentialsResponse> | undefined, b: RegenerateUserCredentialsResponse | PlainMessage<RegenerateUserCredentialsResponse> | undefined): boolean {
+    return proto3.util.equals(RegenerateUserCredentialsResponse, a, b);
   }
 }
 

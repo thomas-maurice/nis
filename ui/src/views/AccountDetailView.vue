@@ -47,8 +47,33 @@
                   </span>
                 </dd>
 
+                <dt class="col-sm-4">Revocations:</dt>
+                <dd class="col-sm-8">
+                  <span
+                    :class="activeRevocations > 0 ? 'badge bg-danger' : 'badge bg-secondary'"
+                    :title="`${activeRevocations} user(s) in this account currently revoked`"
+                  >
+                    {{ activeRevocations }}
+                  </span>
+                </dd>
+
                 <dt class="col-sm-4">Created:</dt>
                 <dd class="col-sm-8">{{ formatDate(account.createdAt) }}</dd>
+
+                <dt class="col-sm-4">Account JWT exp:</dt>
+                <dd class="col-sm-8">
+                  <span v-if="accountJWTExp === null" class="badge bg-success" title="Account JWT has no exp; the operator has not opted into account-JWT TTL.">
+                    Never expires
+                  </span>
+                  <span v-else-if="accountJWTExpiredDaysAgo !== null" class="badge bg-danger">
+                    Expired {{ accountJWTExpiredDaysAgo === 0 ? 'today' : `${accountJWTExpiredDaysAgo} day(s) ago` }}
+                    &mdash; re-sign by updating the account or via SetJWTPolicy
+                  </span>
+                  <span v-else class="badge bg-info">
+                    Expires in {{ accountJWTExpiresInDays === 0 ? 'less than a day' : `${accountJWTExpiresInDays} day(s)` }}
+                    &mdash; {{ formatDate(accountJWTExp) }}
+                  </span>
+                </dd>
               </dl>
             </div>
           </div>
@@ -91,8 +116,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { jwtDecode } from 'jwt-decode'
 import apiClient from '@/utils/api'
 import CodeBlock from '@/components/CodeBlock.vue'
 import ClickablePubKey from '@/components/ClickablePubKey.vue'
@@ -102,6 +128,32 @@ const account = ref(null)
 const operator = ref(null)
 const loading = ref(false)
 const error = ref('')
+const activeRevocations = ref(0)
+
+// Account JWT exp (P2). The exp lives in the signed JWT itself; decoding is
+// the cheapest read. NB: jwt-decode does NOT verify the signature — it's
+// strictly a JSON read of a public claim, no security implication.
+const accountJWTExp = computed(() => {
+  if (!account.value?.jwt) return null
+  try {
+    const payload = jwtDecode(account.value.jwt)
+    return payload?.exp ? new Date(payload.exp * 1000) : null
+  } catch {
+    return null
+  }
+})
+const accountJWTExpiresInDays = computed(() => {
+  if (!accountJWTExp.value) return null
+  const diff = accountJWTExp.value.getTime() - Date.now()
+  if (diff <= 0) return null
+  return Math.floor(diff / 86400000)
+})
+const accountJWTExpiredDaysAgo = computed(() => {
+  if (!accountJWTExp.value) return null
+  const diff = Date.now() - accountJWTExp.value.getTime()
+  if (diff <= 0) return null
+  return Math.floor(diff / 86400000)
+})
 
 const loadAccount = async () => {
   loading.value = true
@@ -122,6 +174,18 @@ const loadAccount = async () => {
       } catch (err) {
         console.error('Failed to load operator:', err)
       }
+    }
+
+    // Count revoked users in this account
+    try {
+      const usersResp = await apiClient.post('/nis.v1.UserService/ListUsers', {
+        accountId: route.params.id
+      })
+      const users = usersResp.data.users || []
+      activeRevocations.value = users.filter(u => !!u.revokedAt).length
+    } catch (err) {
+      // Non-fatal — badge stays 0
+      console.error('Failed to load users for revocation count:', err)
     }
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load account'

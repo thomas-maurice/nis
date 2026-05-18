@@ -209,7 +209,7 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT() {
 	}
 
 	// Generate JWT
-	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil)
+	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil, nil, 0)
 	require.NoError(s.T(), err)
 	assert.NotEmpty(s.T(), token)
 
@@ -275,7 +275,7 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT_WithJetStream() {
 	}
 
 	// Generate JWT
-	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil)
+	token, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil, nil, 0)
 	require.NoError(s.T(), err)
 
 	// Decode and validate
@@ -329,12 +329,12 @@ func (s *JWTServiceTestSuite) TestGenerateUserJWT_SignedByAccount() {
 	}
 
 	// Generate JWT (no scoped key)
-	token, err := s.service.GenerateUserJWT(s.ctx, user, account, nil)
+	mint, err := s.service.GenerateUserJWT(s.ctx, user, account, nil, 0)
 	require.NoError(s.T(), err)
-	assert.NotEmpty(s.T(), token)
+	assert.NotEmpty(s.T(), mint.Token)
 
 	// Decode and validate
-	claims, err := jwt.DecodeUserClaims(token)
+	claims, err := jwt.DecodeUserClaims(mint.Token)
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), user.Name, claims.Name)
 	assert.Equal(s.T(), user.PublicKey, claims.Subject)
@@ -411,12 +411,12 @@ func (s *JWTServiceTestSuite) TestGenerateUserJWT_SignedByScopedKey() {
 	}
 
 	// Generate JWT with scoped key
-	token, err := s.service.GenerateUserJWT(s.ctx, user, account, scopedKey)
+	mint, err := s.service.GenerateUserJWT(s.ctx, user, account, scopedKey, 0)
 	require.NoError(s.T(), err)
-	assert.NotEmpty(s.T(), token)
+	assert.NotEmpty(s.T(), mint.Token)
 
 	// Decode and validate
-	claims, err := jwt.DecodeUserClaims(token)
+	claims, err := jwt.DecodeUserClaims(mint.Token)
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), user.Name, claims.Name)
 	assert.Equal(s.T(), user.PublicKey, claims.Subject)
@@ -505,7 +505,7 @@ func (s *JWTServiceTestSuite) TestGenerateAccountJWT_DecryptionError() {
 		UpdatedAt:     time.Now(),
 	}
 
-	_, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil)
+	_, err := s.service.GenerateAccountJWT(s.ctx, account, operator, nil, nil, 0)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "failed to decrypt operator seed")
 }
@@ -531,7 +531,173 @@ func (s *JWTServiceTestSuite) TestGenerateUserJWT_DecryptionError() {
 		UpdatedAt:     time.Now(),
 	}
 
-	_, err := s.service.GenerateUserJWT(s.ctx, user, account, nil)
+	_, err := s.service.GenerateUserJWT(s.ctx, user, account, nil, 0)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "failed to decrypt account seed")
+}
+
+// ---------------------------------------------------------------------------
+// P2 — JWT lifecycle tests
+// ---------------------------------------------------------------------------
+
+// helpers shared by the P2 JWT-lifecycle tests below.
+func (s *JWTServiceTestSuite) makeOperator() (*entities.Operator, []byte) {
+	seed, pubKey, err := GenerateNKey(nkeys.PrefixByteOperator)
+	require.NoError(s.T(), err)
+	encSeed, err := s.encryptor.Encrypt(s.ctx, seed)
+	require.NoError(s.T(), err)
+	return &entities.Operator{
+		ID:            uuid.New(),
+		Name:          "op",
+		EncryptedSeed: encSeed,
+		PublicKey:     pubKey,
+	}, seed
+}
+
+func (s *JWTServiceTestSuite) makeAccount(opID uuid.UUID) (*entities.Account, []byte) {
+	seed, pubKey, err := GenerateNKey(nkeys.PrefixByteAccount)
+	require.NoError(s.T(), err)
+	encSeed, err := s.encryptor.Encrypt(s.ctx, seed)
+	require.NoError(s.T(), err)
+	return &entities.Account{
+		ID:            uuid.New(),
+		OperatorID:    opID,
+		Name:          "acc",
+		EncryptedSeed: encSeed,
+		PublicKey:     pubKey,
+	}, seed
+}
+
+func (s *JWTServiceTestSuite) makeUser(accID uuid.UUID) *entities.User {
+	seed, pubKey, err := GenerateNKey(nkeys.PrefixByteUser)
+	require.NoError(s.T(), err)
+	encSeed, err := s.encryptor.Encrypt(s.ctx, seed)
+	require.NoError(s.T(), err)
+	return &entities.User{
+		ID:            uuid.New(),
+		AccountID:     accID,
+		Name:          "user",
+		EncryptedSeed: encSeed,
+		PublicKey:     pubKey,
+	}
+}
+
+// TestGenerateUserJWT_NoExpiryWhenTTLZero asserts that ttl=0 produces a JWT
+// without an exp claim and a mint whose ExpiresAt is nil, while iat is stamped.
+func (s *JWTServiceTestSuite) TestGenerateUserJWT_NoExpiryWhenTTLZero() {
+	op, _ := s.makeOperator()
+	acc, _ := s.makeAccount(op.ID)
+	user := s.makeUser(acc.ID)
+
+	before := time.Now().Add(-time.Second)
+	mint, err := s.service.GenerateUserJWT(s.ctx, user, acc, nil, 0)
+	after := time.Now().Add(time.Second)
+
+	require.NoError(s.T(), err)
+	assert.Nil(s.T(), mint.ExpiresAt, "no TTL → ExpiresAt must be nil")
+	assert.True(s.T(), mint.IssuedAt.After(before) && mint.IssuedAt.Before(after),
+		"IssuedAt must be stamped even with TTL=0; got %v", mint.IssuedAt)
+
+	claims, err := jwt.DecodeUserClaims(mint.Token)
+	require.NoError(s.T(), err)
+	assert.EqualValues(s.T(), 0, claims.Expires,
+		"decoded exp claim must be zero when no TTL")
+	assert.NotZero(s.T(), claims.IssuedAt, "iat must be set in the decoded claims")
+}
+
+// TestGenerateUserJWT_SetsExpWhenTTLPositive asserts that a positive TTL stamps
+// both ExpiresAt on the mint and exp in the decoded claims within ±5s of now+TTL.
+func (s *JWTServiceTestSuite) TestGenerateUserJWT_SetsExpWhenTTLPositive() {
+	op, _ := s.makeOperator()
+	acc, _ := s.makeAccount(op.ID)
+	user := s.makeUser(acc.ID)
+
+	ttl := 90 * 24 * time.Hour
+	mintTime := time.Now()
+	mint, err := s.service.GenerateUserJWT(s.ctx, user, acc, nil, ttl)
+	require.NoError(s.T(), err)
+
+	require.NotNil(s.T(), mint.ExpiresAt, "ExpiresAt must be non-nil for positive TTL")
+	expectedExp := mintTime.Add(ttl)
+	delta := mint.ExpiresAt.Sub(expectedExp)
+	if delta < 0 {
+		delta = -delta
+	}
+	assert.Less(s.T(), delta, 5*time.Second,
+		"ExpiresAt %v should be within 5s of %v", mint.ExpiresAt, expectedExp)
+
+	claims, err := jwt.DecodeUserClaims(mint.Token)
+	require.NoError(s.T(), err)
+	assert.NotZero(s.T(), claims.Expires, "decoded exp claim must be set")
+	claimDelta := time.Duration(claims.Expires-mintTime.Add(ttl).Unix()) * time.Second
+	if claimDelta < 0 {
+		claimDelta = -claimDelta
+	}
+	assert.Less(s.T(), claimDelta, 5*time.Second,
+		"decoded claims.Expires should match ExpiresAt within 5s")
+}
+
+// TestGenerateAccountJWT_EncodesActiveRevocations asserts that a non-pruned
+// revocation entry appears in the decoded account JWT's Revocations map.
+func (s *JWTServiceTestSuite) TestGenerateAccountJWT_EncodesActiveRevocations() {
+	op, _ := s.makeOperator()
+	acc, _ := s.makeAccount(op.ID)
+
+	revokedAt := time.Now().UTC().Truncate(time.Second)
+	_, userPubKey, err := GenerateNKey(nkeys.PrefixByteUser)
+	require.NoError(s.T(), err)
+
+	rev := &entities.UserJWTRevocation{
+		ID:            uuid.New(),
+		AccountID:     acc.ID,
+		UserPublicKey: userPubKey,
+		RevokedAt:     revokedAt,
+		JWTExp:        time.Now().Add(24 * time.Hour),
+		PrunedAt:      nil, // active
+	}
+
+	token, err := s.service.GenerateAccountJWT(s.ctx, acc, op, nil, []*entities.UserJWTRevocation{rev}, 0)
+	require.NoError(s.T(), err)
+
+	claims, err := jwt.DecodeAccountClaims(token)
+	require.NoError(s.T(), err)
+
+	// The NATS JWT library stores Revocations as map[string]int64 internally.
+	// claims.Revocations is a jwt.RevocationList. We check IsRevoked to confirm
+	// the entry is present — any iat before revokedAt should be rejected.
+	iatBeforeRevoke := revokedAt.Add(-time.Second)
+	assert.True(s.T(), claims.Revocations.IsRevoked(userPubKey, iatBeforeRevoke),
+		"a JWT issued before revokedAt must be revoked; pubkey=%s revokedAt=%v", userPubKey, revokedAt)
+}
+
+// TestGenerateAccountJWT_OmitsPrunedRevocations asserts that a revocation with
+// PrunedAt set does NOT appear in the decoded account JWT's Revocations map.
+func (s *JWTServiceTestSuite) TestGenerateAccountJWT_OmitsPrunedRevocations() {
+	op, _ := s.makeOperator()
+	acc, _ := s.makeAccount(op.ID)
+
+	_, userPubKey, err := GenerateNKey(nkeys.PrefixByteUser)
+	require.NoError(s.T(), err)
+
+	pruned := time.Now()
+	rev := &entities.UserJWTRevocation{
+		ID:            uuid.New(),
+		AccountID:     acc.ID,
+		UserPublicKey: userPubKey,
+		RevokedAt:     time.Now().Add(-24 * time.Hour),
+		JWTExp:        time.Now().Add(-time.Hour), // already expired
+		PrunedAt:      &pruned,
+	}
+
+	token, err := s.service.GenerateAccountJWT(s.ctx, acc, op, nil, []*entities.UserJWTRevocation{rev}, 0)
+	require.NoError(s.T(), err)
+
+	claims, err := jwt.DecodeAccountClaims(token)
+	require.NoError(s.T(), err)
+
+	// A JWT issued a long time ago — if the revocation were in the map it would
+	// appear revoked; since we pruned it, it should NOT be revoked.
+	oldIAT := time.Now().Add(-48 * time.Hour)
+	assert.False(s.T(), claims.Revocations.IsRevoked(userPubKey, oldIAT),
+		"pruned revocation must not appear in account JWT; pubkey=%s", userPubKey)
 }

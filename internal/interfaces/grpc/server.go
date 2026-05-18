@@ -62,6 +62,8 @@ func NewServer(
 	eventService *services.EventService,
 	webhookService *services.WebhookService,
 	apiTokenService *services.APITokenService,
+	userRevocationService *services.UserRevocationService,
+	jwtExpirySweeper *services.JWTExpirySweeper,
 	permService *services.PermissionService,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
@@ -83,13 +85,13 @@ func NewServer(
 	interceptorOption := connect.WithInterceptors(interceptors...)
 
 	// Register all service handlers with auth interceptor
-	operatorHandler := handlers.NewOperatorHandler(operatorService, permService)
+	operatorHandler := handlers.NewOperatorHandler(operatorService, permService, jwtExpirySweeper)
 	mux.Handle(nisv1connect.NewOperatorServiceHandler(operatorHandler, interceptorOption))
 
 	accountHandler := handlers.NewAccountHandler(accountService, permService)
 	mux.Handle(nisv1connect.NewAccountServiceHandler(accountHandler, interceptorOption))
 
-	userHandler := handlers.NewUserHandler(userService, permService)
+	userHandler := handlers.NewUserHandler(userService, permService, userRevocationService)
 	mux.Handle(nisv1connect.NewUserServiceHandler(userHandler, interceptorOption))
 
 	scopedKeyHandler := handlers.NewScopedSigningKeyHandler(scopedKeyService, permService)

@@ -138,7 +138,8 @@ func (s *AccountService) createAccountTx(ctx context.Context, tx persistence.Rep
 	}
 
 	// Generate JWT signed by operator, declaring the default scoped key as a signer.
-	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, []*entities.ScopedSigningKey{defaultKey})
+	// New account has no revocations yet; account TTL flows from operator policy.
+	jwt, err := s.jwtService.GenerateAccountJWT(ctx, account, operator, []*entities.ScopedSigningKey{defaultKey}, nil, operator.AccountJWTTTL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate account JWT: %w", err)
 	}
@@ -303,8 +304,15 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 			return fmt.Errorf("failed to list scoped signing keys: %w", err)
 		}
 
+		// Fetch active revocations so the regenerated JWT keeps NATS rejecting
+		// previously-revoked user JWTs.
+		revs, err := tx.UserJWTRevocationRepository().ListActiveByAccount(ctx, acc.ID)
+		if err != nil {
+			return fmt.Errorf("failed to list active revocations: %w", err)
+		}
+
 		// Regenerate JWT with updated metadata
-		jwt, err := s.jwtService.GenerateAccountJWT(ctx, acc, operator, scopedKeys)
+		jwt, err := s.jwtService.GenerateAccountJWT(ctx, acc, operator, scopedKeys, revs, operator.AccountJWTTTL)
 		if err != nil {
 			return fmt.Errorf("failed to regenerate account JWT: %w", err)
 		}
@@ -378,8 +386,14 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 			return fmt.Errorf("failed to list scoped signing keys: %w", err)
 		}
 
+		// Same revocation passthrough as UpdateAccount.
+		revs, err := tx.UserJWTRevocationRepository().ListActiveByAccount(ctx, acc.ID)
+		if err != nil {
+			return fmt.Errorf("failed to list active revocations: %w", err)
+		}
+
 		// Regenerate JWT with new JetStream limits
-		jwt, err := s.jwtService.GenerateAccountJWT(ctx, acc, operator, scopedKeys)
+		jwt, err := s.jwtService.GenerateAccountJWT(ctx, acc, operator, scopedKeys, revs, operator.AccountJWTTTL)
 		if err != nil {
 			return fmt.Errorf("failed to regenerate account JWT: %w", err)
 		}

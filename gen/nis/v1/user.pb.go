@@ -34,8 +34,14 @@ type User struct {
 	ScopedSigningKeyId string                 `protobuf:"bytes,7,opt,name=scoped_signing_key_id,json=scopedSigningKeyId,proto3" json:"scoped_signing_key_id,omitempty"`
 	CreatedAt          *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt          *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// JWT lifecycle metadata (P2).
+	JwtTtlSeconds    *int64                 `protobuf:"varint,10,opt,name=jwt_ttl_seconds,json=jwtTtlSeconds,proto3,oneof" json:"jwt_ttl_seconds,omitempty"` // per-user override; unset = inherit from operator
+	JwtIssuedAt      *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=jwt_issued_at,json=jwtIssuedAt,proto3" json:"jwt_issued_at,omitempty"`
+	JwtExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=jwt_expires_at,json=jwtExpiresAt,proto3" json:"jwt_expires_at,omitempty"`
+	RevokedAt        *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	RevocationReason string                 `protobuf:"bytes,14,opt,name=revocation_reason,json=revocationReason,proto3" json:"revocation_reason,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -129,6 +135,41 @@ func (x *User) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *User) GetJwtTtlSeconds() int64 {
+	if x != nil && x.JwtTtlSeconds != nil {
+		return *x.JwtTtlSeconds
+	}
+	return 0
+}
+
+func (x *User) GetJwtIssuedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.JwtIssuedAt
+	}
+	return nil
+}
+
+func (x *User) GetJwtExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.JwtExpiresAt
+	}
+	return nil
+}
+
+func (x *User) GetRevokedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RevokedAt
+	}
+	return nil
+}
+
+func (x *User) GetRevocationReason() string {
+	if x != nil {
+		return x.RevocationReason
+	}
+	return ""
 }
 
 // CreateUserRequest is the request to create a new user
@@ -533,10 +574,19 @@ func (x *ListUsersResponse) GetUsers() []*User {
 
 // UpdateUserRequest is the request to update a user
 type UpdateUserRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	Description   *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name        *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Description *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	// jwt_ttl_seconds overrides the operator's default user-JWT TTL for this
+	// user. Set to 0 to mean "never expire". Omit (unset) to clear the override
+	// and inherit the operator default.
+	JwtTtlSeconds *int64 `protobuf:"varint,4,opt,name=jwt_ttl_seconds,json=jwtTtlSeconds,proto3,oneof" json:"jwt_ttl_seconds,omitempty"`
+	// clear_jwt_ttl, when true, removes any per-user override regardless of
+	// jwt_ttl_seconds. The two-flag shape is because proto3 cannot distinguish
+	// "field absent" from "field set to 0" via optional alone when the caller
+	// wants to clear an override back to nil rather than to zero.
+	ClearJwtTtl   bool `protobuf:"varint,5,opt,name=clear_jwt_ttl,json=clearJwtTtl,proto3" json:"clear_jwt_ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -590,6 +640,20 @@ func (x *UpdateUserRequest) GetDescription() string {
 		return *x.Description
 	}
 	return ""
+}
+
+func (x *UpdateUserRequest) GetJwtTtlSeconds() int64 {
+	if x != nil && x.JwtTtlSeconds != nil {
+		return *x.JwtTtlSeconds
+	}
+	return 0
+}
+
+func (x *UpdateUserRequest) GetClearJwtTtl() bool {
+	if x != nil {
+		return x.ClearJwtTtl
+	}
+	return false
 }
 
 // UpdateUserResponse is the response from updating a user
@@ -809,11 +873,215 @@ func (x *GetUserCredentialsResponse) GetCredentials() string {
 	return ""
 }
 
+// RevokeUserRequest is the request to revoke a user. The user row stays put;
+// the user's NATS public key gets added to the parent account JWT's
+// Revocations map and pushed to the resolver. NATS will reject any user JWT
+// signed by this user's key from now on (or until the JWT's exp passes —
+// whichever comes first).
+type RevokeUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeUserRequest) Reset() {
+	*x = RevokeUserRequest{}
+	mi := &file_nis_v1_user_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeUserRequest) ProtoMessage() {}
+
+func (x *RevokeUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_user_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeUserRequest.ProtoReflect.Descriptor instead.
+func (*RevokeUserRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_user_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RevokeUserRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RevokeUserRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// RevokeUserResponse returns the updated user (with revoked_at set).
+type RevokeUserResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeUserResponse) Reset() {
+	*x = RevokeUserResponse{}
+	mi := &file_nis_v1_user_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeUserResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeUserResponse) ProtoMessage() {}
+
+func (x *RevokeUserResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_user_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeUserResponse.ProtoReflect.Descriptor instead.
+func (*RevokeUserResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_user_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RevokeUserResponse) GetUser() *User {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
+// RegenerateUserCredentialsRequest issues a fresh user JWT, replacing the
+// current one. Clears the revoked_at flag if it was set ("reinstate"). The
+// new credentials are returned ONCE; the client is responsible for
+// distributing the new .creds file to whoever needs it.
+type RegenerateUserCredentialsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegenerateUserCredentialsRequest) Reset() {
+	*x = RegenerateUserCredentialsRequest{}
+	mi := &file_nis_v1_user_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegenerateUserCredentialsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegenerateUserCredentialsRequest) ProtoMessage() {}
+
+func (x *RegenerateUserCredentialsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_user_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegenerateUserCredentialsRequest.ProtoReflect.Descriptor instead.
+func (*RegenerateUserCredentialsRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_user_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RegenerateUserCredentialsRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// RegenerateUserCredentialsResponse returns the updated user and the fresh
+// .creds file contents.
+type RegenerateUserCredentialsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Credentials   string                 `protobuf:"bytes,2,opt,name=credentials,proto3" json:"credentials,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegenerateUserCredentialsResponse) Reset() {
+	*x = RegenerateUserCredentialsResponse{}
+	mi := &file_nis_v1_user_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegenerateUserCredentialsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegenerateUserCredentialsResponse) ProtoMessage() {}
+
+func (x *RegenerateUserCredentialsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_user_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegenerateUserCredentialsResponse.ProtoReflect.Descriptor instead.
+func (*RegenerateUserCredentialsResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_user_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RegenerateUserCredentialsResponse) GetUser() *User {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
+func (x *RegenerateUserCredentialsResponse) GetCredentials() string {
+	if x != nil {
+		return x.Credentials
+	}
+	return ""
+}
+
 var File_nis_v1_user_proto protoreflect.FileDescriptor
 
 const file_nis_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x11nis/v1/user.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc5\x02\n" +
+	"\x11nis/v1/user.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf0\x04\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -827,7 +1095,15 @@ const file_nis_v1_user_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x9b\x01\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12+\n" +
+	"\x0fjwt_ttl_seconds\x18\n" +
+	" \x01(\x03H\x00R\rjwtTtlSeconds\x88\x01\x01\x12>\n" +
+	"\rjwt_issued_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\vjwtIssuedAt\x12@\n" +
+	"\x0ejwt_expires_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\fjwtExpiresAt\x129\n" +
+	"\n" +
+	"revoked_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x12+\n" +
+	"\x11revocation_reason\x18\x0e \x01(\tR\x10revocationReasonB\x12\n" +
+	"\x10_jwt_ttl_seconds\"\x9b\x01\n" +
 	"\x11CreateUserRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x12\n" +
@@ -851,13 +1127,16 @@ const file_nis_v1_user_proto_rawDesc = "" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12-\n" +
 	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"7\n" +
 	"\x11ListUsersResponse\x12\"\n" +
-	"\x05users\x18\x01 \x03(\v2\f.nis.v1.UserR\x05users\"|\n" +
+	"\x05users\x18\x01 \x03(\v2\f.nis.v1.UserR\x05users\"\xe1\x01\n" +
 	"\x11UpdateUserRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
-	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01B\a\n" +
+	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01\x12+\n" +
+	"\x0fjwt_ttl_seconds\x18\x04 \x01(\x03H\x02R\rjwtTtlSeconds\x88\x01\x01\x12\"\n" +
+	"\rclear_jwt_ttl\x18\x05 \x01(\bR\vclearJwtTtlB\a\n" +
 	"\x05_nameB\x0e\n" +
-	"\f_description\"6\n" +
+	"\f_descriptionB\x12\n" +
+	"\x10_jwt_ttl_seconds\"6\n" +
 	"\x12UpdateUserResponse\x12 \n" +
 	"\x04user\x18\x01 \x01(\v2\f.nis.v1.UserR\x04user\"#\n" +
 	"\x11DeleteUserRequest\x12\x0e\n" +
@@ -866,7 +1145,17 @@ const file_nis_v1_user_proto_rawDesc = "" +
 	"\x19GetUserCredentialsRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\">\n" +
 	"\x1aGetUserCredentialsResponse\x12 \n" +
-	"\vcredentials\x18\x01 \x01(\tR\vcredentials2\x85\x04\n" +
+	"\vcredentials\x18\x01 \x01(\tR\vcredentials\";\n" +
+	"\x11RevokeUserRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"6\n" +
+	"\x12RevokeUserResponse\x12 \n" +
+	"\x04user\x18\x01 \x01(\v2\f.nis.v1.UserR\x04user\"2\n" +
+	" RegenerateUserCredentialsRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"g\n" +
+	"!RegenerateUserCredentialsResponse\x12 \n" +
+	"\x04user\x18\x01 \x01(\v2\f.nis.v1.UserR\x04user\x12 \n" +
+	"\vcredentials\x18\x02 \x01(\tR\vcredentials2\xbc\x05\n" +
 	"\vUserService\x12C\n" +
 	"\n" +
 	"CreateUser\x12\x19.nis.v1.CreateUserRequest\x1a\x1a.nis.v1.CreateUserResponse\x12:\n" +
@@ -877,7 +1166,10 @@ const file_nis_v1_user_proto_rawDesc = "" +
 	"UpdateUser\x12\x19.nis.v1.UpdateUserRequest\x1a\x1a.nis.v1.UpdateUserResponse\x12C\n" +
 	"\n" +
 	"DeleteUser\x12\x19.nis.v1.DeleteUserRequest\x1a\x1a.nis.v1.DeleteUserResponse\x12[\n" +
-	"\x12GetUserCredentials\x12!.nis.v1.GetUserCredentialsRequest\x1a\".nis.v1.GetUserCredentialsResponseB\x80\x01\n" +
+	"\x12GetUserCredentials\x12!.nis.v1.GetUserCredentialsRequest\x1a\".nis.v1.GetUserCredentialsResponse\x12C\n" +
+	"\n" +
+	"RevokeUser\x12\x19.nis.v1.RevokeUserRequest\x1a\x1a.nis.v1.RevokeUserResponse\x12p\n" +
+	"\x19RegenerateUserCredentials\x12(.nis.v1.RegenerateUserCredentialsRequest\x1a).nis.v1.RegenerateUserCredentialsResponseB\x80\x01\n" +
 	"\n" +
 	"com.nis.v1B\tUserProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -893,54 +1185,67 @@ func file_nis_v1_user_proto_rawDescGZIP() []byte {
 	return file_nis_v1_user_proto_rawDescData
 }
 
-var file_nis_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_nis_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_nis_v1_user_proto_goTypes = []any{
-	(*User)(nil),                       // 0: nis.v1.User
-	(*CreateUserRequest)(nil),          // 1: nis.v1.CreateUserRequest
-	(*CreateUserResponse)(nil),         // 2: nis.v1.CreateUserResponse
-	(*GetUserRequest)(nil),             // 3: nis.v1.GetUserRequest
-	(*GetUserResponse)(nil),            // 4: nis.v1.GetUserResponse
-	(*GetUserByNameRequest)(nil),       // 5: nis.v1.GetUserByNameRequest
-	(*GetUserByNameResponse)(nil),      // 6: nis.v1.GetUserByNameResponse
-	(*ListUsersRequest)(nil),           // 7: nis.v1.ListUsersRequest
-	(*ListUsersResponse)(nil),          // 8: nis.v1.ListUsersResponse
-	(*UpdateUserRequest)(nil),          // 9: nis.v1.UpdateUserRequest
-	(*UpdateUserResponse)(nil),         // 10: nis.v1.UpdateUserResponse
-	(*DeleteUserRequest)(nil),          // 11: nis.v1.DeleteUserRequest
-	(*DeleteUserResponse)(nil),         // 12: nis.v1.DeleteUserResponse
-	(*GetUserCredentialsRequest)(nil),  // 13: nis.v1.GetUserCredentialsRequest
-	(*GetUserCredentialsResponse)(nil), // 14: nis.v1.GetUserCredentialsResponse
-	(*timestamppb.Timestamp)(nil),      // 15: google.protobuf.Timestamp
-	(*ListOptions)(nil),                // 16: nis.v1.ListOptions
+	(*User)(nil),                              // 0: nis.v1.User
+	(*CreateUserRequest)(nil),                 // 1: nis.v1.CreateUserRequest
+	(*CreateUserResponse)(nil),                // 2: nis.v1.CreateUserResponse
+	(*GetUserRequest)(nil),                    // 3: nis.v1.GetUserRequest
+	(*GetUserResponse)(nil),                   // 4: nis.v1.GetUserResponse
+	(*GetUserByNameRequest)(nil),              // 5: nis.v1.GetUserByNameRequest
+	(*GetUserByNameResponse)(nil),             // 6: nis.v1.GetUserByNameResponse
+	(*ListUsersRequest)(nil),                  // 7: nis.v1.ListUsersRequest
+	(*ListUsersResponse)(nil),                 // 8: nis.v1.ListUsersResponse
+	(*UpdateUserRequest)(nil),                 // 9: nis.v1.UpdateUserRequest
+	(*UpdateUserResponse)(nil),                // 10: nis.v1.UpdateUserResponse
+	(*DeleteUserRequest)(nil),                 // 11: nis.v1.DeleteUserRequest
+	(*DeleteUserResponse)(nil),                // 12: nis.v1.DeleteUserResponse
+	(*GetUserCredentialsRequest)(nil),         // 13: nis.v1.GetUserCredentialsRequest
+	(*GetUserCredentialsResponse)(nil),        // 14: nis.v1.GetUserCredentialsResponse
+	(*RevokeUserRequest)(nil),                 // 15: nis.v1.RevokeUserRequest
+	(*RevokeUserResponse)(nil),                // 16: nis.v1.RevokeUserResponse
+	(*RegenerateUserCredentialsRequest)(nil),  // 17: nis.v1.RegenerateUserCredentialsRequest
+	(*RegenerateUserCredentialsResponse)(nil), // 18: nis.v1.RegenerateUserCredentialsResponse
+	(*timestamppb.Timestamp)(nil),             // 19: google.protobuf.Timestamp
+	(*ListOptions)(nil),                       // 20: nis.v1.ListOptions
 }
 var file_nis_v1_user_proto_depIdxs = []int32{
-	15, // 0: nis.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: nis.v1.User.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 2: nis.v1.CreateUserResponse.user:type_name -> nis.v1.User
-	0,  // 3: nis.v1.GetUserResponse.user:type_name -> nis.v1.User
-	0,  // 4: nis.v1.GetUserByNameResponse.user:type_name -> nis.v1.User
-	16, // 5: nis.v1.ListUsersRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 6: nis.v1.ListUsersResponse.users:type_name -> nis.v1.User
-	0,  // 7: nis.v1.UpdateUserResponse.user:type_name -> nis.v1.User
-	1,  // 8: nis.v1.UserService.CreateUser:input_type -> nis.v1.CreateUserRequest
-	3,  // 9: nis.v1.UserService.GetUser:input_type -> nis.v1.GetUserRequest
-	5,  // 10: nis.v1.UserService.GetUserByName:input_type -> nis.v1.GetUserByNameRequest
-	7,  // 11: nis.v1.UserService.ListUsers:input_type -> nis.v1.ListUsersRequest
-	9,  // 12: nis.v1.UserService.UpdateUser:input_type -> nis.v1.UpdateUserRequest
-	11, // 13: nis.v1.UserService.DeleteUser:input_type -> nis.v1.DeleteUserRequest
-	13, // 14: nis.v1.UserService.GetUserCredentials:input_type -> nis.v1.GetUserCredentialsRequest
-	2,  // 15: nis.v1.UserService.CreateUser:output_type -> nis.v1.CreateUserResponse
-	4,  // 16: nis.v1.UserService.GetUser:output_type -> nis.v1.GetUserResponse
-	6,  // 17: nis.v1.UserService.GetUserByName:output_type -> nis.v1.GetUserByNameResponse
-	8,  // 18: nis.v1.UserService.ListUsers:output_type -> nis.v1.ListUsersResponse
-	10, // 19: nis.v1.UserService.UpdateUser:output_type -> nis.v1.UpdateUserResponse
-	12, // 20: nis.v1.UserService.DeleteUser:output_type -> nis.v1.DeleteUserResponse
-	14, // 21: nis.v1.UserService.GetUserCredentials:output_type -> nis.v1.GetUserCredentialsResponse
-	15, // [15:22] is the sub-list for method output_type
-	8,  // [8:15] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	19, // 0: nis.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	19, // 1: nis.v1.User.updated_at:type_name -> google.protobuf.Timestamp
+	19, // 2: nis.v1.User.jwt_issued_at:type_name -> google.protobuf.Timestamp
+	19, // 3: nis.v1.User.jwt_expires_at:type_name -> google.protobuf.Timestamp
+	19, // 4: nis.v1.User.revoked_at:type_name -> google.protobuf.Timestamp
+	0,  // 5: nis.v1.CreateUserResponse.user:type_name -> nis.v1.User
+	0,  // 6: nis.v1.GetUserResponse.user:type_name -> nis.v1.User
+	0,  // 7: nis.v1.GetUserByNameResponse.user:type_name -> nis.v1.User
+	20, // 8: nis.v1.ListUsersRequest.options:type_name -> nis.v1.ListOptions
+	0,  // 9: nis.v1.ListUsersResponse.users:type_name -> nis.v1.User
+	0,  // 10: nis.v1.UpdateUserResponse.user:type_name -> nis.v1.User
+	0,  // 11: nis.v1.RevokeUserResponse.user:type_name -> nis.v1.User
+	0,  // 12: nis.v1.RegenerateUserCredentialsResponse.user:type_name -> nis.v1.User
+	1,  // 13: nis.v1.UserService.CreateUser:input_type -> nis.v1.CreateUserRequest
+	3,  // 14: nis.v1.UserService.GetUser:input_type -> nis.v1.GetUserRequest
+	5,  // 15: nis.v1.UserService.GetUserByName:input_type -> nis.v1.GetUserByNameRequest
+	7,  // 16: nis.v1.UserService.ListUsers:input_type -> nis.v1.ListUsersRequest
+	9,  // 17: nis.v1.UserService.UpdateUser:input_type -> nis.v1.UpdateUserRequest
+	11, // 18: nis.v1.UserService.DeleteUser:input_type -> nis.v1.DeleteUserRequest
+	13, // 19: nis.v1.UserService.GetUserCredentials:input_type -> nis.v1.GetUserCredentialsRequest
+	15, // 20: nis.v1.UserService.RevokeUser:input_type -> nis.v1.RevokeUserRequest
+	17, // 21: nis.v1.UserService.RegenerateUserCredentials:input_type -> nis.v1.RegenerateUserCredentialsRequest
+	2,  // 22: nis.v1.UserService.CreateUser:output_type -> nis.v1.CreateUserResponse
+	4,  // 23: nis.v1.UserService.GetUser:output_type -> nis.v1.GetUserResponse
+	6,  // 24: nis.v1.UserService.GetUserByName:output_type -> nis.v1.GetUserByNameResponse
+	8,  // 25: nis.v1.UserService.ListUsers:output_type -> nis.v1.ListUsersResponse
+	10, // 26: nis.v1.UserService.UpdateUser:output_type -> nis.v1.UpdateUserResponse
+	12, // 27: nis.v1.UserService.DeleteUser:output_type -> nis.v1.DeleteUserResponse
+	14, // 28: nis.v1.UserService.GetUserCredentials:output_type -> nis.v1.GetUserCredentialsResponse
+	16, // 29: nis.v1.UserService.RevokeUser:output_type -> nis.v1.RevokeUserResponse
+	18, // 30: nis.v1.UserService.RegenerateUserCredentials:output_type -> nis.v1.RegenerateUserCredentialsResponse
+	22, // [22:31] is the sub-list for method output_type
+	13, // [13:22] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_user_proto_init() }
@@ -949,6 +1254,7 @@ func file_nis_v1_user_proto_init() {
 		return
 	}
 	file_nis_v1_common_proto_init()
+	file_nis_v1_user_proto_msgTypes[0].OneofWrappers = []any{}
 	file_nis_v1_user_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -956,7 +1262,7 @@ func file_nis_v1_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_user_proto_rawDesc), len(file_nis_v1_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

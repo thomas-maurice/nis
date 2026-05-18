@@ -17,6 +17,12 @@ message Operator {
   string system_account_pub_key = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+
+  // JWT lifecycle policy (P2). 0 = no expiry / never renew (default).
+  int64 user_jwt_ttl_seconds = 9;
+  int64 account_jwt_ttl_seconds = 10;
+  int64 jwt_warn_window_seconds = 11;
+  bool jwt_auto_renew = 12;
 }
 
 // CreateOperatorRequest is the request to create a new operator
@@ -101,6 +107,36 @@ message GenerateIncludeResponse {
   string config = 1;
 }
 
+// SetJWTPolicyRequest configures the per-operator JWT lifecycle defaults.
+// Each field is optional; only fields present in the request are updated.
+// Pass user_jwt_ttl_seconds=0 (with the field set) to explicitly disable
+// expiry. Same for account_jwt_ttl_seconds.
+message SetJWTPolicyRequest {
+  string id = 1;
+  optional int64 user_jwt_ttl_seconds = 2;
+  optional int64 account_jwt_ttl_seconds = 3;
+  optional int64 jwt_warn_window_seconds = 4;
+  optional bool jwt_auto_renew = 5;
+}
+
+// SetJWTPolicyResponse returns the updated operator.
+message SetJWTPolicyResponse {
+  Operator operator = 1;
+}
+
+// RunJWTExpirySweepRequest triggers an immediate sweep tick (admin only).
+// Useful for tests and for operators who want to force a recheck without
+// waiting for the next periodic tick.
+message RunJWTExpirySweepRequest {}
+
+// RunJWTExpirySweepResponse summarises the sweep result.
+message RunJWTExpirySweepResponse {
+  int32 revocations_pruned = 1;
+  int32 expiring_soon_emitted = 2;
+  int32 expired_alerts_emitted = 3;
+  int32 auto_renewed = 4;
+}
+
 // OperatorService manages NATS operators
 service OperatorService {
   rpc CreateOperator(CreateOperatorRequest) returns (CreateOperatorResponse);
@@ -112,4 +148,8 @@ service OperatorService {
   rpc DeleteOperator(DeleteOperatorRequest) returns (DeleteOperatorResponse);
   // GenerateInclude generates NATS server configuration for the operator
   rpc GenerateInclude(GenerateIncludeRequest) returns (GenerateIncludeResponse);
+  // SetJWTPolicy updates the operator's JWT lifecycle policy (P2).
+  rpc SetJWTPolicy(SetJWTPolicyRequest) returns (SetJWTPolicyResponse);
+  // RunJWTExpirySweep forces an immediate sweep tick (admin only).
+  rpc RunJWTExpirySweep(RunJWTExpirySweepRequest) returns (RunJWTExpirySweepResponse);
 }

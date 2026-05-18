@@ -4,7 +4,7 @@
 // @ts-nocheck
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
-import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 import { ListOptions } from "./common_pb.js";
 
 /**
@@ -53,6 +53,28 @@ export class Operator extends Message<Operator> {
    */
   updatedAt?: Timestamp;
 
+  /**
+   * JWT lifecycle policy (P2). 0 = no expiry / never renew (default).
+   *
+   * @generated from field: int64 user_jwt_ttl_seconds = 9;
+   */
+  userJwtTtlSeconds = protoInt64.zero;
+
+  /**
+   * @generated from field: int64 account_jwt_ttl_seconds = 10;
+   */
+  accountJwtTtlSeconds = protoInt64.zero;
+
+  /**
+   * @generated from field: int64 jwt_warn_window_seconds = 11;
+   */
+  jwtWarnWindowSeconds = protoInt64.zero;
+
+  /**
+   * @generated from field: bool jwt_auto_renew = 12;
+   */
+  jwtAutoRenew = false;
+
   constructor(data?: PartialMessage<Operator>) {
     super();
     proto3.util.initPartial(data, this);
@@ -69,6 +91,10 @@ export class Operator extends Message<Operator> {
     { no: 6, name: "system_account_pub_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 7, name: "created_at", kind: "message", T: Timestamp },
     { no: 8, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 9, name: "user_jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 10, name: "account_jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 11, name: "jwt_warn_window_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 12, name: "jwt_auto_renew", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Operator {
@@ -727,6 +753,203 @@ export class GenerateIncludeResponse extends Message<GenerateIncludeResponse> {
 
   static equals(a: GenerateIncludeResponse | PlainMessage<GenerateIncludeResponse> | undefined, b: GenerateIncludeResponse | PlainMessage<GenerateIncludeResponse> | undefined): boolean {
     return proto3.util.equals(GenerateIncludeResponse, a, b);
+  }
+}
+
+/**
+ * SetJWTPolicyRequest configures the per-operator JWT lifecycle defaults.
+ * Each field is optional; only fields present in the request are updated.
+ * Pass user_jwt_ttl_seconds=0 (with the field set) to explicitly disable
+ * expiry. Same for account_jwt_ttl_seconds.
+ *
+ * @generated from message nis.v1.SetJWTPolicyRequest
+ */
+export class SetJWTPolicyRequest extends Message<SetJWTPolicyRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: optional int64 user_jwt_ttl_seconds = 2;
+   */
+  userJwtTtlSeconds?: bigint;
+
+  /**
+   * @generated from field: optional int64 account_jwt_ttl_seconds = 3;
+   */
+  accountJwtTtlSeconds?: bigint;
+
+  /**
+   * @generated from field: optional int64 jwt_warn_window_seconds = 4;
+   */
+  jwtWarnWindowSeconds?: bigint;
+
+  /**
+   * @generated from field: optional bool jwt_auto_renew = 5;
+   */
+  jwtAutoRenew?: boolean;
+
+  constructor(data?: PartialMessage<SetJWTPolicyRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.SetJWTPolicyRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "user_jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 3, name: "account_jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 4, name: "jwt_warn_window_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 5, name: "jwt_auto_renew", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetJWTPolicyRequest {
+    return new SetJWTPolicyRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetJWTPolicyRequest {
+    return new SetJWTPolicyRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetJWTPolicyRequest {
+    return new SetJWTPolicyRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetJWTPolicyRequest | PlainMessage<SetJWTPolicyRequest> | undefined, b: SetJWTPolicyRequest | PlainMessage<SetJWTPolicyRequest> | undefined): boolean {
+    return proto3.util.equals(SetJWTPolicyRequest, a, b);
+  }
+}
+
+/**
+ * SetJWTPolicyResponse returns the updated operator.
+ *
+ * @generated from message nis.v1.SetJWTPolicyResponse
+ */
+export class SetJWTPolicyResponse extends Message<SetJWTPolicyResponse> {
+  /**
+   * @generated from field: nis.v1.Operator operator = 1;
+   */
+  operator?: Operator;
+
+  constructor(data?: PartialMessage<SetJWTPolicyResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.SetJWTPolicyResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operator", kind: "message", T: Operator },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetJWTPolicyResponse {
+    return new SetJWTPolicyResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetJWTPolicyResponse {
+    return new SetJWTPolicyResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetJWTPolicyResponse {
+    return new SetJWTPolicyResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetJWTPolicyResponse | PlainMessage<SetJWTPolicyResponse> | undefined, b: SetJWTPolicyResponse | PlainMessage<SetJWTPolicyResponse> | undefined): boolean {
+    return proto3.util.equals(SetJWTPolicyResponse, a, b);
+  }
+}
+
+/**
+ * RunJWTExpirySweepRequest triggers an immediate sweep tick (admin only).
+ * Useful for tests and for operators who want to force a recheck without
+ * waiting for the next periodic tick.
+ *
+ * @generated from message nis.v1.RunJWTExpirySweepRequest
+ */
+export class RunJWTExpirySweepRequest extends Message<RunJWTExpirySweepRequest> {
+  constructor(data?: PartialMessage<RunJWTExpirySweepRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RunJWTExpirySweepRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RunJWTExpirySweepRequest {
+    return new RunJWTExpirySweepRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RunJWTExpirySweepRequest {
+    return new RunJWTExpirySweepRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RunJWTExpirySweepRequest {
+    return new RunJWTExpirySweepRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RunJWTExpirySweepRequest | PlainMessage<RunJWTExpirySweepRequest> | undefined, b: RunJWTExpirySweepRequest | PlainMessage<RunJWTExpirySweepRequest> | undefined): boolean {
+    return proto3.util.equals(RunJWTExpirySweepRequest, a, b);
+  }
+}
+
+/**
+ * RunJWTExpirySweepResponse summarises the sweep result.
+ *
+ * @generated from message nis.v1.RunJWTExpirySweepResponse
+ */
+export class RunJWTExpirySweepResponse extends Message<RunJWTExpirySweepResponse> {
+  /**
+   * @generated from field: int32 revocations_pruned = 1;
+   */
+  revocationsPruned = 0;
+
+  /**
+   * @generated from field: int32 expiring_soon_emitted = 2;
+   */
+  expiringSoonEmitted = 0;
+
+  /**
+   * @generated from field: int32 expired_alerts_emitted = 3;
+   */
+  expiredAlertsEmitted = 0;
+
+  /**
+   * @generated from field: int32 auto_renewed = 4;
+   */
+  autoRenewed = 0;
+
+  constructor(data?: PartialMessage<RunJWTExpirySweepResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RunJWTExpirySweepResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "revocations_pruned", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 2, name: "expiring_soon_emitted", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 3, name: "expired_alerts_emitted", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 4, name: "auto_renewed", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RunJWTExpirySweepResponse {
+    return new RunJWTExpirySweepResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RunJWTExpirySweepResponse {
+    return new RunJWTExpirySweepResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RunJWTExpirySweepResponse {
+    return new RunJWTExpirySweepResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RunJWTExpirySweepResponse | PlainMessage<RunJWTExpirySweepResponse> | undefined, b: RunJWTExpirySweepResponse | PlainMessage<RunJWTExpirySweepResponse> | undefined): boolean {
+    return proto3.util.equals(RunJWTExpirySweepResponse, a, b);
   }
 }
 

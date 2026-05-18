@@ -137,6 +137,13 @@ type Recorder struct {
 	webhookDeliveryDuration  metric.Float64Histogram
 	eventsEmitted            metric.Int64Counter
 	apiTokenAuthentications  metric.Int64Counter
+
+	// P2 — JWT lifecycle.
+	userJWTRevocations        metric.Int64Counter
+	userJWTRevocationsPruned  metric.Int64Counter
+	userJWTExpiringSoonEvents metric.Int64Counter
+	userJWTExpiredEvents      metric.Int64Counter
+	userJWTAutoRenewals       metric.Int64Counter
 }
 
 func newRecorder(m metric.Meter) (*Recorder, error) {
@@ -207,7 +214,78 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 	); err != nil {
 		return nil, err
 	}
+	if r.userJWTRevocations, err = m.Int64Counter(
+		"nis_user_jwt_revocations_total",
+		metric.WithDescription("Total user JWT revocations, labelled by outcome (ok/err)."),
+	); err != nil {
+		return nil, err
+	}
+	if r.userJWTRevocationsPruned, err = m.Int64Counter(
+		"nis_user_jwt_revocations_pruned_total",
+		metric.WithDescription("Total revocation entries pruned from account JWTs after the revoked JWT exp passed."),
+	); err != nil {
+		return nil, err
+	}
+	if r.userJWTExpiringSoonEvents, err = m.Int64Counter(
+		"nis_user_jwt_expiring_soon_events_total",
+		metric.WithDescription("Total user.cred.expiring_soon events emitted by the sweeper."),
+	); err != nil {
+		return nil, err
+	}
+	if r.userJWTExpiredEvents, err = m.Int64Counter(
+		"nis_user_jwt_expired_events_total",
+		metric.WithDescription("Total user.cred.expired events emitted by the sweeper (post-exp credentials)."),
+	); err != nil {
+		return nil, err
+	}
+	if r.userJWTAutoRenewals, err = m.Int64Counter(
+		"nis_user_jwt_auto_renewals_total",
+		metric.WithDescription("Total automatic user JWT renewals attempted by the sweeper, labelled by status (ok/err)."),
+	); err != nil {
+		return nil, err
+	}
 	return &r, nil
+}
+
+// RecordUserJWTRevocation records a user revocation outcome. status="ok"|"err".
+func (r *Recorder) RecordUserJWTRevocation(ctx context.Context, status string) {
+	if r == nil {
+		return
+	}
+	r.userJWTRevocations.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
+}
+
+// RecordUserJWTRevocationPruned records the number of revocation entries
+// pruned in a single sweep batch.
+func (r *Recorder) RecordUserJWTRevocationPruned(ctx context.Context, count int) {
+	if r == nil || count <= 0 {
+		return
+	}
+	r.userJWTRevocationsPruned.Add(ctx, int64(count))
+}
+
+// RecordUserJWTExpiringSoonEvent increments the expiring-soon emission counter.
+func (r *Recorder) RecordUserJWTExpiringSoonEvent(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	r.userJWTExpiringSoonEvents.Add(ctx, 1)
+}
+
+// RecordUserJWTExpiredEvent increments the expired-alert emission counter.
+func (r *Recorder) RecordUserJWTExpiredEvent(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	r.userJWTExpiredEvents.Add(ctx, 1)
+}
+
+// RecordUserJWTAutoRenewal increments the auto-renewal counter. status="ok"|"err".
+func (r *Recorder) RecordUserJWTAutoRenewal(ctx context.Context, status string) {
+	if r == nil {
+		return
+	}
+	r.userJWTAutoRenewals.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }
 
 // RecordClusterSyncError increments the sync-error counter for the given phase

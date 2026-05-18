@@ -49,6 +49,11 @@ const (
 	// UserServiceGetUserCredentialsProcedure is the fully-qualified name of the UserService's
 	// GetUserCredentials RPC.
 	UserServiceGetUserCredentialsProcedure = "/nis.v1.UserService/GetUserCredentials"
+	// UserServiceRevokeUserProcedure is the fully-qualified name of the UserService's RevokeUser RPC.
+	UserServiceRevokeUserProcedure = "/nis.v1.UserService/RevokeUser"
+	// UserServiceRegenerateUserCredentialsProcedure is the fully-qualified name of the UserService's
+	// RegenerateUserCredentials RPC.
+	UserServiceRegenerateUserCredentialsProcedure = "/nis.v1.UserService/RegenerateUserCredentials"
 )
 
 // UserServiceClient is a client for the nis.v1.UserService service.
@@ -60,6 +65,10 @@ type UserServiceClient interface {
 	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
 	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
 	GetUserCredentials(context.Context, *connect.Request[v1.GetUserCredentialsRequest]) (*connect.Response[v1.GetUserCredentialsResponse], error)
+	// RevokeUser revokes the user via the parent account JWT's Revocations map (P2).
+	RevokeUser(context.Context, *connect.Request[v1.RevokeUserRequest]) (*connect.Response[v1.RevokeUserResponse], error)
+	// RegenerateUserCredentials issues a fresh user JWT, returning new creds (P2).
+	RegenerateUserCredentials(context.Context, *connect.Request[v1.RegenerateUserCredentialsRequest]) (*connect.Response[v1.RegenerateUserCredentialsResponse], error)
 }
 
 // NewUserServiceClient constructs a client for the nis.v1.UserService service. By default, it uses
@@ -115,18 +124,32 @@ func NewUserServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(userServiceMethods.ByName("GetUserCredentials")),
 			connect.WithClientOptions(opts...),
 		),
+		revokeUser: connect.NewClient[v1.RevokeUserRequest, v1.RevokeUserResponse](
+			httpClient,
+			baseURL+UserServiceRevokeUserProcedure,
+			connect.WithSchema(userServiceMethods.ByName("RevokeUser")),
+			connect.WithClientOptions(opts...),
+		),
+		regenerateUserCredentials: connect.NewClient[v1.RegenerateUserCredentialsRequest, v1.RegenerateUserCredentialsResponse](
+			httpClient,
+			baseURL+UserServiceRegenerateUserCredentialsProcedure,
+			connect.WithSchema(userServiceMethods.ByName("RegenerateUserCredentials")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // userServiceClient implements UserServiceClient.
 type userServiceClient struct {
-	createUser         *connect.Client[v1.CreateUserRequest, v1.CreateUserResponse]
-	getUser            *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
-	getUserByName      *connect.Client[v1.GetUserByNameRequest, v1.GetUserByNameResponse]
-	listUsers          *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
-	updateUser         *connect.Client[v1.UpdateUserRequest, v1.UpdateUserResponse]
-	deleteUser         *connect.Client[v1.DeleteUserRequest, v1.DeleteUserResponse]
-	getUserCredentials *connect.Client[v1.GetUserCredentialsRequest, v1.GetUserCredentialsResponse]
+	createUser                *connect.Client[v1.CreateUserRequest, v1.CreateUserResponse]
+	getUser                   *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
+	getUserByName             *connect.Client[v1.GetUserByNameRequest, v1.GetUserByNameResponse]
+	listUsers                 *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
+	updateUser                *connect.Client[v1.UpdateUserRequest, v1.UpdateUserResponse]
+	deleteUser                *connect.Client[v1.DeleteUserRequest, v1.DeleteUserResponse]
+	getUserCredentials        *connect.Client[v1.GetUserCredentialsRequest, v1.GetUserCredentialsResponse]
+	revokeUser                *connect.Client[v1.RevokeUserRequest, v1.RevokeUserResponse]
+	regenerateUserCredentials *connect.Client[v1.RegenerateUserCredentialsRequest, v1.RegenerateUserCredentialsResponse]
 }
 
 // CreateUser calls nis.v1.UserService.CreateUser.
@@ -164,6 +187,16 @@ func (c *userServiceClient) GetUserCredentials(ctx context.Context, req *connect
 	return c.getUserCredentials.CallUnary(ctx, req)
 }
 
+// RevokeUser calls nis.v1.UserService.RevokeUser.
+func (c *userServiceClient) RevokeUser(ctx context.Context, req *connect.Request[v1.RevokeUserRequest]) (*connect.Response[v1.RevokeUserResponse], error) {
+	return c.revokeUser.CallUnary(ctx, req)
+}
+
+// RegenerateUserCredentials calls nis.v1.UserService.RegenerateUserCredentials.
+func (c *userServiceClient) RegenerateUserCredentials(ctx context.Context, req *connect.Request[v1.RegenerateUserCredentialsRequest]) (*connect.Response[v1.RegenerateUserCredentialsResponse], error) {
+	return c.regenerateUserCredentials.CallUnary(ctx, req)
+}
+
 // UserServiceHandler is an implementation of the nis.v1.UserService service.
 type UserServiceHandler interface {
 	CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error)
@@ -173,6 +206,10 @@ type UserServiceHandler interface {
 	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
 	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
 	GetUserCredentials(context.Context, *connect.Request[v1.GetUserCredentialsRequest]) (*connect.Response[v1.GetUserCredentialsResponse], error)
+	// RevokeUser revokes the user via the parent account JWT's Revocations map (P2).
+	RevokeUser(context.Context, *connect.Request[v1.RevokeUserRequest]) (*connect.Response[v1.RevokeUserResponse], error)
+	// RegenerateUserCredentials issues a fresh user JWT, returning new creds (P2).
+	RegenerateUserCredentials(context.Context, *connect.Request[v1.RegenerateUserCredentialsRequest]) (*connect.Response[v1.RegenerateUserCredentialsResponse], error)
 }
 
 // NewUserServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -224,6 +261,18 @@ func NewUserServiceHandler(svc UserServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(userServiceMethods.ByName("GetUserCredentials")),
 		connect.WithHandlerOptions(opts...),
 	)
+	userServiceRevokeUserHandler := connect.NewUnaryHandler(
+		UserServiceRevokeUserProcedure,
+		svc.RevokeUser,
+		connect.WithSchema(userServiceMethods.ByName("RevokeUser")),
+		connect.WithHandlerOptions(opts...),
+	)
+	userServiceRegenerateUserCredentialsHandler := connect.NewUnaryHandler(
+		UserServiceRegenerateUserCredentialsProcedure,
+		svc.RegenerateUserCredentials,
+		connect.WithSchema(userServiceMethods.ByName("RegenerateUserCredentials")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.UserService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case UserServiceCreateUserProcedure:
@@ -240,6 +289,10 @@ func NewUserServiceHandler(svc UserServiceHandler, opts ...connect.HandlerOption
 			userServiceDeleteUserHandler.ServeHTTP(w, r)
 		case UserServiceGetUserCredentialsProcedure:
 			userServiceGetUserCredentialsHandler.ServeHTTP(w, r)
+		case UserServiceRevokeUserProcedure:
+			userServiceRevokeUserHandler.ServeHTTP(w, r)
+		case UserServiceRegenerateUserCredentialsProcedure:
+			userServiceRegenerateUserCredentialsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -275,4 +328,12 @@ func (UnimplementedUserServiceHandler) DeleteUser(context.Context, *connect.Requ
 
 func (UnimplementedUserServiceHandler) GetUserCredentials(context.Context, *connect.Request[v1.GetUserCredentialsRequest]) (*connect.Response[v1.GetUserCredentialsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.UserService.GetUserCredentials is not implemented"))
+}
+
+func (UnimplementedUserServiceHandler) RevokeUser(context.Context, *connect.Request[v1.RevokeUserRequest]) (*connect.Response[v1.RevokeUserResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.UserService.RevokeUser is not implemented"))
+}
+
+func (UnimplementedUserServiceHandler) RegenerateUserCredentials(context.Context, *connect.Request[v1.RegenerateUserCredentialsRequest]) (*connect.Response[v1.RegenerateUserCredentialsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.UserService.RegenerateUserCredentials is not implemented"))
 }

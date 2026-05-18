@@ -18,17 +18,32 @@ func UserToProto(user *entities.User) *pb.User {
 		scopedKeyID = UUIDToString(*user.ScopedSigningKeyID)
 	}
 
-	return &pb.User{
-		Id:                  UUIDToString(user.ID),
-		AccountId:           UUIDToString(user.AccountID),
-		Name:                user.Name,
-		Description:         user.Description,
-		PublicKey:           user.PublicKey,
-		Jwt:                 user.JWT,
-		ScopedSigningKeyId:  scopedKeyID,
-		CreatedAt:           timestamppb.New(user.CreatedAt),
-		UpdatedAt:           timestamppb.New(user.UpdatedAt),
+	pbu := &pb.User{
+		Id:                 UUIDToString(user.ID),
+		AccountId:          UUIDToString(user.AccountID),
+		Name:               user.Name,
+		Description:        user.Description,
+		PublicKey:          user.PublicKey,
+		Jwt:                user.JWT,
+		ScopedSigningKeyId: scopedKeyID,
+		CreatedAt:          timestamppb.New(user.CreatedAt),
+		UpdatedAt:          timestamppb.New(user.UpdatedAt),
+		RevocationReason:   user.RevocationReason,
 	}
+	if user.JWTTTL != nil {
+		ttl := int64(user.JWTTTL.Seconds())
+		pbu.JwtTtlSeconds = &ttl
+	}
+	if user.JWTIssuedAt != nil {
+		pbu.JwtIssuedAt = timestamppb.New(*user.JWTIssuedAt)
+	}
+	if user.JWTExpiresAt != nil {
+		pbu.JwtExpiresAt = timestamppb.New(*user.JWTExpiresAt)
+	}
+	if user.RevokedAt != nil {
+		pbu.RevokedAt = timestamppb.New(*user.RevokedAt)
+	}
+	return pbu
 }
 
 // UsersToProto converts slice of domain Users to protobuf Users

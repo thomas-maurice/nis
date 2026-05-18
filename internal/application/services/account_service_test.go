@@ -70,7 +70,7 @@ func (s *AccountServiceTestSuite) SetupSuite() {
 
 	s.accountService = NewAccountService(factory, s.jwtService, s.encryptor)
 	s.operatorService = NewOperatorService(factory, s.accountService, s.jwtService, s.encryptor)
-	s.userService = NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, s.jwtService, s.encryptor)
+	s.userService = NewUserService(s.userRepo, s.accountRepo, s.scopedSigningKeyRepo, s.operatorRepo, s.jwtService, s.encryptor)
 }
 
 func (s *AccountServiceTestSuite) TearDownSuite() {

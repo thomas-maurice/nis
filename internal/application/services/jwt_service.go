@@ -3,12 +3,34 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 )
+
+// freshUniquenessTag returns a string suitable for stamping into a JWT's tag
+// list so that two encodes of otherwise-identical claims produce different
+// tokens.
+//
+// Background: jwt v2's ClaimsData.encode unconditionally sets IssuedAt to
+// `time.Now().UTC().Unix()` and the ID (jti) to a SHA512/256 hash of the
+// remaining claim contents. The Ed25519 signature over those bytes is
+// deterministic. Two regenerations within the same Unix second of an
+// otherwise-identical claim set therefore produce byte-identical JWTs.
+// That breaks the "fresh creds" expectation operators have when calling
+// RegenerateUserCredentials. Stuffing a unique tag varies the claim content,
+// which varies the auto-generated jti, which varies the signature.
+//
+// NATS treats user-JWT tags as opaque metadata (no permission impact). We
+// prefix with `nis:uniq:` so operators inspecting a JWT understand why the
+// tag is there.
+func freshUniquenessTag() string {
+	return "nis:uniq:" + uuid.NewString()
+}
 
 // JWTService handles generation of NATS JWTs for operators, accounts, and users
 type JWTService struct {
@@ -56,13 +78,17 @@ func (s *JWTService) GenerateOperatorJWT(ctx context.Context, operator *entities
 
 // GenerateAccountJWT generates an account JWT signed by the operator.
 //
-// Each scoped signing key in scopedKeys is declared as a NATS scoped signer in the
-// account's `signing_keys` claim, with its pub/sub allow/deny lists and response
-// permission carried as the scope template. Without this, NATS rejects every user
-// JWT signed by a scoped key as "Authorization Violation" because the signing key
-// is not recognised by the account. Pass nil/empty scopedKeys for the simple case
-// where only the account's own key signs users.
-func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.Account, operator *entities.Operator, scopedKeys []*entities.ScopedSigningKey) (string, error) {
+// scopedKeys are declared as NATS scoped signers in the `signing_keys` claim
+// (see jwt_service.go history for the E1 fix that made this load-bearing).
+//
+// revocations are flattened into the account's NATS Revocations map. Any user
+// JWT issued before each entry's revoked_at and signed by the matching user
+// public key will be rejected by NATS. Pass nil/empty for no revocations.
+// Pruned rows (PrunedAt != nil) are skipped — they exist only as bookkeeping.
+//
+// ttl, when > 0, sets the account JWT's `exp`. 0 leaves the JWT without exp
+// (the back-compat default; lifecycle is opt-in per operator).
+func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.Account, operator *entities.Operator, scopedKeys []*entities.ScopedSigningKey, revocations []*entities.UserJWTRevocation, ttl time.Duration) (string, error) {
 	// Decrypt the operator's seed (operator signs the account JWT)
 	operatorSeedBytes, err := s.encryptor.Decrypt(ctx, operator.EncryptedSeed)
 	if err != nil {
@@ -114,6 +140,27 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 		claims.SigningKeys.AddScopedSigner(scope)
 	}
 
+	// Flatten active revocations into AccountClaims.Revocations. The
+	// Revocations RevocationList map stores `public_key -> revoked_at unix
+	// seconds`; NATS rejects any user JWT whose iat is before this timestamp.
+	// claims.RevokeAt initialises the map if nil and uses the timestamp we
+	// pass (claims.Revoke would default to time.Now).
+	for _, rv := range revocations {
+		if rv == nil || rv.PrunedAt != nil {
+			continue
+		}
+		claims.RevokeAt(rv.UserPublicKey, rv.RevokedAt)
+	}
+
+	if ttl > 0 {
+		now := time.Now()
+		claims.IssuedAt = now.Unix()
+		claims.Expires = now.Add(ttl).Unix()
+	}
+	// One-shot tag so two encodes with otherwise-identical claims produce
+	// distinct tokens — see freshUniquenessTag's docstring.
+	claims.Tags = append(claims.Tags, freshUniquenessTag())
+
 	// Encode and sign the JWT with operator key
 	token, err := claims.Encode(operatorKP)
 	if err != nil {
@@ -123,8 +170,23 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 	return token, nil
 }
 
-// GenerateUserJWT generates a user JWT signed by the account or scoped signing key
-func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, account *entities.Account, scopedKey *entities.ScopedSigningKey) (string, error) {
+// UserJWTMint is the output of GenerateUserJWT — token plus the iat/exp the
+// caller needs to persist on the user row so the sweeper and the
+// AccountClaims.Revocations bookkeeping work correctly.
+type UserJWTMint struct {
+	Token     string
+	IssuedAt  time.Time
+	ExpiresAt *time.Time // nil when ttl <= 0
+}
+
+// GenerateUserJWT generates a user JWT signed by the account or scoped signing
+// key. When ttl > 0 the JWT carries iat + exp; when ttl <= 0 the JWT is
+// unbounded (the back-compat default).
+//
+// The returned UserJWTMint.IssuedAt is also the JWT's `iat` and is what the
+// sweeper uses to dedup expiring-soon / expired alerts — pin it on the user
+// row exactly.
+func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, account *entities.Account, scopedKey *entities.ScopedSigningKey, ttl time.Duration) (*UserJWTMint, error) {
 	// Create user claims
 	claims := jwt.NewUserClaims(user.PublicKey)
 	claims.Name = user.Name
@@ -136,12 +198,12 @@ func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, a
 		// Sign with scoped signing key
 		scopedSeedBytes, err := s.encryptor.Decrypt(ctx, scopedKey.EncryptedSeed)
 		if err != nil {
-			return "", fmt.Errorf("failed to decrypt scoped key seed: %w", err)
+			return nil, fmt.Errorf("failed to decrypt scoped key seed: %w", err)
 		}
 
 		signingKP, err = nkeys.FromSeed(scopedSeedBytes)
 		if err != nil {
-			return "", fmt.Errorf("failed to parse scoped key seed: %w", err)
+			return nil, fmt.Errorf("failed to parse scoped key seed: %w", err)
 		}
 
 		// Set issuer account
@@ -157,22 +219,39 @@ func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, a
 		// Sign with account key directly
 		accountSeedBytes, err := s.encryptor.Decrypt(ctx, account.EncryptedSeed)
 		if err != nil {
-			return "", fmt.Errorf("failed to decrypt account seed: %w", err)
+			return nil, fmt.Errorf("failed to decrypt account seed: %w", err)
 		}
 
 		signingKP, err = nkeys.FromSeed(accountSeedBytes)
 		if err != nil {
-			return "", fmt.Errorf("failed to parse account seed: %w", err)
+			return nil, fmt.Errorf("failed to parse account seed: %w", err)
 		}
+	}
+
+	// Stamp iat unconditionally (cheap, and revocation comparisons against
+	// iat are how NATS decides whether a user JWT is revoked). When ttl > 0
+	// also stamp exp; otherwise leave it zero so claims.Encode emits no exp.
+	//
+	// jwt v2's Encode will OVERWRITE both IssuedAt and ID, so the only way to
+	// make sequential calls produce distinct tokens is to vary a non-ignored
+	// claim field. We stuff a one-shot tag (see freshUniquenessTag).
+	now := time.Now()
+	claims.IssuedAt = now.Unix()
+	claims.Tags = append(claims.Tags, freshUniquenessTag())
+	var exp *time.Time
+	if ttl > 0 {
+		expT := now.Add(ttl)
+		claims.Expires = expT.Unix()
+		exp = &expT
 	}
 
 	// Encode and sign the JWT
 	token, err := claims.Encode(signingKP)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode user JWT: %w", err)
+		return nil, fmt.Errorf("failed to encode user JWT: %w", err)
 	}
 
-	return token, nil
+	return &UserJWTMint{Token: token, IssuedAt: now, ExpiresAt: exp}, nil
 }
 
 // GetUserCredentials returns the complete .creds file content for a user

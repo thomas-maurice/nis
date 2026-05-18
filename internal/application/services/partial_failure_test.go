@@ -88,6 +88,7 @@ func setupFaultRollbackHarness(t *testing.T, failAfter int) (*OperatorService, *
 		factory.UserRepository(),
 		factory.AccountRepository(),
 		factory.ScopedSigningKeyRepository(),
+		factory.OperatorRepository(),
 		jwtSvc, faulty,
 	)
 	scopedKeySvc := NewScopedSigningKeyService(factory, jwtSvc, faulty)
