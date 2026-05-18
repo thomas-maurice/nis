@@ -11,10 +11,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// normalizeClusterTimes coerces all time fields to UTC before write. Postgres
-// TIMESTAMP columns drop the tz, and Go marshals back as UTC; without this
-// step a `time.Now()` in a non-UTC location round-trips through the DB with a
-// double-offset shift visible in the UI.
+// normalizeClusterTimes coerces all time fields to UTC before write. Defensive
+// belt-and-suspenders for the rule documented in internal/clock: every value
+// destined for storage must be UTC. clock.Now() guarantees this at the source,
+// but a time.Time constructed from external input (parsed string, NATS frame)
+// won't have gone through clock.Now(); this helper traps that case.
 func normalizeClusterTimes(m *ClusterModel) {
 	m.CreatedAt = m.CreatedAt.UTC()
 	m.UpdatedAt = m.UpdatedAt.UTC()

@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"golang.org/x/crypto/bcrypt"
@@ -201,8 +202,8 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 		Role:         req.Role,
 		OperatorID:   req.OperatorID,
 		AccountID:    req.AccountID,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		CreatedAt:    clock.Now(),
+		UpdatedAt:    clock.Now(),
 	}
 
 	err = s.apiUserRepo.Create(ctx, user)
@@ -268,7 +269,7 @@ func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, r
 	}
 
 	user.PasswordHash = string(passwordHash)
-	user.UpdatedAt = time.Now()
+	user.UpdatedAt = clock.Now()
 
 	err = s.apiUserRepo.Update(ctx, user)
 	if err != nil {
@@ -326,7 +327,7 @@ func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req U
 	user.Role = req.Role
 	user.OperatorID = req.OperatorID
 	user.AccountID = req.AccountID
-	user.UpdatedAt = time.Now()
+	user.UpdatedAt = clock.Now()
 
 	err = s.apiUserRepo.Update(ctx, user)
 	if err != nil {
@@ -347,7 +348,7 @@ func (s *AuthService) DeleteAPIUser(ctx context.Context, id uuid.UUID, requestin
 
 // generateToken generates a JWT token for a user
 func (s *AuthService) generateToken(user *entities.APIUser) (string, error) {
-	now := time.Now()
+	now := clock.Now()
 	claims := AuthClaims{
 		UserID:   user.ID.String(),
 		Username: user.Username,

@@ -342,7 +342,7 @@ type ClusterModel struct {
 	EncryptedCreds      string   `gorm:"type:text"`
 	SkipVerifyTLS       bool     `gorm:"type:boolean;not null;default:false"`
 	Healthy             bool     `gorm:"type:boolean;not null;default:false"`
-	LastHealthCheck     *time.Time `gorm:"type:datetime"`
+	LastHealthCheck     *time.Time `gorm:"type:timestamp"`
 	HealthCheckError    string   `gorm:"type:text;not null;default:''"`
 	CreatedAt           time.Time
 	UpdatedAt           time.Time

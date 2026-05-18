@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -190,8 +191,8 @@ func (s *UserService) createUserWith(ctx context.Context, userRepo repositories.
 		PublicKey:          pubKey,
 		ScopedSigningKeyID: req.ScopedSigningKeyID,
 		JWTTTL:             req.JWTTTLOverride,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		CreatedAt:          clock.Now(),
+		UpdatedAt:          clock.Now(),
 	}
 
 	// Generate JWT (signed by account or scoped signing key). TTL resolves to
@@ -293,7 +294,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 			return user, nil
 		}
 
-		user.UpdatedAt = time.Now()
+		user.UpdatedAt = clock.Now()
 
 		// Get account, operator, and optional scoped key to regenerate JWT
 		account, err := accountRepo.GetByID(ctx, user.AccountID)

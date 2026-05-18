@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -37,7 +38,8 @@ func NewDB(driver, dsn string) (*gorm.DB, error) {
 	}
 
 	db, err := gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger:  logger.Default.LogMode(logger.Info),
+		NowFunc: clock.Now,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)

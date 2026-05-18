@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -105,8 +106,8 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 			EncryptedSeed:       encryptedSeed,
 			PublicKey:           pubKey,
 			SystemAccountPubKey: "",
-			CreatedAt:           time.Now(),
-			UpdatedAt:           time.Now(),
+			CreatedAt:           clock.Now(),
+			UpdatedAt:           clock.Now(),
 		}
 
 		// Generate JWT (without system account)
@@ -151,8 +152,8 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 			EncryptedSeed:      encryptedSysUserSeed,
 			PublicKey:          sysUserPubKey,
 			ScopedSigningKeyID: nil,
-			CreatedAt:          time.Now(),
-			UpdatedAt:          time.Now(),
+			CreatedAt:          clock.Now(),
+			UpdatedAt:          clock.Now(),
 		}
 
 		// Generate system user JWT. TTL=0 — the system user is operator-internal
@@ -183,7 +184,7 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 
 		// Update operator with system account public key and regenerate JWT
 		operator.SystemAccountPubKey = sysAccount.PublicKey
-		operator.UpdatedAt = time.Now()
+		operator.UpdatedAt = clock.Now()
 
 		opJWT, err = s.jwtService.GenerateOperatorJWT(ctx, operator)
 		if err != nil {
@@ -278,7 +279,7 @@ func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req 
 			return nil
 		}
 
-		operator.UpdatedAt = time.Now()
+		operator.UpdatedAt = clock.Now()
 
 		// Regenerate JWT with updated name
 		opJWT, err := s.jwtService.GenerateOperatorJWT(ctx, operator)
@@ -359,7 +360,7 @@ func (s *OperatorService) SetJWTPolicy(ctx context.Context, id uuid.UUID, p JWTP
 			result = operator
 			return nil
 		}
-		operator.UpdatedAt = time.Now()
+		operator.UpdatedAt = clock.Now()
 		if err := repo.Update(ctx, operator); err != nil {
 			return fmt.Errorf("failed to update operator JWT policy: %w", err)
 		}
@@ -413,7 +414,7 @@ func (s *OperatorService) SetSystemAccountTx(ctx context.Context, tx persistence
 
 	// Update system account
 	operator.SystemAccountPubKey = systemAccountPubKey
-	operator.UpdatedAt = time.Now()
+	operator.UpdatedAt = clock.Now()
 
 	// Check if the operator JWT already has the correct system account
 	// This happens when importing from NSC where the JWT is preserved

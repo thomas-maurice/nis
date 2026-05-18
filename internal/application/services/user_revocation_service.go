@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -116,12 +117,12 @@ func (s *UserRevocationService) RevokeUser(ctx context.Context, userID uuid.UUID
 		case user.JWTExpiresAt != nil:
 			jwtExp = *user.JWTExpiresAt
 		case operator.UserJWTTTL > 0:
-			jwtExp = time.Now().Add(operator.UserJWTTTL)
+			jwtExp = clock.Now().Add(operator.UserJWTTTL)
 		default:
 			jwtExp = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 		}
 
-		now := time.Now()
+		now := clock.Now()
 		rev := &entities.UserJWTRevocation{
 			ID:            uuid.New(),
 			AccountID:     account.ID,
@@ -241,7 +242,7 @@ func (s *UserRevocationService) RegenerateUserJWT(ctx context.Context, userID uu
 			return fmt.Errorf("failed to regenerate user JWT: %w", err)
 		}
 
-		now := time.Now()
+		now := clock.Now()
 		user.JWT = mint.Token
 		user.JWTIssuedAt = &mint.IssuedAt
 		user.JWTExpiresAt = mint.ExpiresAt

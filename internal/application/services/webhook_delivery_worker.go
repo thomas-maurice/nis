@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
@@ -118,7 +119,7 @@ func (w *WebhookDeliveryWorker) Run(ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
-			due, err := w.factory.WebhookDeliveryRepository().ClaimDue(ctx, time.Now().UTC(), w.cfg.BatchSize)
+			due, err := w.factory.WebhookDeliveryRepository().ClaimDue(ctx, clock.Now(), w.cfg.BatchSize)
 			if err != nil {
 				log.Error("webhook delivery worker: claim due failed", "error", err, "backoff", errBackoff)
 				select {
@@ -196,7 +197,7 @@ func (w *WebhookDeliveryWorker) processOne(ctx context.Context, d *entities.Webh
 		return
 	}
 
-	tsStr := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	tsStr := strconv.FormatInt(clock.Now().Unix(), 10)
 	sig := webhooks.Sign(secretBytes, tsStr, body)
 	deliveryAttemptID := uuid.New().String()
 
@@ -213,7 +214,7 @@ func (w *WebhookDeliveryWorker) processOne(ctx context.Context, d *entities.Webh
 	req.Header.Set(webhooks.HeaderTimestamp, tsStr)
 	req.Header.Set(webhooks.HeaderSignature, sig)
 
-	start := time.Now()
+	start := time.Now() // duration measurement only; tz-irrelevant
 	resp, err := w.httpClient.Do(req)
 	elapsed := time.Since(start).Seconds()
 
@@ -222,15 +223,15 @@ func (w *WebhookDeliveryWorker) processOne(ctx context.Context, d *entities.Webh
 		d.Attempt++
 		d.LastError = err.Error()
 		d.LastResponseCode = 0
-		d.UpdatedAt = time.Now().UTC()
+		d.UpdatedAt = clock.Now()
 		if d.Attempt >= w.cfg.MaxAttempts {
-			now := time.Now().UTC()
+			now := clock.Now()
 			d.Status = entities.DeliveryStatusDeadLetter
 			d.CompletedAt = &now
 			metrics.Default().RecordWebhookDelivery(ctx, "dead_letter", elapsed)
 		} else {
 			d.Status = entities.DeliveryStatusPending
-			d.NextAttemptAt = time.Now().UTC().Add(computeBackoff(d.Attempt, w.cfg.BackoffBase, w.cfg.BackoffCap))
+			d.NextAttemptAt = clock.Now().Add(computeBackoff(d.Attempt, w.cfg.BackoffBase, w.cfg.BackoffCap))
 			metrics.Default().RecordWebhookDelivery(ctx, "failed", elapsed)
 		}
 		if updateErr := w.factory.WebhookDeliveryRepository().Update(ctx, d); updateErr != nil {
@@ -242,10 +243,10 @@ func (w *WebhookDeliveryWorker) processOne(ctx context.Context, d *entities.Webh
 
 	statusCode := resp.StatusCode
 	d.LastResponseCode = statusCode
-	d.UpdatedAt = time.Now().UTC()
+	d.UpdatedAt = clock.Now()
 
 	if statusCode >= 200 && statusCode < 300 {
-		now := time.Now().UTC()
+		now := clock.Now()
 		d.Status = entities.DeliveryStatusSucceeded
 		d.CompletedAt = &now
 		d.Attempt++
@@ -254,13 +255,13 @@ func (w *WebhookDeliveryWorker) processOne(ctx context.Context, d *entities.Webh
 		d.Attempt++
 		d.LastError = fmt.Sprintf("non-2xx response: %d", statusCode)
 		if d.Attempt >= w.cfg.MaxAttempts {
-			now := time.Now().UTC()
+			now := clock.Now()
 			d.Status = entities.DeliveryStatusDeadLetter
 			d.CompletedAt = &now
 			metrics.Default().RecordWebhookDelivery(ctx, "dead_letter", elapsed)
 		} else {
 			d.Status = entities.DeliveryStatusPending
-			d.NextAttemptAt = time.Now().UTC().Add(computeBackoff(d.Attempt, w.cfg.BackoffBase, w.cfg.BackoffCap))
+			d.NextAttemptAt = clock.Now().Add(computeBackoff(d.Attempt, w.cfg.BackoffBase, w.cfg.BackoffCap))
 			metrics.Default().RecordWebhookDelivery(ctx, "failed", elapsed)
 		}
 	}
@@ -271,7 +272,7 @@ func (w *WebhookDeliveryWorker) processOne(ctx context.Context, d *entities.Webh
 }
 
 func (w *WebhookDeliveryWorker) markDeadLetter(ctx context.Context, d *entities.WebhookDelivery, reason string, code int) {
-	now := time.Now().UTC()
+	now := clock.Now()
 	d.Status = entities.DeliveryStatusDeadLetter
 	d.LastError = reason
 	d.LastResponseCode = code

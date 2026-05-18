@@ -39,6 +39,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -123,7 +124,7 @@ func (w *JWTExpirySweeper) Tick(ctx context.Context) (SweepResult, error) {
 	defer w.mu.Unlock()
 
 	log := logging.GetLogger()
-	now := time.Now().UTC()
+	now := clock.Now()
 	var result SweepResult
 
 	pruned, err := w.prunePhase(ctx, now)

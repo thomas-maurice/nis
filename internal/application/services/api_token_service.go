@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -103,7 +104,7 @@ func (s *APITokenService) CreateToken(ctx context.Context, req CreateAPITokenReq
 	// the secret material to render.
 	displayPrefix := entities.APITokenPrefix + rawHex[:8]
 
-	now := time.Now().UTC()
+	now := clock.Now()
 	token := &entities.APIToken{
 		ID:              uuid.New(),
 		Name:            req.Name,
@@ -172,7 +173,7 @@ func (s *APITokenService) RevokeToken(ctx context.Context, id uuid.UUID) error {
 			// Idempotent: do not double-emit the event.
 			return nil
 		}
-		now := time.Now().UTC()
+		now := clock.Now()
 		if err := tx.APITokenRepository().Revoke(ctx, id, now); err != nil {
 			return err
 		}
@@ -213,7 +214,7 @@ func (s *APITokenService) Authenticate(ctx context.Context, plaintext string) (*
 	if token.IsRevoked() {
 		return nil, ErrAPITokenRevoked
 	}
-	if token.IsExpired(time.Now().UTC()) {
+	if token.IsExpired(clock.Now()) {
 		return nil, ErrAPITokenExpired
 	}
 	return token, nil

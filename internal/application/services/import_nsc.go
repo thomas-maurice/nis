@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
@@ -133,8 +134,8 @@ func (s *ExportService) importFromNSCTx(ctx context.Context, tx persistence.Repo
 		EncryptedSeed: encryptedSeed,
 		PublicKey:     operatorPubKey,
 		JWT:           string(operatorJWTData), // Use original JWT from NSC
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		CreatedAt:     clock.Now(),
+		UpdatedAt:     clock.Now(),
 	}
 
 	// Save operator via tx-scoped repo
@@ -398,8 +399,8 @@ func (s *ExportService) importNSCAccount(ctx context.Context, tx persistence.Rep
 		JetStreamMaxStorage:   accountClaims.Limits.DiskStorage,
 		JetStreamMaxStreams:   int64(accountClaims.Limits.Streams),
 		JetStreamMaxConsumers: int64(accountClaims.Limits.Consumer),
-		CreatedAt:             time.Now(),
-		UpdatedAt:             time.Now(),
+		CreatedAt:             clock.Now(),
+		UpdatedAt:             clock.Now(),
 	}
 
 	// Use the original account JWT from NSC (don't re-sign it).
@@ -495,8 +496,8 @@ func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persis
 		PubDeny:       []string{},
 		SubAllow:      []string{},
 		SubDeny:       []string{},
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		CreatedAt:     clock.Now(),
+		UpdatedAt:     clock.Now(),
 	}
 
 	// Save via tx-scoped repo
@@ -616,8 +617,8 @@ func (s *ExportService) importNSCUser(ctx context.Context, tx persistence.Reposi
 			SubDeny:         userClaims.Sub.Deny,
 			ResponseMaxMsgs: 0,
 			ResponseTTL:     responseTTL,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
+			CreatedAt:       clock.Now(),
+			UpdatedAt:       clock.Now(),
 		}
 
 		if userClaims.Resp != nil {
@@ -639,8 +640,8 @@ func (s *ExportService) importNSCUser(ctx context.Context, tx persistence.Reposi
 		EncryptedSeed:      encryptedSeed,
 		PublicKey:          userPubKey,
 		ScopedSigningKeyID: scopedKeyID,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		CreatedAt:          clock.Now(),
+		UpdatedAt:          clock.Now(),
 	}
 
 	// Use the original user JWT from NSC (don't re-sign it).

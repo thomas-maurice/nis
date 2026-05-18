@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -76,7 +77,7 @@ func (s *ScopedSigningKeyService) regenerateAccountJWTTx(ctx context.Context, tx
 		return fmt.Errorf("failed to regenerate account JWT: %w", err)
 	}
 	account.JWT = newJWT
-	account.UpdatedAt = time.Now()
+	account.UpdatedAt = clock.Now()
 	if err := accountRepo.Update(ctx, account); err != nil {
 		return fmt.Errorf("failed to persist regenerated account JWT: %w", err)
 	}
@@ -148,8 +149,8 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 			SubDeny:         req.SubDeny,
 			ResponseMaxMsgs: req.ResponseMaxMsgs,
 			ResponseTTL:     req.ResponseTTL,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
+			CreatedAt:       clock.Now(),
+			UpdatedAt:       clock.Now(),
 		}
 
 		// Save to repository
@@ -287,7 +288,7 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 			return nil
 		}
 
-		scopedKey.UpdatedAt = time.Now()
+		scopedKey.UpdatedAt = clock.Now()
 
 		// Save changes
 		if err := scopedKeyRepo.Update(ctx, scopedKey); err != nil {

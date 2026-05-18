@@ -14,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	sqlRepo "github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 )
@@ -79,13 +80,13 @@ func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
 		} else if dsn == ":memory:" {
 			dsn = ":memory:?_foreign_keys=on&_loc=UTC"
 		}
-		gormDB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		gormDB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{NowFunc: clock.Now})
 		if err == nil {
 			// Also set PRAGMA for extra safety
 			gormDB.Exec("PRAGMA foreign_keys = ON")
 		}
 	case "postgres", "postgresql":
-		gormDB, err = gorm.Open(postgres.Open(f.config.DSN), &gorm.Config{})
+		gormDB, err = gorm.Open(postgres.Open(f.config.DSN), &gorm.Config{NowFunc: clock.Now})
 	default:
 		return fmt.Errorf("unsupported SQL driver: %s", f.config.Driver)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -244,7 +245,7 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 
 	exported := &ExportedOperator{
 		Version:    "1.0",
-		ExportedAt: time.Now(),
+		ExportedAt: clock.Now(),
 		Operator: &ExportedOperatorData{
 			ID:                  operator.ID,
 			Name:                operator.Name,
@@ -498,7 +499,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			SystemAccountPubKey: exported.Operator.SystemAccountPubKey,
 			JWT:                 exported.Operator.JWT,
 			CreatedAt:           exported.Operator.CreatedAt,
-			UpdatedAt:           time.Now(),
+			UpdatedAt:           clock.Now(),
 		}
 
 		if existsByID {
@@ -548,7 +549,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 				JetStreamMaxConsumers: exportedAccount.JetStreamMaxConsumers,
 				JWT:                   exportedAccount.JWT,
 				CreatedAt:             exportedAccount.CreatedAt,
-				UpdatedAt:             time.Now(),
+				UpdatedAt:             clock.Now(),
 			}
 			if err := accountRepo.Create(ctx, account); err != nil {
 				return fmt.Errorf("failed to create account %s: %w", exportedAccount.Name, err)
@@ -574,7 +575,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 				ResponseMaxMsgs: exportedKey.ResponseMaxMsgs,
 				ResponseTTL:     exportedKey.ResponseTTL,
 				CreatedAt:       exportedKey.CreatedAt,
-				UpdatedAt:       time.Now(),
+				UpdatedAt:       clock.Now(),
 			}
 			if err := scopedKeyRepo.Create(ctx, scopedKey); err != nil {
 				return fmt.Errorf("failed to create scoped key %s: %w", exportedKey.Name, err)
@@ -596,7 +597,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 				JWT:                exportedUser.JWT,
 				ScopedSigningKeyID: exportedUser.ScopedSigningKeyID,
 				CreatedAt:          exportedUser.CreatedAt,
-				UpdatedAt:          time.Now(),
+				UpdatedAt:          clock.Now(),
 			}
 			if err := userRepo.Create(ctx, user); err != nil {
 				return fmt.Errorf("failed to create user %s: %w", exportedUser.Name, err)
@@ -621,7 +622,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 					SystemAccountPubKey: exportedCluster.SystemAccountPubKey,
 					EncryptedCreds:      clusterCreds,
 					CreatedAt:           exportedCluster.CreatedAt,
-					UpdatedAt:           time.Now(),
+					UpdatedAt:           clock.Now(),
 				}
 				if err := clusterRepo.Create(ctx, cluster); err != nil {
 					return fmt.Errorf("failed to create cluster %s: %w", exportedCluster.Name, err)

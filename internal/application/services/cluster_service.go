@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/thomas-maurice/nis/internal/application/events"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -116,8 +117,8 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 		SystemAccountPubKey: sysAccount.PublicKey,
 		EncryptedCreds:      "", // Will be set below if system user exists
 		SkipVerifyTLS:       req.SkipVerifyTLS,
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+		CreatedAt:           clock.Now(),
+		UpdatedAt:           clock.Now(),
 	}
 
 	// Save to repository
@@ -240,7 +241,7 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 		return cluster, nil
 	}
 
-	cluster.UpdatedAt = time.Now()
+	cluster.UpdatedAt = clock.Now()
 
 	// Save changes
 	if err := s.repo.Update(ctx, cluster); err != nil {
@@ -314,7 +315,7 @@ func (s *ClusterService) updateClusterCredentialsWith(ctx context.Context, clust
 	}
 
 	cluster.EncryptedCreds = encryptedCreds
-	cluster.UpdatedAt = time.Now()
+	cluster.UpdatedAt = clock.Now()
 
 	// Save changes
 	if err := clusterRepo.Update(ctx, cluster); err != nil {
@@ -457,7 +458,7 @@ func (s *ClusterService) openManagedCluster(ctx context.Context, id uuid.UUID) (
 // SyncCluster pushes all account JWTs for the operator to the NATS cluster resolver
 // If prune is true, it also removes accounts from the resolver that are not in the database
 func (s *ClusterService) SyncCluster(ctx context.Context, id uuid.UUID, prune bool) (result *SyncResult, retErr error) {
-	syncStart := time.Now()
+	syncStart := time.Now() // duration measurement only; tz-irrelevant
 	defer func() {
 		outcome := "ok"
 		if retErr != nil || (result != nil && len(result.Errors) > 0) {
@@ -643,7 +644,7 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 	prevHealthy := cluster.Healthy
 	healthy := false
 	var healthErr string
-	now := time.Now()
+	now := clock.Now()
 
 	// Try to connect to the cluster, then probe the JWT resolver. Both must succeed
 	// for the cluster to be considered healthy — a reachable NATS without a
@@ -672,7 +673,7 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 	cluster.Healthy = healthy
 	cluster.LastHealthCheck = &now
 	cluster.HealthCheckError = healthErr
-	cluster.UpdatedAt = time.Now()
+	cluster.UpdatedAt = clock.Now()
 
 	if err := s.repo.Update(ctx, cluster); err != nil {
 		return fmt.Errorf("failed to update cluster health status: %w", err)

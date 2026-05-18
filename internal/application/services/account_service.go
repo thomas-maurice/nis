@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
 	"github.com/thomas-maurice/nis/internal/application/events"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
@@ -133,8 +133,8 @@ func (s *AccountService) createAccountTx(ctx context.Context, tx persistence.Rep
 		JetStreamMaxStorage:   req.JetStreamMaxStorage,
 		JetStreamMaxStreams:   req.JetStreamMaxStreams,
 		JetStreamMaxConsumers: req.JetStreamMaxConsumers,
-		CreatedAt:             time.Now(),
-		UpdatedAt:             time.Now(),
+		CreatedAt:             clock.Now(),
+		UpdatedAt:             clock.Now(),
 	}
 
 	// Generate JWT signed by operator, declaring the default scoped key as a signer.
@@ -213,8 +213,8 @@ func (s *AccountService) buildDefaultScopedSigningKey(ctx context.Context, accou
 		SubDeny:         []string{},
 		ResponseMaxMsgs: 0, // 0 = unlimited
 		ResponseTTL:     0, // 0 = unlimited
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		CreatedAt:       clock.Now(),
+		UpdatedAt:       clock.Now(),
 	}, nil
 }
 
@@ -288,7 +288,7 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 			return nil
 		}
 
-		acc.UpdatedAt = time.Now()
+		acc.UpdatedAt = clock.Now()
 
 		// Get operator to sign the updated JWT
 		operator, err := operatorRepo.GetByID(ctx, acc.OperatorID)
@@ -371,7 +371,7 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 		acc.JetStreamMaxStorage = req.MaxStorage
 		acc.JetStreamMaxStreams = req.MaxStreams
 		acc.JetStreamMaxConsumers = req.MaxConsumers
-		acc.UpdatedAt = time.Now()
+		acc.UpdatedAt = clock.Now()
 
 		// Get operator to sign the updated JWT
 		operator, err := operatorRepo.GetByID(ctx, acc.OperatorID)

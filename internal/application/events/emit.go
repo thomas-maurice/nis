@@ -14,9 +14,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/infrastructure/authctx"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
@@ -107,7 +107,7 @@ func emit(ctx context.Context, tx persistence.RepositoryFactory, in Event, actor
 
 	evt := &entities.Event{
 		ID:           uuid.New(),
-		OccurredAt:   time.Now().UTC(),
+		OccurredAt:   clock.Now(),
 		Type:         in.Type,
 		ActorType:    actor.Type,
 		ActorID:      actor.ID,
@@ -136,7 +136,7 @@ func fanoutDeliveries(ctx context.Context, tx persistence.RepositoryFactory, evt
 	if err != nil {
 		return fmt.Errorf("list webhook subscriptions for event: %w", err)
 	}
-	now := time.Now().UTC()
+	now := clock.Now()
 	for _, sub := range subs {
 		delivery := &entities.WebhookDelivery{
 			ID:            uuid.New(),

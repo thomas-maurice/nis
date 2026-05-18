@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 )
@@ -17,7 +18,7 @@ import (
 // tokens.
 //
 // Background: jwt v2's ClaimsData.encode unconditionally sets IssuedAt to
-// `time.Now().UTC().Unix()` and the ID (jti) to a SHA512/256 hash of the
+// `clock.Now().Unix()` and the ID (jti) to a SHA512/256 hash of the
 // remaining claim contents. The Ed25519 signature over those bytes is
 // deterministic. Two regenerations within the same Unix second of an
 // otherwise-identical claim set therefore produce byte-identical JWTs.
@@ -153,7 +154,7 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 	}
 
 	if ttl > 0 {
-		now := time.Now()
+		now := clock.Now()
 		claims.IssuedAt = now.Unix()
 		claims.Expires = now.Add(ttl).Unix()
 	}
@@ -235,7 +236,7 @@ func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, a
 	// jwt v2's Encode will OVERWRITE both IssuedAt and ID, so the only way to
 	// make sequential calls produce distinct tokens is to vary a non-ignored
 	// claim field. We stuff a one-shot tag (see freshUniquenessTag).
-	now := time.Now()
+	now := clock.Now()
 	claims.IssuedAt = now.Unix()
 	claims.Tags = append(claims.Tags, freshUniquenessTag())
 	var exp *time.Time

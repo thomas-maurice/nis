@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
@@ -62,7 +63,7 @@ func (w *EventsRetentionWorker) Run(ctx context.Context) {
 
 func (w *EventsRetentionWorker) sweep(ctx context.Context) {
 	log := logging.GetLogger()
-	now := time.Now().UTC()
+	now := clock.Now()
 
 	// Events retention.
 	if w.retentionDays > 0 {
