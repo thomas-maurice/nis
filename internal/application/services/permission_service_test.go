@@ -205,6 +205,18 @@ func (m *mockUserRepo) ListForExpirySweep(ctx context.Context, kind repositories
 	return nil, nil
 }
 
+func (m *mockOperatorRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Operator, error) {
+	return nil, nil
+}
+
+func (m *mockAccountRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Account, error) {
+	return nil, nil
+}
+
+func (m *mockUserRepo) Search(ctx context.Context, q string, limit int) ([]*entities.User, error) {
+	return nil, nil
+}
+
 // Test fixtures
 func setupPermissionTest() (*PermissionService, *mockOperatorRepo, *mockAccountRepo, *mockUserRepo, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) {
 	operatorRepo := &mockOperatorRepo{operators: make(map[uuid.UUID]*entities.Operator)}

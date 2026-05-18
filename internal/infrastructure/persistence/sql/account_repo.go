@@ -130,6 +130,30 @@ func (r *AccountRepo) ListByOperator(ctx context.Context, operatorID uuid.UUID, 
 	return accounts, nil
 }
 
+// Search returns accounts whose name, description, or public_key contain `q`
+// (case-insensitive). Bounded by `limit`. See OperatorRepo.Search for the
+// dialect-uniform LOWER(LIKE) rationale.
+func (r *AccountRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Account, error) {
+	if limit <= 0 {
+		return []*entities.Account{}, nil
+	}
+	pat := "%" + escapeLikeParam(q) + "%"
+	var models []AccountModel
+	err := r.db.WithContext(ctx).
+		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?)`, pat, pat, pat).
+		Order("name ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to search accounts: %w", err)
+	}
+	out := make([]*entities.Account, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nil
+}
+
 // Update updates an existing account
 func (r *AccountRepo) Update(ctx context.Context, account *entities.Account) error {
 	model := AccountModelFromEntity(account)

@@ -82,14 +82,6 @@ func (r *WebhookSubscriptionRepo) List(ctx context.Context, filter repositories.
 	return subs, nil
 }
 
-// escapeLikeParam escapes % and _ so they are treated as literals in a LIKE pattern.
-func escapeLikeParam(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	return s
-}
-
 func (r *WebhookSubscriptionRepo) ListEnabledForEvent(ctx context.Context, operatorID *uuid.UUID, eventType string) ([]*entities.WebhookSubscription, error) {
 	var models []WebhookSubscriptionModel
 	query := r.db.WithContext(ctx).Where("enabled = ?", true)

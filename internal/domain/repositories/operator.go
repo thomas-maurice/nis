@@ -29,4 +29,9 @@ type OperatorRepository interface {
 
 	// Delete deletes an operator by ID
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Search returns operators whose name, description, or public_key contain
+	// the (case-insensitive) substring `q`. Up to `limit` rows. Used by P11
+	// global search.
+	Search(ctx context.Context, q string, limit int) ([]*entities.Operator, error)
 }

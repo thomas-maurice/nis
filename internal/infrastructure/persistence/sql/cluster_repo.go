@@ -150,6 +150,32 @@ func (r *ClusterRepo) Update(ctx context.Context, cluster *entities.Cluster) err
 	return nil
 }
 
+// Search returns clusters whose name, description, or server_urls JSON list
+// contain `q` (case-insensitive). Bounded by `limit`. server_urls is stored
+// as a JSON array of URL strings (`serializer:json` TEXT) — raw LIKE matches
+// hostname / port substrings as written. See OperatorRepo.Search for the
+// dialect-uniform LOWER(LIKE) rationale.
+func (r *ClusterRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Cluster, error) {
+	if limit <= 0 {
+		return []*entities.Cluster{}, nil
+	}
+	pat := "%" + escapeLikeParam(q) + "%"
+	var models []ClusterModel
+	err := r.db.WithContext(ctx).
+		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(server_urls) LIKE LOWER(?)`, pat, pat, pat).
+		Order("name ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to search clusters: %w", err)
+	}
+	out := make([]*entities.Cluster, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nil
+}
+
 // Delete deletes a cluster by ID
 func (r *ClusterRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	result := r.db.WithContext(ctx).Delete(&ClusterModel{}, "id = ?", id.String())

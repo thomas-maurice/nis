@@ -64,4 +64,10 @@ type UserRepository interface {
 
 	// Delete deletes a user by ID
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Search returns users whose name, description, or public_key contain the
+	// (case-insensitive) substring `q`. Up to `limit` rows. Used by P11 global
+	// search. Revoked users are included — the caller can decide whether to
+	// hide them.
+	Search(ctx context.Context, q string, limit int) ([]*entities.User, error)
 }

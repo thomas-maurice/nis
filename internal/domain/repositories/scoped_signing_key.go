@@ -32,4 +32,12 @@ type ScopedSigningKeyRepository interface {
 
 	// Delete deletes a scoped signing key by ID
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Search returns scoped signing keys whose name, description, public_key,
+	// or any of pub_allow / pub_deny / sub_allow / sub_deny contain the
+	// (case-insensitive) substring `q`. Up to `limit` rows. The pub/sub lists
+	// are stored as JSON arrays of subject strings, so a query like
+	// "metrics.>" finds keys that publish-allow that subject. Used by P11
+	// global search.
+	Search(ctx context.Context, q string, limit int) ([]*entities.ScopedSigningKey, error)
 }

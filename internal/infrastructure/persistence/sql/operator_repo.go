@@ -124,6 +124,33 @@ func (r *OperatorRepo) Update(ctx context.Context, operator *entities.Operator) 
 	return nil
 }
 
+// Search returns operators whose name, description, or public_key contain `q`
+// (case-insensitive). Bounded by `limit`. Uses LOWER(col) LIKE LOWER(?) so
+// behavior is identical on SQLite and Postgres (Postgres LIKE is strictly
+// case-sensitive; ILIKE would work too but the LOWER form keeps the repo
+// dialect-agnostic at the cost of a sequential scan — acceptable at current
+// scale).
+func (r *OperatorRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Operator, error) {
+	if limit <= 0 {
+		return []*entities.Operator{}, nil
+	}
+	pat := "%" + escapeLikeParam(q) + "%"
+	var models []OperatorModel
+	err := r.db.WithContext(ctx).
+		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?)`, pat, pat, pat).
+		Order("name ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to search operators: %w", err)
+	}
+	out := make([]*entities.Operator, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nil
+}
+
 // Delete deletes an operator by ID
 func (r *OperatorRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	result := r.db.WithContext(ctx).Delete(&OperatorModel{}, "id = ?", id.String())

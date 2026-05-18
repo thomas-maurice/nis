@@ -32,4 +32,9 @@ type AccountRepository interface {
 
 	// Delete deletes an account by ID
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Search returns accounts whose name, description, or public_key contain
+	// the (case-insensitive) substring `q`. Up to `limit` rows. Used by P11
+	// global search.
+	Search(ctx context.Context, q string, limit int) ([]*entities.Account, error)
 }

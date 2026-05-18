@@ -164,3 +164,18 @@ p, operator-admin, apitoken, delete
 p, account-admin,  apitoken, create
 p, account-admin,  apitoken, read
 p, account-admin,  apitoken, delete
+
+
+# ============================================================
+# Global search (P11) — extractResourceAndAction maps
+# SearchService -> resource="search", method "Search" falls through
+# extractAction's default to "read". Coarse "any authenticated role
+# may call Search" — fine RBAC isolation (operator-admin A cannot
+# see operator-admin B's tree) is enforced in the SearchService
+# handler via PermissionService.Filter* + ownsOperator/ownsAccount.
+# Without these three lines the default-deny enforcer rejects every
+# call before the handler runs.
+# ============================================================
+p, admin,          search, read
+p, operator-admin, search, read
+p, account-admin,  search, read

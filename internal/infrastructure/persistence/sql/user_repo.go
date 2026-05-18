@@ -248,6 +248,30 @@ func (r *UserRepo) Update(ctx context.Context, user *entities.User) error {
 	return nil
 }
 
+// Search returns users whose name, description, or public_key contain `q`
+// (case-insensitive). Bounded by `limit`. Revoked users are included; the
+// caller decides whether to hide them.
+func (r *UserRepo) Search(ctx context.Context, q string, limit int) ([]*entities.User, error) {
+	if limit <= 0 {
+		return []*entities.User{}, nil
+	}
+	pat := "%" + escapeLikeParam(q) + "%"
+	var models []UserModel
+	err := r.db.WithContext(ctx).
+		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?)`, pat, pat, pat).
+		Order("name ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to search users: %w", err)
+	}
+	out := make([]*entities.User, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nil
+}
+
 // Delete deletes a user by ID
 func (r *UserRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	result := r.db.WithContext(ctx).Delete(&UserModel{}, "id = ?", id.String())

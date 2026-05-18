@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/operator.proto";
+import "nis/v1/account.proto";
+import "nis/v1/user.proto";
+import "nis/v1/scoped_key.proto";
+import "nis/v1/cluster.proto";
+
+// SearchKind selects which entity kinds the caller wants searched. Empty
+// kinds list = search all five.
+enum SearchKind {
+  SEARCH_KIND_UNSPECIFIED = 0;
+  SEARCH_KIND_OPERATOR = 1;
+  SEARCH_KIND_ACCOUNT = 2;
+  SEARCH_KIND_USER = 3;
+  SEARCH_KIND_SCOPED_SIGNING_KEY = 4;
+  SEARCH_KIND_CLUSTER = 5;
+}
+
+// SearchRequest is one global search query. limit applies per kind; default 20,
+// cap 100. query is trimmed; must be 2..128 chars after trim.
+message SearchRequest {
+  string query = 1;
+  repeated SearchKind kinds = 2;
+  int32 limit = 3;
+}
+
+// SearchResponse returns matches grouped by kind, already narrowed by the
+// caller's RBAC scope. Reuses the existing entity messages so the UI can deep
+// link into existing detail views with zero shape translation.
+message SearchResponse {
+  repeated Operator operators = 1;
+  repeated Account accounts = 2;
+  repeated User users = 3;
+  repeated ScopedSigningKey scoped_signing_keys = 4;
+  repeated Cluster clusters = 5;
+}
+
+// SearchService is the global identity-tree search. Authentication-required;
+// results are filtered to the caller's visible scope (PermissionService).
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+}

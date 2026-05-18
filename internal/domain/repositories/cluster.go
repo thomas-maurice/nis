@@ -29,4 +29,9 @@ type ClusterRepository interface {
 
 	// Delete deletes a cluster by ID
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Search returns clusters whose name, description, or server_urls JSON
+	// list contain the (case-insensitive) substring `q`. Up to `limit` rows.
+	// Used by P11 global search.
+	Search(ctx context.Context, q string, limit int) ([]*entities.Cluster, error)
 }

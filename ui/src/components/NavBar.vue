@@ -3,7 +3,7 @@
     <div class="container-fluid">
       <router-link class="navbar-brand" to="/">
         <font-awesome-icon :icon="['fas', 'server']" class="me-2" />
-        NATS Identity Service
+        NIS
       </router-link>
 
       <button
@@ -16,6 +16,10 @@
       </button>
 
       <div class="collapse navbar-collapse" id="navbarNav">
+        <div class="me-3 d-none d-lg-block">
+          <GlobalSearch />
+        </div>
+
         <ul class="navbar-nav me-auto">
           <li class="nav-item">
             <router-link class="nav-link" to="/">
@@ -23,42 +27,83 @@
               Dashboard
             </router-link>
           </li>
-          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
-            <router-link class="nav-link" to="/operators">
-              <font-awesome-icon :icon="['fas', 'server']" class="me-1" />
-              Operators
-            </router-link>
-          </li>
-          <li class="nav-item">
-            <router-link class="nav-link" to="/accounts">
+
+          <!-- Identity: the core CRUD surfaces. Account-admins only need the
+               Accounts / Users links; operator-admin and admin see the full set. -->
+          <li class="nav-item dropdown">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              id="identityDropdown"
+              role="button"
+              data-bs-toggle="dropdown"
+            >
               <font-awesome-icon :icon="['fas', 'users']" class="me-1" />
-              Accounts
-            </router-link>
+              Identity
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="identityDropdown">
+              <li v-if="authStore.isAdmin || authStore.isOperatorAdmin">
+                <router-link class="dropdown-item" to="/operators">
+                  <font-awesome-icon :icon="['fas', 'server']" class="me-2" />
+                  Operators
+                </router-link>
+              </li>
+              <li>
+                <router-link class="dropdown-item" to="/accounts">
+                  <font-awesome-icon :icon="['fas', 'users']" class="me-2" />
+                  Accounts
+                </router-link>
+              </li>
+              <li>
+                <router-link class="dropdown-item" to="/users">
+                  <font-awesome-icon :icon="['fas', 'user']" class="me-2" />
+                  Users
+                </router-link>
+              </li>
+              <li v-if="authStore.isAdmin || authStore.isOperatorAdmin">
+                <router-link class="dropdown-item" to="/signing-keys">
+                  <font-awesome-icon :icon="['fas', 'key']" class="me-2" />
+                  Signing Keys
+                </router-link>
+              </li>
+            </ul>
           </li>
-          <li class="nav-item">
-            <router-link class="nav-link" to="/users">
-              <font-awesome-icon :icon="['fas', 'user']" class="me-1" />
-              Users
-            </router-link>
-          </li>
-          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
-            <router-link class="nav-link" to="/signing-keys">
-              <font-awesome-icon :icon="['fas', 'key']" class="me-1" />
-              Signing Keys
-            </router-link>
-          </li>
-          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
-            <router-link class="nav-link" to="/clusters">
+
+          <!-- Operations: cluster + observability surfaces. Hidden entirely for
+               account-admin, since none of these items are visible to that role. -->
+          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item dropdown">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              id="operationsDropdown"
+              role="button"
+              data-bs-toggle="dropdown"
+            >
               <font-awesome-icon :icon="['fas', 'network-wired']" class="me-1" />
-              Clusters
-            </router-link>
+              Operations
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="operationsDropdown">
+              <li>
+                <router-link class="dropdown-item" to="/clusters">
+                  <font-awesome-icon :icon="['fas', 'network-wired']" class="me-2" />
+                  Clusters
+                </router-link>
+              </li>
+              <li>
+                <router-link class="dropdown-item" to="/webhooks">
+                  <font-awesome-icon :icon="['fas', 'tower-broadcast']" class="me-2" />
+                  Webhooks
+                </router-link>
+              </li>
+              <li v-if="authStore.isAdmin">
+                <router-link class="dropdown-item" to="/events">
+                  <font-awesome-icon :icon="['fas', 'list-alt']" class="me-2" />
+                  Events
+                </router-link>
+              </li>
+            </ul>
           </li>
-          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item">
-            <router-link class="nav-link" to="/webhooks">
-              <font-awesome-icon :icon="['fas', 'tower-broadcast']" class="me-1" />
-              Webhooks
-            </router-link>
-          </li>
+
           <li class="nav-item">
             <router-link class="nav-link" to="/docs">
               <font-awesome-icon :icon="['fas', 'book']" class="me-1" />
@@ -93,12 +138,6 @@
                   API Users
                 </router-link>
               </li>
-              <li v-if="authStore.isAdmin">
-                <router-link class="dropdown-item" to="/events">
-                  <font-awesome-icon :icon="['fas', 'list-alt']" class="me-2" />
-                  Events
-                </router-link>
-              </li>
               <li><hr class="dropdown-divider" /></li>
               <li>
                 <a class="dropdown-item" href="#" @click.prevent="logout">
@@ -117,6 +156,7 @@
 <script setup>
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import GlobalSearch from '@/components/GlobalSearch.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -143,6 +183,14 @@ const logout = () => {
 }
 
 .router-link-active {
+  font-weight: 600;
+}
+
+/* Highlight the parent dropdown when one of its children matches the route.
+   Bootstrap doesn't propagate router-link-active up to the dropdown toggle, so
+   we mirror it via a small CSS rule that catches the active state on items
+   inside the menu. */
+.dropdown:has(.router-link-active) > .nav-link {
   font-weight: 600;
 }
 </style>

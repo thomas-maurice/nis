@@ -149,6 +149,48 @@ func (r *ScopedSigningKeyRepo) Update(ctx context.Context, key *entities.ScopedS
 	return nil
 }
 
+// Search returns scoped signing keys whose name, description, public_key,
+// or any of pub_allow / pub_deny / sub_allow / sub_deny contain `q`
+// (case-insensitive). Bounded by `limit`. The pub/sub lists are stored as
+// `serializer:json` TEXT columns (see models.go) — searching them is a raw
+// LIKE on the JSON-encoded array, which matches typical NATS subjects
+// (`metrics.>`, `events.*`) with acceptable false-positive behavior (e.g.
+// querying just `>` would match every wildcard subject — operators searching
+// for that probably want every wildcard anyway). See OperatorRepo.Search
+// for the dialect-uniform LOWER(LIKE) rationale.
+func (r *ScopedSigningKeyRepo) Search(ctx context.Context, q string, limit int) ([]*entities.ScopedSigningKey, error) {
+	if limit <= 0 {
+		return []*entities.ScopedSigningKey{}, nil
+	}
+	pat := "%" + escapeLikeParam(q) + "%"
+	// The four permission columns are JSON-encoded via `serializer:json`, and
+	// Go's encoding/json default escapes `<`, `>`, and `&` to their \u00xx
+	// literal sequences — so `["metrics.>"]` is stored as the bytes
+	// `["metrics.>"]`. To match the stored form, the LIKE pattern needs a
+	// literal single backslash; running it through escapeLikeParam would double
+	// the backslash (intended for an ESCAPE clause that we don't set), so we
+	// build the JSON-form pattern without that doubling. The trade-off: user
+	// input containing `%`/`_` overmatches in the four JSON columns only; the
+	// user-text columns (name/description/public_key) still get full escaping.
+	// Acceptable for v1 — false positives, not security risk.
+	patJSON := "%" + jsonHTMLEscape(q) + "%"
+	var models []ScopedSigningKeyModel
+	err := r.db.WithContext(ctx).
+		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?) OR LOWER(pub_allow) LIKE LOWER(?) OR LOWER(pub_deny) LIKE LOWER(?) OR LOWER(sub_allow) LIKE LOWER(?) OR LOWER(sub_deny) LIKE LOWER(?) OR LOWER(pub_allow) LIKE LOWER(?) OR LOWER(pub_deny) LIKE LOWER(?) OR LOWER(sub_allow) LIKE LOWER(?) OR LOWER(sub_deny) LIKE LOWER(?)`,
+			pat, pat, pat, pat, pat, pat, pat, patJSON, patJSON, patJSON, patJSON).
+		Order("name ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to search scoped signing keys: %w", err)
+	}
+	out := make([]*entities.ScopedSigningKey, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nil
+}
+
 // Delete deletes a scoped signing key by ID
 func (r *ScopedSigningKeyRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	result := r.db.WithContext(ctx).Delete(&ScopedSigningKeyModel{}, "id = ?", id.String())

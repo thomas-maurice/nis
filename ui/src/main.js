@@ -48,6 +48,9 @@ import {
   faBan,
   faBook,
   faTerminal,
+  faMagnifyingGlass,
+  faXmark,
+  faSpinner,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -83,7 +86,10 @@ library.add(
   faArrowUpRightFromSquare,
   faBan,
   faBook,
-  faTerminal
+  faTerminal,
+  faMagnifyingGlass,
+  faXmark,
+  faSpinner
 )
 
 const app = createApp(App)

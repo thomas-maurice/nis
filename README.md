@@ -549,6 +549,49 @@ grpcurl -plaintext \
 Also works with **Postman**, **Bruno**, **Kreya**, and any other Connect/gRPC
 client that supports reflection. Point them at your NIS URL.
 
+## Global search (P11)
+
+The web UI has a top-bar global search and `nisctl search QUERY` exposes the
+same surface on the CLI. Both call `nis.v1.SearchService/Search` and return
+matches across **operators, accounts, users, scoped signing keys, and clusters**
+in one round-trip. The intent is to answer "which scoped key allows pub on
+`metrics.>`?" with a single query instead of clicking through every account.
+
+What is searched:
+
+- Operator / Account / User: name, description, public key.
+- Cluster: name, description, server URLs.
+- Scoped Signing Key: name, description, public key, AND the pub-allow /
+  pub-deny / sub-allow / sub-deny subject lists. Subject queries match both the
+  raw form and the JSON-encoded form (so `metrics.>` finds keys regardless of
+  how `>` was escaped at storage time).
+
+Behavior:
+
+- Case-insensitive on both SQLite and Postgres (`LOWER(col) LIKE LOWER(?)`).
+- Query is trimmed and must be 2..128 characters; SQL `LIKE` metacharacters
+  (`%`, `_`) in user input are escaped to literals on the user-text columns.
+- Results are narrowed to the caller's RBAC scope by `PermissionService`
+  *before* being returned — operator-admins only see their own operator's
+  subtree even when the LIKE query matches another operator's row. The
+  filtering uses the same `Filter*` helpers as every List RPC.
+- Limit applies per kind (default 20, cap 100).
+
+Deliberately excluded from the search surface: API users, API tokens, webhook
+subscriptions, and events. These are credentials / audit surfaces with their
+own access patterns and shouldn't be exposed by free-text search.
+
+```bash
+# Find any entity matching "metrics"
+nisctl search metrics
+
+# Narrow to scoped signing keys, look up which keys touch a subject
+nisctl search 'metrics.>' --kind scoped-key
+
+# Limit to operators and accounts
+nisctl search payments --kind operator,account --limit 10
+```
+
 ## Bulk operations (manifest apply/diff/delete/dump)
 
 NIS supports a declarative, kubectl-style workflow for managing the full

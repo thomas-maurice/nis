@@ -278,6 +278,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.UserRepository(),
 	)
 
+	// Global search (P11) — narrows results to caller's RBAC scope before
+	// returning, so cross-operator isolation is enforced regardless of what
+	// the LIKE query matched in the raw repos.
+	searchService := services.NewSearchService(repoFactory, permissionService)
+
 	// Initialize auth middleware. The API-token flusher coalesces last_used_at
 	// updates so every authenticated request doesn't trigger its own DB write —
 	// burst CI traffic against SQLite would otherwise serialize behind those writes.
@@ -319,6 +324,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		apiTokenService,
 		userRevocationService,
 		jwtExpirySweeper,
+		searchService,
 		permissionService,
 		authMiddleware,
 	)
