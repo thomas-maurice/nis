@@ -25,7 +25,7 @@ func webhookTestDB(t *testing.T) persistence.RepositoryFactory {
 
 	goose.SetBaseFS(migrations.Migrations)
 	require.NoError(t, goose.SetDialect("sqlite3"))
-	require.NoError(t, goose.Up(sqlDB, "."))
+	require.NoError(t, goose.Up(sqlDB, "sqlite"))
 
 	t.Cleanup(func() { _ = sqlpkg.Close(db) })
 	return persistence.NewSQLRepositoryFactoryFromDB(db)

@@ -28,7 +28,7 @@ func newTestFactory(t *testing.T) persistence.RepositoryFactory {
 	require.NoError(t, err)
 	goose.SetBaseFS(migrations.Migrations)
 	require.NoError(t, goose.SetDialect("sqlite3"))
-	require.NoError(t, goose.Up(sqlDB, "."))
+	require.NoError(t, goose.Up(sqlDB, "sqlite"))
 	return persistence.NewSQLRepositoryFactoryFromDB(db)
 }
 

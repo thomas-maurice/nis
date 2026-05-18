@@ -8,28 +8,39 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
 
-// OperatorModel represents the GORM model for operators
+// Tag philosophy: these models are the source of truth for the schema.
+// Atlas (atlas-provider-gorm) walks them to derive the desired DB shape and
+// generates migrations against the dev DB. That means every constraint the
+// schema must enforce — NOT NULL, defaults, foreign keys, CASCADE/RESTRICT,
+// compound uniques, named indexes — has to live in a GORM tag here.
+//
+// Relation fields (e.g. `Operator *OperatorModel`) carry the FK constraint
+// declaration and are otherwise unused: nil at all times, never preloaded,
+// not serialized (we go through ToEntity/FromEntity). They only exist so
+// GORM can derive the foreign-key + ON DELETE clause for the migration.
+
+// OperatorModel — operators table.
 type OperatorModel struct {
-	ID                   string `gorm:"primaryKey;type:text"`
-	Name                 string `gorm:"type:text;uniqueIndex;not null"`
-	Description          string `gorm:"type:text"`
-	EncryptedSeed        string `gorm:"type:text;not null"`
-	PublicKey            string `gorm:"type:text;uniqueIndex;not null"`
-	JWT                  string `gorm:"type:text;not null"`
-	SystemAccountPubKey  string `gorm:"type:text"`
-	UserJWTTTLSeconds    int64  `gorm:"column:user_jwt_ttl_seconds;not null;default:0"`
-	AccountJWTTTLSeconds int64  `gorm:"column:account_jwt_ttl_seconds;not null;default:0"`
-	JWTWarnWindowSeconds int64  `gorm:"column:jwt_warn_window_seconds;not null;default:1209600"`
-	JWTAutoRenew         bool   `gorm:"column:jwt_auto_renew;not null;default:false"`
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                   string    `gorm:"primaryKey;type:text;not null"`
+	Name                 string    `gorm:"type:text;not null;uniqueIndex:idx_operators_name"`
+	Description          string    `gorm:"type:text"`
+	EncryptedSeed        string    `gorm:"type:text;not null"`
+	PublicKey            string    `gorm:"type:text;not null;uniqueIndex:idx_operators_public_key"`
+	JWT                  string    `gorm:"type:text;not null"`
+	SystemAccountPubKey  string    `gorm:"type:text"`
+	UserJWTTTLSeconds    int64     `gorm:"column:user_jwt_ttl_seconds;type:bigint;not null;default:0"`
+	AccountJWTTTLSeconds int64     `gorm:"column:account_jwt_ttl_seconds;type:bigint;not null;default:0"`
+	// No `default:` here: GORM would substitute it for the Go zero value (0),
+	// silently changing the value of operators created with an unset warn
+	// window. The entity layer is responsible for providing the value.
+	JWTWarnWindowSeconds int64     `gorm:"column:jwt_warn_window_seconds;type:bigint;not null"`
+	JWTAutoRenew         bool      `gorm:"column:jwt_auto_renew;type:boolean;not null;default:false"`
+	CreatedAt            time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt            time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (OperatorModel) TableName() string {
-	return "operators"
-}
+func (OperatorModel) TableName() string { return "operators" }
 
-// ToEntity converts GORM model to domain entity
 func (m *OperatorModel) ToEntity() *entities.Operator {
 	return &entities.Operator{
 		ID:                  uuid.MustParse(m.ID),
@@ -48,7 +59,6 @@ func (m *OperatorModel) ToEntity() *entities.Operator {
 	}
 }
 
-// FromEntity converts domain entity to GORM model
 func OperatorModelFromEntity(e *entities.Operator) *OperatorModel {
 	return &OperatorModel{
 		ID:                   e.ID.String(),
@@ -67,27 +77,31 @@ func OperatorModelFromEntity(e *entities.Operator) *OperatorModel {
 	}
 }
 
-// AccountModel represents the GORM model for accounts
+// AccountModel — accounts table.
 type AccountModel struct {
-	ID                    string `gorm:"primaryKey;type:text"`
-	OperatorID            string `gorm:"type:text;not null;index:idx_accounts_operator_id"`
-	Name                  string `gorm:"type:text;not null"`
+	ID                    string `gorm:"primaryKey;type:text;not null"`
+	OperatorID            string `gorm:"type:text;not null;index:idx_accounts_operator_id;uniqueIndex:idx_accounts_operator_name,priority:1"`
+	Operator              *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Name                  string `gorm:"type:text;not null;uniqueIndex:idx_accounts_operator_name,priority:2"`
 	Description           string `gorm:"type:text"`
 	EncryptedSeed         string `gorm:"type:text;not null"`
-	PublicKey             string `gorm:"type:text;uniqueIndex;not null"`
+	PublicKey             string `gorm:"type:text;not null;uniqueIndex:idx_accounts_public_key"`
 	JWT                   string `gorm:"type:text;not null"`
-	JetStreamEnabled      bool   `gorm:"column:jetstream_enabled;not null;default:false"`
-	JetStreamMaxMemory    int64  `gorm:"column:jetstream_max_memory;not null;default:-1"`
-	JetStreamMaxStorage   int64  `gorm:"column:jetstream_max_storage;not null;default:-1"`
-	JetStreamMaxStreams   int64  `gorm:"column:jetstream_max_streams;not null;default:-1"`
-	JetStreamMaxConsumers int64  `gorm:"column:jetstream_max_consumers;not null;default:-1"`
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	JetStreamEnabled      bool   `gorm:"column:jetstream_enabled;type:boolean;not null;default:false"`
+	// JetStream limits: NO `default:-1` here even though the schema intent is
+	// "unlimited by default". GORM substitutes DEFAULT for the Go zero value
+	// (0 = JetStream disabled), which would silently flip an explicit
+	// "disabled" into "unlimited" on insert. Entity layer must always pass a
+	// value.
+	JetStreamMaxMemory    int64  `gorm:"column:jetstream_max_memory;type:bigint;not null"`
+	JetStreamMaxStorage   int64  `gorm:"column:jetstream_max_storage;type:bigint;not null"`
+	JetStreamMaxStreams   int64  `gorm:"column:jetstream_max_streams;type:bigint;not null"`
+	JetStreamMaxConsumers int64  `gorm:"column:jetstream_max_consumers;type:bigint;not null"`
+	CreatedAt             time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt             time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (AccountModel) TableName() string {
-	return "accounts"
-}
+func (AccountModel) TableName() string { return "accounts" }
 
 func (m *AccountModel) ToEntity() *entities.Account {
 	return &entities.Account{
@@ -127,27 +141,26 @@ func AccountModelFromEntity(e *entities.Account) *AccountModel {
 	}
 }
 
-// ScopedSigningKeyModel represents the GORM model for scoped signing keys
+// ScopedSigningKeyModel — scoped_signing_keys table.
 type ScopedSigningKeyModel struct {
-	ID               string   `gorm:"primaryKey;type:text"`
-	AccountID        string   `gorm:"type:text;not null;index:idx_scoped_signing_keys_account_id"`
-	Name             string   `gorm:"type:text;not null"`
-	Description      string   `gorm:"type:text"`
-	EncryptedSeed    string   `gorm:"type:text;not null"`
-	PublicKey        string   `gorm:"type:text;uniqueIndex;not null"`
-	PubAllow         []string `gorm:"type:text;serializer:json"`
-	PubDeny          []string `gorm:"type:text;serializer:json"`
-	SubAllow         []string `gorm:"type:text;serializer:json"`
-	SubDeny          []string `gorm:"type:text;serializer:json"`
-	ResponseMaxMsgs  int      `gorm:"not null;default:0"`
-	ResponseTTLSecs  int64    `gorm:"column:response_ttl_seconds;not null;default:0"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID              string         `gorm:"primaryKey;type:text;not null"`
+	AccountID       string         `gorm:"type:text;not null;index:idx_scoped_signing_keys_account_id;uniqueIndex:idx_scoped_signing_keys_account_name,priority:1"`
+	Account         *AccountModel  `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Name            string         `gorm:"type:text;not null;uniqueIndex:idx_scoped_signing_keys_account_name,priority:2"`
+	Description     string         `gorm:"type:text"`
+	EncryptedSeed   string         `gorm:"type:text;not null"`
+	PublicKey       string         `gorm:"type:text;not null;uniqueIndex:idx_scoped_signing_keys_public_key"`
+	PubAllow        []string       `gorm:"type:text;serializer:json"`
+	PubDeny         []string       `gorm:"type:text;serializer:json"`
+	SubAllow        []string       `gorm:"type:text;serializer:json"`
+	SubDeny         []string       `gorm:"type:text;serializer:json"`
+	ResponseMaxMsgs int            `gorm:"type:integer;not null;default:0"`
+	ResponseTTLSecs int64          `gorm:"column:response_ttl_seconds;type:bigint;not null;default:0"`
+	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (ScopedSigningKeyModel) TableName() string {
-	return "scoped_signing_keys"
-}
+func (ScopedSigningKeyModel) TableName() string { return "scoped_signing_keys" }
 
 func (m *ScopedSigningKeyModel) ToEntity() *entities.ScopedSigningKey {
 	return &entities.ScopedSigningKey{
@@ -187,30 +200,30 @@ func ScopedSigningKeyModelFromEntity(e *entities.ScopedSigningKey) *ScopedSignin
 	}
 }
 
-// UserModel represents the GORM model for users
+// UserModel — users table.
 type UserModel struct {
-	ID                  string     `gorm:"primaryKey;type:text"`
-	AccountID           string     `gorm:"type:text;not null;index:idx_users_account_id"`
-	Name                string     `gorm:"type:text;not null"`
-	Description         string     `gorm:"type:text"`
-	EncryptedSeed       string     `gorm:"type:text;not null"`
-	PublicKey           string     `gorm:"type:text;uniqueIndex;not null"`
-	JWT                 string     `gorm:"type:text;not null"`
-	ScopedSigningKeyID  *string    `gorm:"type:text;index:idx_users_scoped_signing_key_id"`
-	JWTTTLSeconds       *int64     `gorm:"column:jwt_ttl_seconds"`
-	JWTIssuedAt         *time.Time `gorm:"column:jwt_issued_at"`
-	JWTExpiresAt        *time.Time `gorm:"column:jwt_expires_at;index:idx_users_jwt_expires_at"`
-	RevokedAt           *time.Time `gorm:"column:revoked_at;index:idx_users_revoked_at"`
-	RevocationReason    string     `gorm:"column:revocation_reason;type:text;not null;default:''"`
-	LastExpiringWarnIAT *time.Time `gorm:"column:last_expiring_warn_iat"`
-	LastExpiredAlertIAT *time.Time `gorm:"column:last_expired_alert_iat"`
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                  string                 `gorm:"primaryKey;type:text;not null"`
+	AccountID           string                 `gorm:"type:text;not null;index:idx_users_account_id;uniqueIndex:idx_users_account_name,priority:1"`
+	Account             *AccountModel          `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Name                string                 `gorm:"type:text;not null;uniqueIndex:idx_users_account_name,priority:2"`
+	Description         string                 `gorm:"type:text"`
+	EncryptedSeed       string                 `gorm:"type:text;not null"`
+	PublicKey           string                 `gorm:"type:text;not null;uniqueIndex:idx_users_public_key"`
+	JWT                 string                 `gorm:"type:text;not null"`
+	ScopedSigningKeyID  *string                `gorm:"type:text;index:idx_users_scoped_signing_key_id"`
+	ScopedSigningKey    *ScopedSigningKeyModel `gorm:"foreignKey:ScopedSigningKeyID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	JWTTTLSeconds       *int64                 `gorm:"column:jwt_ttl_seconds;type:bigint"`
+	JWTIssuedAt         *time.Time             `gorm:"column:jwt_issued_at;type:timestamp"`
+	JWTExpiresAt        *time.Time             `gorm:"column:jwt_expires_at;type:timestamp;index:idx_users_jwt_expires_at"`
+	RevokedAt           *time.Time             `gorm:"column:revoked_at;type:timestamp;index:idx_users_revoked_at"`
+	RevocationReason    string                 `gorm:"column:revocation_reason;type:text;not null;default:''"`
+	LastExpiringWarnIAT *time.Time             `gorm:"column:last_expiring_warn_iat;type:timestamp"`
+	LastExpiredAlertIAT *time.Time             `gorm:"column:last_expired_alert_iat;type:timestamp"`
+	CreatedAt           time.Time              `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt           time.Time              `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (UserModel) TableName() string {
-	return "users"
-}
+func (UserModel) TableName() string { return "users" }
 
 func (m *UserModel) ToEntity() *entities.User {
 	var scopedKeyID *uuid.UUID
@@ -278,22 +291,22 @@ func UserModelFromEntity(e *entities.User) *UserModel {
 	}
 }
 
-// UserJWTRevocationModel is the GORM model for the user_jwt_revocations table.
+// UserJWTRevocationModel — user_jwt_revocations table.
 type UserJWTRevocationModel struct {
-	ID            string     `gorm:"primaryKey;type:text"`
-	AccountID     string     `gorm:"type:text;not null;index"`
-	UserID        *string    `gorm:"type:text"`
-	UserPublicKey string     `gorm:"type:text;not null"`
-	RevokedAt     time.Time  `gorm:"type:timestamp;not null"`
-	JWTExp        time.Time  `gorm:"column:jwt_exp;type:timestamp;not null;index"`
-	Reason        string     `gorm:"type:text;not null;default:''"`
-	PrunedAt      *time.Time `gorm:"type:timestamp;index"`
-	CreatedAt     time.Time
+	ID            string        `gorm:"primaryKey;type:text;not null"`
+	AccountID     string        `gorm:"type:text;not null;index:idx_user_jwt_revocations_account_id"`
+	Account       *AccountModel `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	UserID        *string       `gorm:"type:text"`
+	User          *UserModel    `gorm:"foreignKey:UserID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	UserPublicKey string        `gorm:"type:text;not null"`
+	RevokedAt     time.Time     `gorm:"type:timestamp;not null"`
+	JWTExp        time.Time     `gorm:"column:jwt_exp;type:timestamp;not null;index:idx_user_jwt_revocations_jwt_exp"`
+	Reason        string        `gorm:"type:text;not null;default:''"`
+	PrunedAt      *time.Time    `gorm:"type:timestamp;index:idx_user_jwt_revocations_pruned_at"`
+	CreatedAt     time.Time     `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (UserJWTRevocationModel) TableName() string {
-	return "user_jwt_revocations"
-}
+func (UserJWTRevocationModel) TableName() string { return "user_jwt_revocations" }
 
 func (m *UserJWTRevocationModel) ToEntity() *entities.UserJWTRevocation {
 	out := &entities.UserJWTRevocation{
@@ -331,26 +344,25 @@ func UserJWTRevocationModelFromEntity(e *entities.UserJWTRevocation) *UserJWTRev
 	return m
 }
 
-// ClusterModel represents the GORM model for clusters
+// ClusterModel — clusters table.
 type ClusterModel struct {
-	ID                  string   `gorm:"primaryKey;type:text"`
-	Name                string   `gorm:"type:text;uniqueIndex;not null"`
-	Description         string   `gorm:"type:text"`
-	ServerURLs          []string `gorm:"type:text;not null;serializer:json"`
-	OperatorID          string   `gorm:"type:text;not null;index:idx_clusters_operator_id"`
-	SystemAccountPubKey string   `gorm:"type:text"`
-	EncryptedCreds      string   `gorm:"type:text"`
-	SkipVerifyTLS       bool     `gorm:"type:boolean;not null;default:false"`
-	Healthy             bool     `gorm:"type:boolean;not null;default:false"`
-	LastHealthCheck     *time.Time `gorm:"type:timestamp"`
-	HealthCheckError    string   `gorm:"type:text;not null;default:''"`
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                  string         `gorm:"primaryKey;type:text;not null"`
+	Name                string         `gorm:"type:text;not null;uniqueIndex:idx_clusters_name"`
+	Description         string         `gorm:"type:text"`
+	ServerURLs          []string       `gorm:"type:text;not null;serializer:json"`
+	OperatorID          string         `gorm:"type:text;not null;index:idx_clusters_operator_id"`
+	Operator            *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:RESTRICT,OnUpdate:NO ACTION"`
+	SystemAccountPubKey string         `gorm:"type:text"`
+	EncryptedCreds      string         `gorm:"type:text"`
+	SkipVerifyTLS       bool           `gorm:"type:boolean;not null;default:false"`
+	Healthy             bool           `gorm:"type:boolean;not null;default:false"`
+	LastHealthCheck     *time.Time     `gorm:"type:timestamp"`
+	HealthCheckError    string         `gorm:"type:text;not null;default:''"`
+	CreatedAt           time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt           time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (ClusterModel) TableName() string {
-	return "clusters"
-}
+func (ClusterModel) TableName() string { return "clusters" }
 
 func (m *ClusterModel) ToEntity() *entities.Cluster {
 	return &entities.Cluster{
@@ -388,21 +400,21 @@ func ClusterModelFromEntity(e *entities.Cluster) *ClusterModel {
 	}
 }
 
-// APIUserModel represents the GORM model for API users
+// APIUserModel — api_users table.
 type APIUserModel struct {
-	ID           string  `gorm:"primaryKey;type:text"`
-	Username     string  `gorm:"type:text;uniqueIndex;not null"`
-	PasswordHash string  `gorm:"type:text;not null"`
-	Role         string  `gorm:"type:text;not null"`
-	OperatorID   *string `gorm:"type:text;index"`
-	AccountID    *string `gorm:"type:text;index"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           string         `gorm:"primaryKey;type:text;not null"`
+	Username     string         `gorm:"type:text;not null;uniqueIndex:idx_api_users_username"`
+	PasswordHash string         `gorm:"type:text;not null"`
+	Role         string         `gorm:"type:text;not null"`
+	OperatorID   *string        `gorm:"type:text;index:idx_api_users_operator_id"`
+	Operator     *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	AccountID    *string        `gorm:"type:text;index:idx_api_users_account_id"`
+	Account      *AccountModel  `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	CreatedAt    time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt    time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (APIUserModel) TableName() string {
-	return "api_users"
-}
+func (APIUserModel) TableName() string { return "api_users" }
 
 func (m *APIUserModel) ToEntity() *entities.APIUser {
 	var operatorID *uuid.UUID
@@ -454,27 +466,29 @@ func APIUserModelFromEntity(e *entities.APIUser) *APIUserModel {
 	}
 }
 
-// APITokenModel represents the GORM model for service-account API tokens.
+// APITokenModel — api_tokens table. created_by_user_id is ON DELETE SET NULL
+// so offboarding a human api_user does not silently disable their CI tokens.
 type APITokenModel struct {
-	ID              string     `gorm:"primaryKey;type:text"`
-	Name            string     `gorm:"type:text;not null"`
-	TokenHash       string     `gorm:"type:text;not null;uniqueIndex"`
-	Prefix          string     `gorm:"type:text;not null"`
-	Description     string     `gorm:"type:text;not null;default:''"`
-	CreatedByUserID *string    `gorm:"type:text;index"`
-	Role            string     `gorm:"type:text;not null"`
-	OperatorID      *string    `gorm:"type:text;index"`
-	AccountID       *string    `gorm:"type:text;index"`
-	ExpiresAt       *time.Time `gorm:"type:timestamp"`
-	LastUsedAt      *time.Time `gorm:"type:timestamp"`
-	RevokedAt       *time.Time `gorm:"type:timestamp;index"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID              string         `gorm:"primaryKey;type:text;not null"`
+	Name            string         `gorm:"type:text;not null;uniqueIndex:idx_api_tokens_name_per_creator,priority:2"`
+	TokenHash       string         `gorm:"type:text;not null;uniqueIndex:idx_api_tokens_token_hash"`
+	Prefix          string         `gorm:"type:text;not null"`
+	Description     string         `gorm:"type:text;not null;default:''"`
+	CreatedByUserID *string        `gorm:"type:text;index:idx_api_tokens_created_by_user_id;uniqueIndex:idx_api_tokens_name_per_creator,priority:1"`
+	CreatedByUser   *APIUserModel  `gorm:"foreignKey:CreatedByUserID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	Role            string         `gorm:"type:text;not null"`
+	OperatorID      *string        `gorm:"type:text;index:idx_api_tokens_operator_id"`
+	Operator        *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	AccountID       *string        `gorm:"type:text;index:idx_api_tokens_account_id"`
+	Account         *AccountModel  `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	ExpiresAt       *time.Time     `gorm:"type:timestamp"`
+	LastUsedAt      *time.Time     `gorm:"type:timestamp"`
+	RevokedAt       *time.Time     `gorm:"type:timestamp;index:idx_api_tokens_revoked_at"`
+	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (APITokenModel) TableName() string {
-	return "api_tokens"
-}
+func (APITokenModel) TableName() string { return "api_tokens" }
 
 func (m *APITokenModel) ToEntity() *entities.APIToken {
 	t := &entities.APIToken{
@@ -534,23 +548,24 @@ func APITokenModelFromEntity(e *entities.APIToken) *APITokenModel {
 	return m
 }
 
-// EventModel represents the GORM model for events
+// EventModel — events table. Deliberately no FK on operator_id / account_id /
+// actor_id — these refer to entities that may have been deleted, and the
+// append-only audit log must survive that. resource_type+resource_id is the
+// pointer to the (possibly-gone) subject.
 type EventModel struct {
-	ID           string  `gorm:"primaryKey;type:text"`
-	OccurredAt   time.Time `gorm:"type:timestamp;not null;index"`
-	Type         string  `gorm:"type:text;not null;index"`
-	ActorType    string  `gorm:"type:text;not null"`
-	ActorID      *string `gorm:"type:text"`
-	OperatorID   *string `gorm:"type:text;index"`
-	AccountID    *string `gorm:"type:text"`
-	ResourceType string  `gorm:"type:text;not null"`
-	ResourceID   string  `gorm:"type:text;not null"`
-	Payload      *string `gorm:"type:text"`
+	ID           string    `gorm:"primaryKey;type:text;not null"`
+	OccurredAt   time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP;index:idx_events_occurred_at"`
+	Type         string    `gorm:"type:text;not null;index:idx_events_type"`
+	ActorType    string    `gorm:"type:text;not null"`
+	ActorID      *string   `gorm:"type:text"`
+	OperatorID   *string   `gorm:"type:text;index:idx_events_operator_id"`
+	AccountID    *string   `gorm:"type:text"`
+	ResourceType string    `gorm:"type:text;not null;index:idx_events_resource,priority:1"`
+	ResourceID   string    `gorm:"type:text;not null;index:idx_events_resource,priority:2"`
+	Payload      *string   `gorm:"type:text"`
 }
 
-func (EventModel) TableName() string {
-	return "events"
-}
+func (EventModel) TableName() string { return "events" }
 
 func (m *EventModel) ToEntity() *entities.Event {
 	e := &entities.Event{
@@ -607,24 +622,26 @@ func EventModelFromEntity(e *entities.Event) *EventModel {
 	return m
 }
 
-// WebhookSubscriptionModel represents the GORM model for webhook_subscriptions
+// WebhookSubscriptionModel — webhook_subscriptions table.
 type WebhookSubscriptionModel struct {
-	ID              string `gorm:"primaryKey;type:text"`
-	OperatorID      string `gorm:"type:text;not null;index"`
-	Name            string `gorm:"type:text;not null"`
-	Description     string `gorm:"type:text"`
-	URL             string `gorm:"type:text;not null"`
-	EncryptedSecret string `gorm:"type:text;not null"`
-	EventTypes      string `gorm:"type:text;not null"` // JSON array
-	Enabled         bool   `gorm:"not null;index"`
-	DisabledReason  string `gorm:"type:text;not null;default:''"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID              string         `gorm:"primaryKey;type:text;not null"`
+	OperatorID      string         `gorm:"type:text;not null;index:idx_webhook_subscriptions_operator_id;uniqueIndex:idx_webhook_subscriptions_operator_name,priority:1"`
+	Operator        *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Name            string         `gorm:"type:text;not null;uniqueIndex:idx_webhook_subscriptions_operator_name,priority:2"`
+	Description     string         `gorm:"type:text"`
+	URL             string         `gorm:"type:text;not null"`
+	EncryptedSecret string         `gorm:"type:text;not null"`
+	EventTypes      string         `gorm:"type:text;not null"` // JSON array
+	// No `default:true` here: GORM would substitute it for the Go zero value
+	// (false), turning an explicit "disabled" write into "enabled" silently.
+	// Caught by TestSubscriptionRepo_ListEnabledForEvent_DisabledExcluded.
+	Enabled         bool           `gorm:"type:boolean;not null;index:idx_webhook_subscriptions_enabled"`
+	DisabledReason  string         `gorm:"type:text;not null;default:''"`
+	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
-func (WebhookSubscriptionModel) TableName() string {
-	return "webhook_subscriptions"
-}
+func (WebhookSubscriptionModel) TableName() string { return "webhook_subscriptions" }
 
 func (m *WebhookSubscriptionModel) ToEntity() *entities.WebhookSubscription {
 	types, _ := entities.ParseEventTypesJSON(m.EventTypes)
@@ -660,24 +677,24 @@ func WebhookSubscriptionModelFromEntity(e *entities.WebhookSubscription) *Webhoo
 	}
 }
 
-// WebhookDeliveryModel represents the GORM model for webhook_deliveries
+// WebhookDeliveryModel — webhook_deliveries table.
 type WebhookDeliveryModel struct {
-	ID               string     `gorm:"primaryKey;type:text"`
-	SubscriptionID   string     `gorm:"type:text;not null;index"`
-	EventID          string     `gorm:"type:text;not null;index"`
-	Attempt          int        `gorm:"not null;default:0"`
-	Status           string     `gorm:"type:text;not null"`
-	NextAttemptAt    time.Time  `gorm:"type:timestamp;not null"`
-	LastError        string     `gorm:"type:text;not null;default:''"`
-	LastResponseCode int        `gorm:"not null;default:0"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	CompletedAt      *time.Time `gorm:"type:timestamp"`
+	ID               string                    `gorm:"primaryKey;type:text;not null"`
+	SubscriptionID   string                    `gorm:"type:text;not null;index:idx_webhook_deliveries_subscription_id"`
+	Subscription     *WebhookSubscriptionModel `gorm:"foreignKey:SubscriptionID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	EventID          string                    `gorm:"type:text;not null;index:idx_webhook_deliveries_event_id"`
+	Event            *EventModel               `gorm:"foreignKey:EventID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Attempt          int                       `gorm:"type:integer;not null;default:0"`
+	Status           string                    `gorm:"type:text;not null;index:idx_webhook_deliveries_status_next,priority:1"`
+	NextAttemptAt    time.Time                 `gorm:"type:timestamp;not null;index:idx_webhook_deliveries_status_next,priority:2"`
+	LastError        string                    `gorm:"type:text;not null;default:''"`
+	LastResponseCode int                       `gorm:"type:integer;not null;default:0"`
+	CreatedAt        time.Time                 `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt        time.Time                 `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	CompletedAt      *time.Time                `gorm:"type:timestamp"`
 }
 
-func (WebhookDeliveryModel) TableName() string {
-	return "webhook_deliveries"
-}
+func (WebhookDeliveryModel) TableName() string { return "webhook_deliveries" }
 
 func (m *WebhookDeliveryModel) ToEntity() *entities.WebhookDelivery {
 	return &entities.WebhookDelivery{
@@ -710,4 +727,3 @@ func WebhookDeliveryModelFromEntity(e *entities.WebhookDelivery) *WebhookDeliver
 		CompletedAt:      e.CompletedAt,
 	}
 }
-

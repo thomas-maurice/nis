@@ -17,6 +17,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	sqlRepo "github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
+	"github.com/thomas-maurice/nis/migrations"
 )
 
 // sqlRepositoryFactory implements RepositoryFactory for SQL databases (SQLite, PostgreSQL)
@@ -174,19 +175,32 @@ func (f *sqlRepositoryFactory) Inventory(ctx context.Context) (Inventory, error)
 	return inv, nil
 }
 
+// useEmbeddedMigrations wires goose to the dialect-specific embedded migration
+// tree and returns the in-FS subdirectory to pass to goose.Up/Down. Atlas
+// emits per-dialect SQL, so we maintain separate trees and pick at runtime.
+func (f *sqlRepositoryFactory) useEmbeddedMigrations() (string, error) {
+	fs, subdir, ok := migrations.FSForDriver(f.config.Driver)
+	if !ok {
+		return "", fmt.Errorf("no migrations for driver %q", f.config.Driver)
+	}
+	goose.SetBaseFS(fs)
+	if err := goose.SetDialect(f.getGooseDriver()); err != nil {
+		return "", fmt.Errorf("failed to set goose dialect: %w", err)
+	}
+	return subdir, nil
+}
+
 func (f *sqlRepositoryFactory) Migrate(ctx context.Context) error {
 	if f.sqlDB == nil {
 		return fmt.Errorf("database not connected")
 	}
 
-	// Set Goose dialect
-	gooseDriver := f.getGooseDriver()
-	if err := goose.SetDialect(gooseDriver); err != nil {
-		return fmt.Errorf("failed to set goose dialect: %w", err)
+	subdir, err := f.useEmbeddedMigrations()
+	if err != nil {
+		return err
 	}
 
-	// Run Goose migrations
-	if err := goose.Up(f.sqlDB, f.config.MigrationDir); err != nil {
+	if err := goose.Up(f.sqlDB, subdir); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -198,14 +212,12 @@ func (f *sqlRepositoryFactory) Rollback(ctx context.Context) error {
 		return fmt.Errorf("database not connected")
 	}
 
-	// Set Goose dialect
-	gooseDriver := f.getGooseDriver()
-	if err := goose.SetDialect(gooseDriver); err != nil {
-		return fmt.Errorf("failed to set goose dialect: %w", err)
+	subdir, err := f.useEmbeddedMigrations()
+	if err != nil {
+		return err
 	}
 
-	// Rollback last migration
-	if err := goose.Down(f.sqlDB, f.config.MigrationDir); err != nil {
+	if err := goose.Down(f.sqlDB, subdir); err != nil {
 		return fmt.Errorf("failed to rollback migration: %w", err)
 	}
 
@@ -217,14 +229,13 @@ func (f *sqlRepositoryFactory) MigrationStatus(ctx context.Context) ([]Migration
 		return nil, fmt.Errorf("database not connected")
 	}
 
-	// Set Goose dialect
-	gooseDriver := f.getGooseDriver()
-	if err := goose.SetDialect(gooseDriver); err != nil {
-		return nil, fmt.Errorf("failed to set goose dialect: %w", err)
+	subdir, err := f.useEmbeddedMigrations()
+	if err != nil {
+		return nil, err
 	}
 
 	// Get migrations
-	migrations, err := goose.CollectMigrations(f.config.MigrationDir, 0, goose.MaxVersion)
+	migrations, err := goose.CollectMigrations(subdir, 0, goose.MaxVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect migrations: %w", err)
 	}

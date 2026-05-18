@@ -46,6 +46,81 @@ test-e2e: build-server
 	@echo "==> Running e2e suite (requires docker daemon)..."
 	go test -tags=e2e -v -timeout=10m ./tests/e2e/...
 
+# ----------------------------------------------------------------------------
+# Atlas — schema migrations driven by GORM models in
+# internal/infrastructure/persistence/sql/models.go. Atlas diffs the
+# loader output against a throwaway dev DB and writes per-dialect
+# migration files into migrations/{sqlite,postgres}/.
+#
+# Requires: atlas CLI (https://atlasgo.io). Docker for the postgres dev DB.
+# ----------------------------------------------------------------------------
+
+# Regenerate the desired-schema SQL dump from current Go models. Internal —
+# atlas-diff-* targets call this before invoking atlas.
+.PHONY: atlas-dump-sqlite atlas-dump-postgres
+atlas-dump-sqlite:
+	@mkdir -p .run
+	@go run ./tools/atlas sqlite > .run/atlas-desired-sqlite.sql
+
+atlas-dump-postgres:
+	@mkdir -p .run
+	@go run ./tools/atlas postgres > .run/atlas-desired-postgres.sql
+
+# Diff current models against the existing migration tree and produce a new
+# numbered migration file. Usage:
+#   make atlas-diff NAME=add_widget_field
+.PHONY: atlas-diff atlas-diff-sqlite atlas-diff-postgres
+atlas-diff: atlas-diff-sqlite atlas-diff-postgres
+	@echo "==> Regenerating atlas.sum for both dialects..."
+	@atlas migrate hash --env sqlite
+	@atlas migrate hash --env postgres
+	@echo "==> Done. New files:"
+	@ls -1 migrations/sqlite/ migrations/postgres/ | grep -v atlas.sum | tail -4
+
+atlas-diff-sqlite: atlas-dump-sqlite
+	@if [ -z "$(NAME)" ]; then echo "ERROR: pass NAME=<migration_name>"; exit 1; fi
+	@atlas migrate diff $(NAME) --dir "file://migrations/sqlite?format=goose" \
+		--dev-url "sqlite://dev?mode=memory" \
+		--to "file://.run/atlas-desired-sqlite.sql"
+
+atlas-diff-postgres: atlas-dump-postgres
+	@if [ -z "$(NAME)" ]; then echo "ERROR: pass NAME=<migration_name>"; exit 1; fi
+	@atlas migrate diff $(NAME) --dir "file://migrations/postgres?format=goose" \
+		--dev-url "docker://postgres/16/dev?search_path=public" \
+		--to "file://.run/atlas-desired-postgres.sql"
+
+# Recompute checksum files. Run after editing a migration by hand.
+.PHONY: atlas-hash
+atlas-hash:
+	@atlas migrate hash --env sqlite
+	@atlas migrate hash --env postgres
+
+# Validate that there is no schema drift between models and current
+# migrations. Exits non-zero (with the would-be diff in stderr) when models
+# diverged from the migration files. Wire into CI.
+.PHONY: atlas-lint
+atlas-lint: atlas-dump-sqlite atlas-dump-postgres
+	@echo "==> Checking sqlite drift..."
+	@atlas migrate lint --env sqlite --latest=1 || true
+	@diff=$$(atlas schema diff --from "file://migrations/sqlite?format=goose" --to "file://.run/atlas-desired-sqlite.sql" --dev-url "sqlite://dev?mode=memory" 2>&1); \
+	if [ -n "$$diff" ]; then echo "sqlite drift detected:"; echo "$$diff"; exit 1; fi
+	@echo "==> Checking postgres drift..."
+	@diff=$$(atlas schema diff --from "file://migrations/postgres?format=goose" --to "file://.run/atlas-desired-postgres.sql" --dev-url "docker://postgres/16/dev?search_path=public" 2>&1); \
+	if [ -n "$$diff" ]; then echo "postgres drift detected:"; echo "$$diff"; exit 1; fi
+	@echo "==> No drift detected."
+
+# Apply migrations directly via the binary (production path uses embedded
+# migrations and runs this on server startup when --auto-migrate=true).
+.PHONY: migrate-up migrate-down migrate-status
+migrate-up: build-server
+	@./bin/nis migrate up --db-driver $${DRIVER:-sqlite} --db-dsn $${DSN:-./nis.db}
+
+migrate-down: build-server
+	@./bin/nis migrate down --db-driver $${DRIVER:-sqlite} --db-dsn $${DSN:-./nis.db}
+
+migrate-status: build-server
+	@./bin/nis migrate status --db-driver $${DRIVER:-sqlite} --db-dsn $${DSN:-./nis.db}
+
 # Run linter
 lint:
 	golangci-lint run
@@ -62,14 +137,6 @@ clean:
 	rm -rf ui/dist/
 	rm -rf internal/interfaces/http/ui/dist/
 	@echo "Clean complete!"
-
-# Run database migrations (up)
-migrate-up:
-	go run ./cmd/nis migrate up
-
-# Run database migrations (down)
-migrate-down:
-	go run ./cmd/nis migrate down
 
 # ---------------------------------------------------------------------------
 # Dev stack: `make run` brings up a full local NIS stack with Postgres + NATS

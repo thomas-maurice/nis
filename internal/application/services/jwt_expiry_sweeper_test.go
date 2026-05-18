@@ -55,7 +55,7 @@ func (s *JWTExpirySweeperTestSuite) SetupSuite() {
 
 	goose.SetBaseFS(migrations.Migrations)
 	require.NoError(s.T(), goose.SetDialect("sqlite3"))
-	require.NoError(s.T(), goose.Up(sqlDB, "."))
+	require.NoError(s.T(), goose.Up(sqlDB, "sqlite"))
 
 	enc, err := encryption.NewChaChaEncryptor(map[string]string{
 		"test-key": "Lj9yxga5k/zCwSw76UUklT8Jkzgu7ChfY3zUEH8iBM8=",

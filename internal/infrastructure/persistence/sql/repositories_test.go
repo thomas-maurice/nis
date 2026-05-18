@@ -41,7 +41,7 @@ func (s *RepositoryTestSuite) SetupSuite() {
 	err = goose.SetDialect("sqlite3")
 	require.NoError(s.T(), err)
 
-	err = goose.Up(sqlDB, ".")
+	err = goose.Up(sqlDB, "sqlite")
 	require.NoError(s.T(), err)
 
 	// Create repositories

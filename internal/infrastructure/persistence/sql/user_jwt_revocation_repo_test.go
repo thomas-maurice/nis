@@ -37,7 +37,7 @@ func (s *UserJWTRevocationRepoTestSuite) SetupSuite() {
 
 	goose.SetBaseFS(migrations.Migrations)
 	require.NoError(s.T(), goose.SetDialect("sqlite3"))
-	require.NoError(s.T(), goose.Up(sqlDB, "."))
+	require.NoError(s.T(), goose.Up(sqlDB, "sqlite"))
 
 	s.operatorRepo = NewOperatorRepo(db)
 	s.accountRepo = NewAccountRepo(db)

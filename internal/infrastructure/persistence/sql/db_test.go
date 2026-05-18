@@ -39,7 +39,7 @@ func TestMigrations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run migrations up
-	err = goose.Up(sqlDB, ".")
+	err = goose.Up(sqlDB, "sqlite")
 	require.NoError(t, err)
 
 	// Verify tables exist
@@ -76,7 +76,7 @@ func TestMigrations(t *testing.T) {
 	}
 
 	// Roll back all migrations (one Down per migration, in reverse).
-	err = goose.DownTo(sqlDB, ".", 0)
+	err = goose.DownTo(sqlDB, "sqlite", 0)
 	require.NoError(t, err)
 
 	// Verify tables are dropped

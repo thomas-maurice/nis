@@ -71,7 +71,7 @@ func setupFaultRollbackHarness(t *testing.T, failAfter int) (*OperatorService, *
 	require.NoError(t, err)
 	goose.SetBaseFS(migrations.Migrations)
 	require.NoError(t, goose.SetDialect("sqlite3"))
-	require.NoError(t, goose.Up(sqlDB, "."))
+	require.NoError(t, goose.Up(sqlDB, "sqlite"))
 
 	realEnc, err := encryption.NewChaChaEncryptor(map[string]string{
 		"test-key": "Lj9yxga5k/zCwSw76UUklT8Jkzgu7ChfY3zUEH8iBM8=",

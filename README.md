@@ -422,6 +422,44 @@ Convenience targets:
 | `make run-stop` / `run-clean` | Stop / wipe the dev stack |
 | `make serve-local` | Legacy host-only server, SQLite, hardcoded dev secrets |
 | `make docker-build` / `docker-run` / `docker-stop` | Single-container Docker image lifecycle |
+| `make atlas-diff NAME=...` | Regenerate migrations from current GORM models (both dialects). See "Schema migrations" below. |
+| `make atlas-lint` | Fail if models and migrations have drifted. Wire into CI. |
+| `make migrate-up` / `migrate-down` / `migrate-status` | Apply migrations explicitly (`DRIVER=` and `DSN=` env vars). |
+
+## Schema migrations (Atlas + Goose)
+
+The GORM models in `internal/infrastructure/persistence/sql/models.go` are the source of truth for the schema. [Atlas](https://atlasgo.io) reads the models, computes the desired schema, and generates **per-dialect** Goose migration files into `migrations/sqlite/` and `migrations/postgres/` — separate trees because the two dialects need different SQL (sqlite inlines foreign keys with backtick identifiers; postgres uses `ALTER TABLE ADD CONSTRAINT` with double-quote identifiers). The NIS binary picks the right tree at runtime by driver.
+
+```bash
+# 1. Edit a model in internal/infrastructure/persistence/sql/models.go
+# 2. Regenerate the migration for both dialects:
+make atlas-diff NAME=add_widget_field
+
+# Produces:
+#   migrations/sqlite/<timestamp>_add_widget_field.sql
+#   migrations/postgres/<timestamp>_add_widget_field.sql
+
+# 3. Review the SQL, hand-edit if you need a data backfill or dialect quirk,
+#    then update the checksum:
+make atlas-hash
+
+# 4. Rebuild + test
+make build-server
+make test && make test-e2e
+```
+
+Apply migrations manually (the server normally does this on startup when `--auto-migrate=true`):
+
+```bash
+make migrate-up   DRIVER=sqlite   DSN=./nis.db
+make migrate-up   DRIVER=postgres DSN="host=localhost user=nis password=... dbname=nis sslmode=disable"
+make migrate-status
+make migrate-down DRIVER=...
+```
+
+Requirements: the [`atlas` CLI](https://atlasgo.io/getting-started#installation) and Docker (Atlas spins up a throwaway Postgres container as its diff target). The schema generator (`tools/atlas/loader.go`) is a regular Go program that runs under `go run` — no separate install.
+
+Full workflow + the GORM tag conventions (FK declarations via relation fields, `default:` tag footgun, etc.) are in `.claude/skills/nis-dev/SKILL.md` §7.
 
 ## API tokens (service-account credentials)
 
