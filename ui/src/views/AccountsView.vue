@@ -26,6 +26,8 @@
       :can-create="authStore.isAdmin || authStore.isOperatorAdmin"
       :can-edit="authStore.isAdmin || authStore.isOperatorAdmin"
       :can-delete="authStore.isAdmin || authStore.isOperatorAdmin"
+      :can-delete-item="(item) => !isSystemAccount(item)"
+      :delete-disabled-reason="(item) => isSystemAccount(item) ? 'Cannot delete the system account.' : ''"
       @create="showCreateModal"
       @edit="showEditModal"
       @delete="handleDelete"
@@ -57,16 +59,6 @@
         {{ formatDate(item.createdAt) }}
       </template>
 
-      <template #custom-actions="{ item }">
-        <button
-          v-if="isSystemAccount(item)"
-          class="btn btn-outline-danger"
-          disabled
-          title="Cannot delete system account"
-        >
-          <font-awesome-icon :icon="['fas', 'trash']" />
-        </button>
-      </template>
     </EntityList>
 
     <EntityForm

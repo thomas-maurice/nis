@@ -645,14 +645,22 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 	var healthErr string
 	now := time.Now()
 
-	// Try to connect to the cluster
+	// Try to connect to the cluster, then probe the JWT resolver. Both must succeed
+	// for the cluster to be considered healthy — a reachable NATS without a
+	// configured resolver cannot accept account-JWT pushes, which is the whole
+	// reason we manage this cluster.
 	if cluster.EncryptedCreds != "" {
 		natsClient, _, connErr := s.openManagedCluster(ctx, id)
 		if connErr != nil {
 			healthErr = connErr.Error()
 			metrics.Default().RecordClusterHealthCheckFailure(ctx)
 		} else {
-			healthy = true
+			if probeErr := natsClient.ProbeResolver(ctx); probeErr != nil {
+				healthErr = probeErr.Error()
+				metrics.Default().RecordClusterHealthCheckFailure(ctx)
+			} else {
+				healthy = true
+			}
 			_ = natsClient.Close()
 		}
 	} else {

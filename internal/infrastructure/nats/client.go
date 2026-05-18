@@ -335,6 +335,24 @@ type claimsListResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// ProbeResolver checks whether a JWT resolver is listening on this NATS server by
+// sending a CLAIMS.LIST request with a short timeout. Returns nil if the resolver
+// responded (regardless of whether any accounts are stored), or an error otherwise.
+// A "no responders" error means the server has no resolver configured (open mode
+// or misconfigured), which is the most common failure mode operators hit.
+func (c *Client) ProbeResolver(ctx context.Context) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("not connected to NATS")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := c.nc.RequestWithContext(probeCtx, "$SYS.REQ.CLAIMS.LIST", nil)
+	if err != nil {
+		return fmt.Errorf("JWT resolver did not respond on $SYS.REQ.CLAIMS.LIST: %w", err)
+	}
+	return nil
+}
+
 // ListAccountsFromResolver retrieves the list of account public keys from the NATS resolver
 // Returns a list of account public keys that are currently stored in the resolver
 func (c *Client) ListAccountsFromResolver(ctx context.Context) ([]string, error) {

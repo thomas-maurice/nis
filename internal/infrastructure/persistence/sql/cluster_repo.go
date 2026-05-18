@@ -11,6 +11,19 @@ import (
 	"gorm.io/gorm"
 )
 
+// normalizeClusterTimes coerces all time fields to UTC before write. Postgres
+// TIMESTAMP columns drop the tz, and Go marshals back as UTC; without this
+// step a `time.Now()` in a non-UTC location round-trips through the DB with a
+// double-offset shift visible in the UI.
+func normalizeClusterTimes(m *ClusterModel) {
+	m.CreatedAt = m.CreatedAt.UTC()
+	m.UpdatedAt = m.UpdatedAt.UTC()
+	if m.LastHealthCheck != nil {
+		u := m.LastHealthCheck.UTC()
+		m.LastHealthCheck = &u
+	}
+}
+
 // ClusterRepo implements repositories.ClusterRepository using GORM
 type ClusterRepo struct {
 	db *gorm.DB
@@ -24,6 +37,7 @@ func NewClusterRepo(db *gorm.DB) *ClusterRepo {
 // Create creates a new cluster
 func (r *ClusterRepo) Create(ctx context.Context, cluster *entities.Cluster) error {
 	model := ClusterModelFromEntity(cluster)
+	normalizeClusterTimes(model)
 
 	if err := r.db.WithContext(ctx).Create(model).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -118,6 +132,7 @@ func (r *ClusterRepo) ListByOperator(ctx context.Context, operatorID uuid.UUID, 
 // Update updates an existing cluster
 func (r *ClusterRepo) Update(ctx context.Context, cluster *entities.Cluster) error {
 	model := ClusterModelFromEntity(cluster)
+	normalizeClusterTimes(model)
 
 	result := r.db.WithContext(ctx).Model(&ClusterModel{}).
 		Where("id = ?", model.ID).

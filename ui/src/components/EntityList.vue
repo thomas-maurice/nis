@@ -54,10 +54,18 @@
                     <font-awesome-icon :icon="['fas', 'edit']" />
                   </button>
                   <button
-                    v-if="canDelete"
+                    v-if="canDelete && canDeleteItem(item)"
                     class="btn btn-outline-danger"
                     @click="$emit('delete', item)"
                     title="Delete"
+                  >
+                    <font-awesome-icon :icon="['fas', 'trash']" />
+                  </button>
+                  <button
+                    v-else-if="canDelete && deleteDisabledReason(item)"
+                    class="btn btn-outline-danger disabled"
+                    @click.stop="showDeleteDisabledToast(item)"
+                    :title="deleteDisabledReason(item)"
                   >
                     <font-awesome-icon :icon="['fas', 'trash']" />
                   </button>
@@ -68,11 +76,27 @@
         </table>
       </div>
     </div>
+
+    <div
+      ref="toastEl"
+      class="toast align-items-center text-bg-warning border-0 position-fixed bottom-0 end-0 m-4"
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+      style="z-index: 1100;"
+    >
+      <div class="d-flex">
+        <div class="toast-body">{{ toastMessage }}</div>
+        <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { ref } from 'vue'
+
+const props = defineProps({
   title: {
     type: String,
     required: true
@@ -104,10 +128,27 @@ defineProps({
   canDelete: {
     type: Boolean,
     default: true
+  },
+  canDeleteItem: {
+    type: Function,
+    default: () => true
+  },
+  deleteDisabledReason: {
+    type: Function,
+    default: () => ''
   }
 })
 
 defineEmits(['create', 'edit', 'delete', 'select'])
+
+const toastEl = ref(null)
+const toastMessage = ref('')
+
+const showDeleteDisabledToast = (item) => {
+  toastMessage.value = props.deleteDisabledReason(item) || 'This item cannot be deleted.'
+  if (!toastEl.value || !window.bootstrap?.Toast) return
+  window.bootstrap.Toast.getOrCreateInstance(toastEl.value, { delay: 3000 }).show()
+}
 
 const getValue = (item, key) => {
   const keys = key.split('.')

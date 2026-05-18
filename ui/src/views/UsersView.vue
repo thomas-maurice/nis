@@ -38,6 +38,8 @@
       :columns="columns"
       :loading="loading"
       :error="error"
+      :can-delete-item="(item) => !isSystemUser(item)"
+      :delete-disabled-reason="(item) => isSystemUser(item) ? 'Cannot delete the system user.' : ''"
       @create="showCreateModal"
       @edit="showEditModal"
       @delete="handleDelete"
@@ -67,16 +69,6 @@
         {{ formatDate(item.createdAt) }}
       </template>
 
-      <template #custom-actions="{ item }">
-        <button
-          v-if="isSystemUser(item)"
-          class="btn btn-outline-danger"
-          disabled
-          title="Cannot delete system user"
-        >
-          <font-awesome-icon :icon="['fas', 'trash']" />
-        </button>
-      </template>
     </EntityList>
 
     <EntityForm

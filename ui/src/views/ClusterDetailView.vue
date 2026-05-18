@@ -26,7 +26,7 @@
         <button type="button" class="btn-close" @click="syncSuccess = ''"></button>
       </div>
 
-      <div v-if="syncError" class="alert alert-danger alert-dismissible fade show" role="alert">
+      <div v-if="syncError" class="alert alert-danger alert-dismissible fade show" role="alert" style="white-space: pre-line;">
         {{ syncError }}
         <button type="button" class="btn-close" @click="syncError = ''"></button>
       </div>
@@ -147,7 +147,17 @@ const syncCluster = async () => {
     const response = await apiClient.post('/nis.v1.ClusterService/SyncCluster', {
       id: cluster.value.id
     })
-    syncSuccess.value = `Successfully synced ${response.data.accountCount || 0} account(s) to cluster`
+    const updated = response.data.accountsUpdated || 0
+    const errors = response.data.errors || []
+    if (errors.length > 0) {
+      const lines = errors.map(e => `  • ${e.accountName || e.accountPublicKey || 'unknown'}: ${e.error}`).join('\n')
+      syncError.value =
+        `Sync pushed ${updated}/${updated + errors.length} account(s); ${errors.length} failed:\n${lines}`
+    } else if (updated === 0) {
+      syncSuccess.value = 'No accounts to sync.'
+    } else {
+      syncSuccess.value = `Successfully synced ${updated} account(s) to cluster.`
+    }
   } catch (err) {
     syncError.value = err.response?.data?.message || 'Failed to sync cluster'
   } finally {

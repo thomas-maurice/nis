@@ -329,11 +329,6 @@ const regenerateCreds = async () => {
   // NB: regenerating mints a NEW user JWT but the OLD JWT keeps working until
   // its `exp` passes. To forcibly invalidate the previous credential file,
   // revoke this user first (or instead).
-  if (!confirm(
-    `Regenerate credentials for "${user.value.name}"? A new .creds file will be issued; ` +
-    `the previously-issued JWT remains valid until its exp passes. ` +
-    `If you need to invalidate the old creds immediately, revoke the user first.`
-  )) return
   regenerating.value = true
   error.value = ''
   try {
