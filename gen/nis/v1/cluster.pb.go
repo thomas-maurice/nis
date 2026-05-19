@@ -45,6 +45,14 @@ const (
 	// mem-resolver mode, decrypt failure, timeout). No drift assertion is
 	// possible — error_message carries the underlying reason.
 	DriftStatus_DRIFT_STATUS_UNREACHABLE DriftStatus = 5
+	// The resolver has a JWT for an account NIS has no record of. Caused by
+	// a legacy direct push to NATS, a DeleteAccount that failed mid-flight
+	// (DB row gone, resolver still has the JWT), or a manually-managed
+	// tenancy. Surface this so it doesn't sit invisible — leaked .creds
+	// under an orphan account JWT keep connecting until something prunes
+	// them. account_id and account_name will be empty for orphan rows;
+	// only account_public_key is populated.
+	DriftStatus_DRIFT_STATUS_ORPHAN_ON_RESOLVER DriftStatus = 6
 )
 
 // Enum value maps for DriftStatus.
@@ -56,6 +64,7 @@ var (
 		3: "DRIFT_STATUS_OUT_OF_BAND",
 		4: "DRIFT_STATUS_MISSING_ON_RESOLVER",
 		5: "DRIFT_STATUS_UNREACHABLE",
+		6: "DRIFT_STATUS_ORPHAN_ON_RESOLVER",
 	}
 	DriftStatus_value = map[string]int32{
 		"DRIFT_STATUS_UNSPECIFIED":         0,
@@ -64,6 +73,7 @@ var (
 		"DRIFT_STATUS_OUT_OF_BAND":         3,
 		"DRIFT_STATUS_MISSING_ON_RESOLVER": 4,
 		"DRIFT_STATUS_UNREACHABLE":         5,
+		"DRIFT_STATUS_ORPHAN_ON_RESOLVER":  6,
 	}
 )
 
@@ -1980,14 +1990,15 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\tR\taccountId\"#\n" +
-	"!ReconcileAccountOnClusterResponse*\xc2\x01\n" +
+	"!ReconcileAccountOnClusterResponse*\xe7\x01\n" +
 	"\vDriftStatus\x12\x1c\n" +
 	"\x18DRIFT_STATUS_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14DRIFT_STATUS_IN_SYNC\x10\x01\x12\x19\n" +
 	"\x15DRIFT_STATUS_DB_AHEAD\x10\x02\x12\x1c\n" +
 	"\x18DRIFT_STATUS_OUT_OF_BAND\x10\x03\x12$\n" +
 	" DRIFT_STATUS_MISSING_ON_RESOLVER\x10\x04\x12\x1c\n" +
-	"\x18DRIFT_STATUS_UNREACHABLE\x10\x052\x82\n" +
+	"\x18DRIFT_STATUS_UNREACHABLE\x10\x05\x12#\n" +
+	"\x1fDRIFT_STATUS_ORPHAN_ON_RESOLVER\x10\x062\x82\n" +
 	"\n" +
 	"\x0eClusterService\x12L\n" +
 	"\rCreateCluster\x12\x1c.nis.v1.CreateClusterRequest\x1a\x1d.nis.v1.CreateClusterResponse\x12C\n" +

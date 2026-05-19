@@ -129,6 +129,61 @@ func TestE2E_Delete_AccountCascadesUsersAndKeys(t *testing.T) {
 	}
 }
 
+// TestE2E_Delete_AccountIsRemovedFromResolver pins the security-relevant
+// behaviour that DeleteAccount also tells NATS to drop the JWT. Without
+// this, any .creds previously issued under the account would keep
+// connecting until someone separately ran 'cluster sync --prune' — and
+// because the drift dashboard (P9 v1) only sees NIS-known accounts, the
+// orphan would be invisible from the UI. Discovered 2026-05-19 while
+// auditing post-P9 behaviour.
+func TestE2E_Delete_AccountIsRemovedFromResolver(t *testing.T) {
+	h := startStack(t)
+	st := h.bootStandardStack(t, "del-prop")
+	ctx := context.Background()
+
+	// Create a second account so we have an account that is NOT the system
+	// account to delete (the system account is refused at the service layer)
+	// and synced to the resolver before deletion.
+	doomedID := h.createAccount(t, st.operatorID, "doomed-resolver")
+	h.syncCluster(t, st.clusterID)
+
+	// Sanity: account is on the resolver before delete.
+	before, err := h.clusterCli.ListResolverAccounts(ctx, connect.NewRequest(&nisv1.ListResolverAccountsRequest{ClusterId: st.clusterID}))
+	if err != nil {
+		t.Fatalf("ListResolverAccounts (before): %v", err)
+	}
+	doomedAcc, err := h.accountCli.GetAccount(ctx, connect.NewRequest(&nisv1.GetAccountRequest{Id: doomedID}))
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	doomedPubKey := doomedAcc.Msg.Account.PublicKey
+	if !containsString(before.Msg.PublicKeys, doomedPubKey) {
+		t.Fatalf("resolver should list doomed account %q before delete; got %v", doomedPubKey, before.Msg.PublicKeys)
+	}
+
+	// Delete — must propagate to the resolver.
+	if _, err := h.accountCli.DeleteAccount(ctx, connect.NewRequest(&nisv1.DeleteAccountRequest{Id: doomedID})); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+
+	after, err := h.clusterCli.ListResolverAccounts(ctx, connect.NewRequest(&nisv1.ListResolverAccountsRequest{ClusterId: st.clusterID}))
+	if err != nil {
+		t.Fatalf("ListResolverAccounts (after): %v", err)
+	}
+	if containsString(after.Msg.PublicKeys, doomedPubKey) {
+		t.Fatalf("resolver still lists deleted account %q after DeleteAccount; got %v", doomedPubKey, after.Msg.PublicKeys)
+	}
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
 // TestE2E_Delete_UserIsScoped proves that deleting a single user doesn't
 // touch siblings or the parent account. Trivial-sounding but it's the only
 // guard against an off-by-one in the WHERE clause of the user repo's Delete.

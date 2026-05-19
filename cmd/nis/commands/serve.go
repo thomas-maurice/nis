@@ -244,6 +244,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		jwtService,
 	).WithFactory(repoFactory)
 
+	// Account deletion must propagate to the NATS resolver — without this
+	// wire, a deleted account's JWT would stay on the resolver until manual
+	// `nisctl cluster sync --prune` and any previously-issued .creds would
+	// keep connecting indefinitely. Done post-construction because
+	// AccountService doesn't otherwise need a ClusterService dep.
+	accountService.WithClusterService(clusterService)
+
 	authService := services.NewAuthService(
 		repoFactory.APIUserRepository(),
 		jwtSecret,

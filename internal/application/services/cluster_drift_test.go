@@ -360,6 +360,63 @@ func (s *ClusterDriftTestSuite) TestReconcileCrossOperatorRejected() {
 	assert.Contains(s.T(), err.Error(), "does not belong")
 }
 
+// TestFindOrphans pins the pure orphan-diffing helper. Live-resolver
+// integration is covered by the e2e suite; here we exercise the set-diff
+// + sort + system-account-exclusion logic deterministically.
+func TestFindOrphans(t *testing.T) {
+	t.Run("empty resolver list returns empty", func(t *testing.T) {
+		got := findOrphans(nil, map[string]bool{"AAA": true}, "SYS")
+		assert.Empty(t, got)
+	})
+
+	t.Run("all-known pubkeys returns empty", func(t *testing.T) {
+		got := findOrphans([]string{"AAA", "BBB", "SYS"}, map[string]bool{"AAA": true, "BBB": true}, "SYS")
+		assert.Empty(t, got)
+	})
+
+	t.Run("resolver-only pubkey is an orphan", func(t *testing.T) {
+		got := findOrphans([]string{"AAA", "ORPHAN1"}, map[string]bool{"AAA": true}, "SYS")
+		assert.Equal(t, []string{"ORPHAN1"}, got)
+	})
+
+	t.Run("system account never reported as orphan", func(t *testing.T) {
+		// $SYS is auto-managed by the operator-include generator and is
+		// always on the resolver. Reporting it as an orphan would be a
+		// constant false positive that operators would learn to ignore.
+		got := findOrphans([]string{"SYS", "AAA"}, map[string]bool{"AAA": true}, "SYS")
+		assert.Empty(t, got)
+	})
+
+	t.Run("orphans are sorted for stable UI ordering", func(t *testing.T) {
+		got := findOrphans([]string{"ZZZ", "AAA", "MMM"}, map[string]bool{}, "")
+		assert.Equal(t, []string{"AAA", "MMM", "ZZZ"}, got)
+	})
+
+	t.Run("empty pubkey strings are skipped", func(t *testing.T) {
+		got := findOrphans([]string{"", "ORPHAN", ""}, map[string]bool{}, "SYS")
+		assert.Equal(t, []string{"ORPHAN"}, got)
+	})
+}
+
+// TestDriftSort_OrphansFollowNamedRows: orphan rows (empty AccountName) must
+// sort after named rows so the UI's first row is always a recognisable
+// account, not an empty-name pubkey. Pin this so a "simpler" sort comparator
+// doesn't accidentally clump orphans at the top.
+func TestDriftSort_OrphansFollowNamedRows(t *testing.T) {
+	rows := []*AccountDriftRow{
+		{AccountPublicKey: "ZZZ", Status: DriftStatusOrphanOnResolver},
+		{AccountName: "mu", Status: DriftStatusInSync},
+		{AccountPublicKey: "AAA", Status: DriftStatusOrphanOnResolver},
+		{AccountName: "alpha", Status: DriftStatusInSync},
+	}
+	sortDriftRows(rows)
+	// Named rows first, alphabetically; then orphans by pubkey.
+	assert.Equal(t, "alpha", rows[0].AccountName)
+	assert.Equal(t, "mu", rows[1].AccountName)
+	assert.Equal(t, "AAA", rows[2].AccountPublicKey)
+	assert.Equal(t, "ZZZ", rows[3].AccountPublicKey)
+}
+
 // TestReconcileMissingJWT: an account row with empty JWT cannot be pushed.
 // Should fail early with a clear error rather than producing a confusing
 // resolver-side rejection.

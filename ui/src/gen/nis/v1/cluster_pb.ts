@@ -60,6 +60,19 @@ export enum DriftStatus {
    * @generated from enum value: DRIFT_STATUS_UNREACHABLE = 5;
    */
   UNREACHABLE = 5,
+
+  /**
+   * The resolver has a JWT for an account NIS has no record of. Caused by
+   * a legacy direct push to NATS, a DeleteAccount that failed mid-flight
+   * (DB row gone, resolver still has the JWT), or a manually-managed
+   * tenancy. Surface this so it doesn't sit invisible — leaked .creds
+   * under an orphan account JWT keep connecting until something prunes
+   * them. account_id and account_name will be empty for orphan rows;
+   * only account_public_key is populated.
+   *
+   * @generated from enum value: DRIFT_STATUS_ORPHAN_ON_RESOLVER = 6;
+   */
+  ORPHAN_ON_RESOLVER = 6,
 }
 // Retrieve enum metadata with: proto3.getEnumType(DriftStatus)
 proto3.util.setEnumType(DriftStatus, "nis.v1.DriftStatus", [
@@ -69,6 +82,7 @@ proto3.util.setEnumType(DriftStatus, "nis.v1.DriftStatus", [
   { no: 3, name: "DRIFT_STATUS_OUT_OF_BAND" },
   { no: 4, name: "DRIFT_STATUS_MISSING_ON_RESOLVER" },
   { no: 5, name: "DRIFT_STATUS_UNREACHABLE" },
+  { no: 6, name: "DRIFT_STATUS_ORPHAN_ON_RESOLVER" },
 ]);
 
 /**

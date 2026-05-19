@@ -295,6 +295,122 @@ func TestE2E_ClusterDrift_ReconcileEmitsEvent(t *testing.T) {
 	}
 }
 
+// TestE2E_ClusterDrift_OrphanOnResolverDetected: an account JWT sitting on
+// the resolver that NIS has no row for must surface as ORPHAN_ON_RESOLVER.
+// This is the second half of the delete-syncs-to-NATS story: when the NATS
+// push fails (network/dial error) DeleteAccount still removes the DB row
+// (DB is the source of truth, NATS reconciled best-effort) and an orphan
+// is left behind. The drift dashboard surfaces it; the per-row Delete-from-
+// resolver action cleans it up.
+func TestE2E_ClusterDrift_OrphanOnResolverDetected(t *testing.T) {
+	h := startStack(t)
+	st := h.bootStandardStack(t, "drift-orph")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// 1. Create + sync an extra account so its JWT lands on the resolver.
+	doomedID := h.createAccount(t, st.operatorID, "doomed-orphan")
+	h.syncCluster(t, st.clusterID)
+	doomedAcc, err := h.accountCli.GetAccount(ctx, connect.NewRequest(&nisv1.GetAccountRequest{Id: doomedID}))
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	doomedPK := doomedAcc.Msg.Account.PublicKey
+
+	// 2. Stop NATS so DeleteAccount's resolver push fails. DB delete still
+	// succeeds (best-effort semantic) — that's the bug we want to surface.
+	if err := exec.Command("docker", "stop", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker stop %s: %v", h.natsContainer, err)
+	}
+
+	if _, err := h.accountCli.DeleteAccount(ctx, connect.NewRequest(&nisv1.DeleteAccountRequest{Id: doomedID})); err != nil {
+		t.Fatalf("DeleteAccount with NATS down: %v", err)
+	}
+	if _, err := h.accountCli.GetAccount(ctx, connect.NewRequest(&nisv1.GetAccountRequest{Id: doomedID})); err == nil {
+		t.Fatalf("doomed account should be gone from NIS DB despite NATS push failure")
+	}
+
+	// 3. Bring NATS back. JetStream resolver state is persisted on the
+	// container's filesystem, so the orphan JWT survives the restart.
+	if err := exec.Command("docker", "start", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker start %s: %v", h.natsContainer, err)
+	}
+	// Give the resolver a moment to come back up so the scan can reach it.
+	waitDeadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+			ClusterId:     st.clusterID,
+			IncludeInSync: true,
+		}))
+		if err == nil && hasReachableRow(resp.Msg.Rows) {
+			break
+		}
+		if time.Now().After(waitDeadline) {
+			t.Fatalf("resolver did not come back up within deadline")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// 4. Scan should now report the doomed pubkey as ORPHAN_ON_RESOLVER.
+	resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+		ClusterId:     st.clusterID,
+		IncludeInSync: false,
+	}))
+	if err != nil {
+		t.Fatalf("GetClusterDriftStatus: %v", err)
+	}
+	var orphan *nisv1.AccountDriftRow
+	for _, r := range resp.Msg.Rows {
+		if r.AccountPublicKey == doomedPK {
+			orphan = r
+			break
+		}
+	}
+	if orphan == nil {
+		t.Fatalf("doomed pubkey %q not present in drift rows: %+v", doomedPK, resp.Msg.Rows)
+	}
+	if orphan.Status != nisv1.DriftStatus_DRIFT_STATUS_ORPHAN_ON_RESOLVER {
+		t.Fatalf("expected ORPHAN_ON_RESOLVER for %q, got %v", doomedPK, orphan.Status)
+	}
+	if orphan.AccountId != "" {
+		t.Fatalf("orphan row must have empty account_id (no NIS row exists), got %q", orphan.AccountId)
+	}
+
+	// 5. Per-row cleanup via DeleteResolverAccount — the UI's "Delete from
+	// resolver" button calls this. After cleanup, the orphan is gone.
+	if _, err := h.clusterCli.DeleteResolverAccount(ctx, connect.NewRequest(&nisv1.DeleteResolverAccountRequest{
+		ClusterId: st.clusterID,
+		PublicKey: doomedPK,
+	})); err != nil {
+		t.Fatalf("DeleteResolverAccount: %v", err)
+	}
+
+	resp2, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+		ClusterId:     st.clusterID,
+		IncludeInSync: false,
+	}))
+	if err != nil {
+		t.Fatalf("GetClusterDriftStatus (post-cleanup): %v", err)
+	}
+	for _, r := range resp2.Msg.Rows {
+		if r.AccountPublicKey == doomedPK {
+			t.Fatalf("orphan still present after DeleteResolverAccount: %+v", r)
+		}
+	}
+}
+
+// hasReachableRow returns true if at least one row is something other than
+// UNREACHABLE — used as a "resolver is back" sentinel during the NATS
+// restart window in the orphan test.
+func hasReachableRow(rows []*nisv1.AccountDriftRow) bool {
+	for _, r := range rows {
+		if r.Status != nisv1.DriftStatus_DRIFT_STATUS_UNREACHABLE {
+			return true
+		}
+	}
+	return false
+}
+
 // TestE2E_ClusterDrift_RequiresAuth: unauthenticated call rejected before
 // reaching the handler. Pins that the new RPC sits behind the auth
 // interceptor like every other ClusterService RPC.

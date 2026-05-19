@@ -684,6 +684,13 @@ Per-account status values:
   responder, decrypt failure, timeout). Per-row `error_message` carries the
   underlying reason. No drift assertion is possible until the cluster is
   reachable again.
+- `orphan_on_resolver` — the resolver has a JWT for an account NIS has no
+  record of. Caused by a legacy direct push, a `DeleteAccount` whose NATS-side
+  cleanup failed mid-flight (DB row gone, resolver still has the JWT), or a
+  manually-managed tenancy. Shown explicitly because leaked `.creds` minted
+  under an orphan JWT keep connecting until something prunes them. The UI
+  surfaces a per-row "Delete from resolver" action that calls
+  `DeleteResolverAccount`; bulk cleanup is still `nisctl cluster sync --prune`.
 
 The comparison primitive is cheap: equality on the raw encoded JWT first
 (the common IN_SYNC case after a fresh sync), and only on mismatch does it
@@ -691,11 +698,15 @@ decode both via `nats-io/jwt/v2` and classify by issued-at ordering. The
 event `cluster.account.synced` fires on a successful reconcile so the audit
 log records who pushed what to where.
 
-Currently scoped to admin (same gate as `SyncCluster`'s handler). A
-`unknown_to_nis` category — resolver has accounts NIS does not — is deferred
-to a follow-up because it requires listing every resolver-side account
-(`$SYS.REQ.CLAIMS.LIST`) and cross-referencing, and the operator-facing
-value of seeing it is less obvious than the four states above.
+Account deletion auto-propagates to the resolver: `DeleteAccount` sends an
+operator-signed `$SYS.REQ.CLAIMS.DELETE` to every cluster attached to the
+operator after the DB transaction commits. Per-cluster delete failures are
+logged but do NOT roll back the DB delete (DB is the source of truth, NATS
+reconciled best-effort) — if a delete happens while a cluster is unreachable,
+the JWT survives on that cluster's resolver and is surfaced as
+`orphan_on_resolver` on the next drift scan, ready for one-click cleanup.
+
+Drift detection and reconcile are scoped to admin (same gate as `SyncCluster`).
 
 ## Bulk operations (manifest apply/diff/delete/dump)
 

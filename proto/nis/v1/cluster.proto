@@ -197,6 +197,14 @@ enum DriftStatus {
   // mem-resolver mode, decrypt failure, timeout). No drift assertion is
   // possible — error_message carries the underlying reason.
   DRIFT_STATUS_UNREACHABLE = 5;
+  // The resolver has a JWT for an account NIS has no record of. Caused by
+  // a legacy direct push to NATS, a DeleteAccount that failed mid-flight
+  // (DB row gone, resolver still has the JWT), or a manually-managed
+  // tenancy. Surface this so it doesn't sit invisible — leaked .creds
+  // under an orphan account JWT keep connecting until something prunes
+  // them. account_id and account_name will be empty for orphan rows;
+  // only account_public_key is populated.
+  DRIFT_STATUS_ORPHAN_ON_RESOLVER = 6;
 }
 
 // AccountDriftRow describes one (account, cluster) drift comparison.

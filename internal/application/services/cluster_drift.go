@@ -32,6 +32,12 @@ const (
 	DriftStatusOutOfBand
 	DriftStatusMissingOnResolver
 	DriftStatusUnreachable
+	// DriftStatusOrphanOnResolver: the resolver has a JWT for an account
+	// NIS has no row for. Surface for explicit cleanup — leaked .creds
+	// minted under such a JWT will keep connecting indefinitely under the
+	// default no-expiry policy. Rows of this kind have empty AccountID
+	// and AccountName; only AccountPublicKey is populated.
+	DriftStatusOrphanOnResolver
 )
 
 // AccountDriftRow is the per-account, per-cluster comparison result returned
@@ -185,10 +191,40 @@ func (s *ClusterService) ScanClusterDrift(ctx context.Context, clusterID uuid.UU
 	}
 	_ = g.Wait()
 
+	// Orphan detection: ask the resolver for its full account list and
+	// append one row per pubkey NIS has no record of. Failures here do
+	// NOT poison the scan — orphan visibility is value-add on top of the
+	// per-account comparison, but the per-account rows are the primary
+	// signal. Best-effort log + continue.
+	nisPubKeys := make(map[string]bool, len(accounts))
+	for _, a := range accounts {
+		if a.PublicKey != "" {
+			nisPubKeys[a.PublicKey] = true
+		}
+	}
+	listCtx, listCancel := context.WithTimeout(parentCtx, clusterDriftPerAccountTimeout)
+	resolverPKs, listErr := client.ListAccountsFromResolver(listCtx)
+	listCancel()
+	if listErr != nil {
+		logging.LogFromContext(ctx).Debug("drift scan: resolver-side account listing failed (orphans not detected)",
+			"cluster", cluster.Name,
+			"err", listErr,
+		)
+	} else {
+		for _, pk := range findOrphans(resolverPKs, nisPubKeys, cluster.SystemAccountPubKey) {
+			rows = append(rows, &AccountDriftRow{
+				AccountPublicKey: pk,
+				Status:           DriftStatusOrphanOnResolver,
+				ResolverJwtIAT:   0, // could decode if we LOOKUP'd each — not worth the latency for v1
+			})
+		}
+	}
+
 	sortDriftRows(rows)
 
 	// Outcome metric: "ok" only when every row is IN_SYNC; "partial" if any
-	// row carries a non-IN_SYNC status (drift or per-account unreachable).
+	// row carries a non-IN_SYNC status (drift, orphan, or per-account
+	// unreachable).
 	outcome := "ok"
 	for _, r := range rows {
 		if r.Status != DriftStatusInSync {
@@ -329,8 +365,22 @@ func decodeJWTJTI(token string) string {
 }
 
 func sortDriftRows(rows []*AccountDriftRow) {
+	// Named rows first (sorted by account name), then orphan rows (which
+	// have an empty AccountName) sorted by public key. Mixing them with a
+	// naive name compare clumps all the orphans at the top with empty
+	// "Account" labels, which reads as a UI bug.
 	sort.SliceStable(rows, func(a, b int) bool {
-		return rows[a].AccountName < rows[b].AccountName
+		ra, rb := rows[a], rows[b]
+		if ra.AccountName == "" && rb.AccountName == "" {
+			return ra.AccountPublicKey < rb.AccountPublicKey
+		}
+		if ra.AccountName == "" {
+			return false
+		}
+		if rb.AccountName == "" {
+			return true
+		}
+		return ra.AccountName < rb.AccountName
 	})
 }
 
@@ -367,8 +417,38 @@ func driftStatusLabel(s DriftStatus) string {
 		return "missing_on_resolver"
 	case DriftStatusUnreachable:
 		return "unreachable"
+	case DriftStatusOrphanOnResolver:
+		return "orphan_on_resolver"
 	}
 	return "unspecified"
+}
+
+// findOrphans returns the resolver-side public keys that NIS has no
+// corresponding account row for. Pure function — split out from the live
+// resolver call so unit tests can pin the set-diff logic without standing
+// up NATS.
+//
+// `systemAccountPubKey` is excluded because the cluster's $SYS account is
+// auto-managed (created by `nisctl operator generate-include`) and lives on
+// the resolver from day one regardless of NIS state — reporting it as an
+// orphan would be a constant false positive.
+func findOrphans(resolverPubKeys []string, nisAccountPubKeys map[string]bool, systemAccountPubKey string) []string {
+	out := make([]string, 0)
+	for _, pk := range resolverPubKeys {
+		if pk == "" {
+			continue
+		}
+		if pk == systemAccountPubKey {
+			continue
+		}
+		if nisAccountPubKeys[pk] {
+			continue
+		}
+		out = append(out, pk)
+	}
+	// Stable order so the UI doesn't shuffle orphan rows between refreshes.
+	sort.Strings(out)
+	return out
 }
 
 // ReconcileAccountOnCluster pushes one account's NIS-stored JWT to one specific

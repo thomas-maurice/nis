@@ -153,9 +153,16 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in driftRows" :key="row.accountId">
+                <tr v-for="row in driftRows" :key="row.accountId || row.accountPublicKey">
                   <td>
-                    <router-link :to="`/accounts/${row.accountId}`">{{ row.accountName }}</router-link>
+                    <!-- Orphans have no NIS account_id so the detail link is meaningless;
+                         show the pubkey instead with an "(unknown to NIS)" hint. -->
+                    <template v-if="row.status === 'DRIFT_STATUS_ORPHAN_ON_RESOLVER'">
+                      <code class="small">{{ shortenPubKey(row.accountPublicKey) }}</code>
+                      <br>
+                      <small class="text-muted fst-italic">unknown to NIS</small>
+                    </template>
+                    <router-link v-else :to="`/accounts/${row.accountId}`">{{ row.accountName }}</router-link>
                   </td>
                   <td>
                     <span :class="driftBadgeClass(row.status)">{{ driftStatusLabel(row.status) }}</span>
@@ -174,6 +181,14 @@
                       @click="reconcile(row)">
                       <span v-if="reconcilingAccountId === row.accountId" class="spinner-border spinner-border-sm me-1"></span>
                       Reconcile
+                    </button>
+                    <button
+                      v-else-if="row.status === 'DRIFT_STATUS_ORPHAN_ON_RESOLVER'"
+                      class="btn btn-sm btn-outline-danger"
+                      :disabled="deletingFromResolver === row.accountPublicKey"
+                      @click="deleteFromResolver(row)">
+                      <span v-if="deletingFromResolver === row.accountPublicKey" class="spinner-border spinner-border-sm me-1"></span>
+                      Delete from resolver
                     </button>
                   </td>
                 </tr>
@@ -213,6 +228,7 @@ const driftRows = ref([])
 const driftIncludeInSync = ref(false)
 const driftLastChecked = ref(null)
 const reconcilingAccountId = ref('')
+const deletingFromResolver = ref('')
 
 const loadCluster = async () => {
   loading.value = true
@@ -279,6 +295,7 @@ const driftStatusLabel = (status) => {
     case 'DRIFT_STATUS_OUT_OF_BAND': return 'out of band'
     case 'DRIFT_STATUS_MISSING_ON_RESOLVER': return 'missing on resolver'
     case 'DRIFT_STATUS_UNREACHABLE': return 'unreachable'
+    case 'DRIFT_STATUS_ORPHAN_ON_RESOLVER': return 'orphan on resolver'
     default: return status || 'unknown'
   }
 }
@@ -286,11 +303,14 @@ const driftStatusLabel = (status) => {
 const driftBadgeClass = (status) => {
   // Green = good; yellow = NIS knows the fix; red = something else touched
   // the resolver (operator investigation territory); grey = no signal.
+  // Orange-ish for orphans — they're cleanup-able but represent a real
+  // security exposure (leaked .creds under orphan JWTs still connect).
   switch (status) {
     case 'DRIFT_STATUS_IN_SYNC': return 'badge bg-success'
     case 'DRIFT_STATUS_DB_AHEAD':
     case 'DRIFT_STATUS_MISSING_ON_RESOLVER': return 'badge bg-warning text-dark'
-    case 'DRIFT_STATUS_OUT_OF_BAND': return 'badge bg-danger'
+    case 'DRIFT_STATUS_OUT_OF_BAND':
+    case 'DRIFT_STATUS_ORPHAN_ON_RESOLVER': return 'badge bg-danger'
     case 'DRIFT_STATUS_UNREACHABLE': return 'badge bg-secondary'
     default: return 'badge bg-secondary'
   }
@@ -300,10 +320,39 @@ const canReconcile = (status) => {
   // Reconcile pushes NIS's JWT to the resolver. Useful when the resolver
   // is behind NIS (DB_AHEAD / MISSING_ON_RESOLVER) or has been touched
   // out-of-band (OUT_OF_BAND — push rewinds the resolver). Pointless for
-  // IN_SYNC; impossible while UNREACHABLE.
+  // IN_SYNC; impossible while UNREACHABLE; meaningless for orphans (no
+  // NIS-side JWT to push — those use the Delete-from-resolver action).
   return status === 'DRIFT_STATUS_DB_AHEAD'
     || status === 'DRIFT_STATUS_MISSING_ON_RESOLVER'
     || status === 'DRIFT_STATUS_OUT_OF_BAND'
+}
+
+const shortenPubKey = (pk) => {
+  // Account NKey public keys are 56 chars (e.g. ADRFL3...AR6QQ3Q). Tables
+  // get cramped fast; show enough to disambiguate.
+  if (!pk) return ''
+  if (pk.length <= 18) return pk
+  return pk.substring(0, 12) + '…' + pk.substring(pk.length - 4)
+}
+
+const deleteFromResolver = async (row) => {
+  // Confirm before destructive action — orphan rows might still have live
+  // .creds connected to them; deleting from the resolver kicks those off.
+  if (!window.confirm(`Delete account ${row.accountPublicKey} from the resolver?\n\nAny live connections under this account JWT will be disconnected. This does not affect NIS state (no NIS row exists for this account).`)) {
+    return
+  }
+  deletingFromResolver.value = row.accountPublicKey
+  try {
+    await apiClient.post('/nis.v1.ClusterService/DeleteResolverAccount', {
+      clusterId: cluster.value.id,
+      publicKey: row.accountPublicKey,
+    })
+    await loadDrift()
+  } catch (err) {
+    driftError.value = err.response?.data?.message || `Failed to delete ${row.accountPublicKey} from resolver`
+  } finally {
+    deletingFromResolver.value = ''
+  }
 }
 
 const loadDrift = async () => {

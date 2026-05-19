@@ -391,6 +391,71 @@ type SyncError struct {
 	Error            string
 }
 
+// DeleteAccountFromAllClusters removes a single account's JWT from every
+// cluster owned by the operator by sending an operator-signed delete-claim to
+// each. Mirrors the prune branch of SyncCluster but scoped to one pubkey.
+//
+// Returns one error per cluster that refused the delete; a single failure
+// does NOT short-circuit the others. The caller is expected to log them —
+// DB-side delete already succeeded and we don't want to roll it back over a
+// transient NATS hiccup (the resolver is reconciled best-effort, DB is the
+// source of truth — same semantic as PushAccountToAllClusters).
+//
+// `accountPublicKey` is taken explicitly rather than re-reading the account
+// row because the typical caller (AccountService.DeleteAccount) has already
+// removed the row from the DB by the time this runs.
+func (s *ClusterService) DeleteAccountFromAllClusters(ctx context.Context, operatorID uuid.UUID, accountPublicKey string) []SyncError {
+	if accountPublicKey == "" {
+		return nil
+	}
+
+	clusters, err := s.repo.ListByOperator(ctx, operatorID, repositories.ListOptions{Limit: 1000})
+	if err != nil {
+		return []SyncError{{Error: fmt.Sprintf("list clusters for operator %s: %v", operatorID, err)}}
+	}
+	if len(clusters) == 0 {
+		return nil
+	}
+
+	// The delete-claim is operator-signed and identical across clusters —
+	// load + sign once, send to each. Saves N redundant JWT signs in a
+	// many-cluster operator.
+	operator, err := s.operatorRepo.GetByID(ctx, operatorID)
+	if err != nil {
+		return []SyncError{{Error: fmt.Sprintf("get operator %s: %v", operatorID, err)}}
+	}
+	deleteClaim, err := s.jwtService.GenerateDeleteClaimJWT(ctx, operator, []string{accountPublicKey})
+	if err != nil {
+		return []SyncError{{Error: fmt.Sprintf("generate delete claim for %s: %v", accountPublicKey, err)}}
+	}
+
+	var errs []SyncError
+	for _, cluster := range clusters {
+		if cluster.EncryptedCreds == "" {
+			// No creds → nothing to push to. Skip silently, same shape as
+			// PushAccountToAllClusters.
+			continue
+		}
+		natsClient, _, openErr := s.openManagedCluster(ctx, cluster.ID)
+		if openErr != nil {
+			errs = append(errs, SyncError{
+				AccountPublicKey: accountPublicKey,
+				Error:            fmt.Sprintf("open cluster %s: %v", cluster.Name, openErr),
+			})
+			continue
+		}
+		delErr := natsClient.DeleteAccountJWT(ctx, deleteClaim)
+		_ = natsClient.Close()
+		if delErr != nil {
+			errs = append(errs, SyncError{
+				AccountPublicKey: accountPublicKey,
+				Error:            fmt.Sprintf("delete on cluster %s: %v", cluster.Name, delErr),
+			})
+		}
+	}
+	return errs
+}
+
 // PushAccountToAllClusters pushes a single account's current JWT to every
 // cluster owned by the operator. Used by P2 revocation / prune paths and by
 // auto-renew: those operations re-sign the parent account JWT but don't want

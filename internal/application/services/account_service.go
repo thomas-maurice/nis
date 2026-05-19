@@ -24,9 +24,10 @@ import (
 // partial failures don't leave half-created accounts or accounts whose JWT
 // references a scoped key that wasn't actually persisted.
 type AccountService struct {
-	factory    persistence.RepositoryFactory
-	jwtService *JWTService
-	encryptor  encryption.Encryptor
+	factory        persistence.RepositoryFactory
+	jwtService     *JWTService
+	encryptor      encryption.Encryptor
+	clusterService *ClusterService // optional; set via WithClusterService for NATS-side cleanup on delete
 }
 
 // NewAccountService creates a new account service.
@@ -40,6 +41,16 @@ func NewAccountService(
 		jwtService: jwtService,
 		encryptor:  encryptor,
 	}
+}
+
+// WithClusterService attaches a ClusterService used to propagate account
+// deletions to the NATS resolver(s) attached to the operator. Call this from
+// serve.go AFTER both services exist (the two are mutually independent at
+// construction, so no init-order surprise). Tests that don't wire this skip
+// the NATS-side push — the DB-side delete and audit event still happen.
+func (s *AccountService) WithClusterService(cs *ClusterService) *AccountService {
+	s.clusterService = cs
+	return s
 }
 
 // CreateAccountRequest contains the data needed to create an account
@@ -424,9 +435,25 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 	return account, nil
 }
 
-// DeleteAccount deletes an account and all associated data (cascades to users)
+// DeleteAccount deletes an account and all associated data (cascades to users).
+// After the DB transaction commits successfully, sends an operator-signed
+// $SYS.REQ.CLAIMS.DELETE to every cluster attached to the operator so the
+// account's JWT no longer sits on the resolver — without that step, any
+// .creds previously issued under the account would keep connecting to NATS
+// indefinitely (effectively forever under the default no-expiry policy).
+//
+// Per-cluster delete failures are logged but do NOT roll back the DB delete.
+// Mirrors A6's "NATS is reconciled best-effort, DB is the source of truth"
+// rule and the existing PushAccountToAllClusters semantic — a transient
+// resolver hiccup must not block an operator from removing an account.
 func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error {
-	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+	var (
+		operatorID       uuid.UUID
+		accountPublicKey string
+		accountName      string
+	)
+
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		accountRepo := tx.AccountRepository()
 		operatorRepo := tx.OperatorRepository()
 
@@ -462,8 +489,32 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error 
 			return fmt.Errorf("emit account.deleted: %w", err)
 		}
 
+		operatorID = account.OperatorID
+		accountPublicKey = account.PublicKey
+		accountName = account.Name
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// DB commit succeeded — reconcile the resolver. clusterService is nil in
+	// tests that don't wire it; tolerate that without skipping the audit
+	// trail above.
+	if s.clusterService != nil && accountPublicKey != "" {
+		if delErrs := s.clusterService.DeleteAccountFromAllClusters(ctx, operatorID, accountPublicKey); len(delErrs) > 0 {
+			log := logging.LogFromContext(ctx)
+			for _, e := range delErrs {
+				log.Warn("account.deleted: resolver delete failed; run 'nisctl cluster sync --prune' to reconcile",
+					"account", accountName,
+					"account_public_key", accountPublicKey,
+					"error", e.Error,
+				)
+			}
+		}
+	}
+
+	return nil
 }
 
 // AccountJWTRevocationView denormalises a UserJWTRevocation with the user's

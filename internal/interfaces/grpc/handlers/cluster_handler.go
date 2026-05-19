@@ -480,8 +480,15 @@ func (h *ClusterHandler) GetClusterDriftStatus(
 
 	out := make([]*pb.AccountDriftRow, 0, len(rows))
 	for _, r := range rows {
+		// Orphan rows have no NIS-side account; sending uuid.Nil.String()
+		// ("00000000-...") would mislead any consumer that treats the
+		// field as "is there a NIS row?". Empty string is the contract.
+		accountID := ""
+		if r.AccountID != uuid.Nil {
+			accountID = r.AccountID.String()
+		}
 		out = append(out, &pb.AccountDriftRow{
-			AccountId:        r.AccountID.String(),
+			AccountId:        accountID,
 			AccountName:      r.AccountName,
 			AccountPublicKey: r.AccountPublicKey,
 			Status:           driftStatusToProto(r.Status),
@@ -545,6 +552,8 @@ func driftStatusToProto(s services.DriftStatus) pb.DriftStatus {
 		return pb.DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER
 	case services.DriftStatusUnreachable:
 		return pb.DriftStatus_DRIFT_STATUS_UNREACHABLE
+	case services.DriftStatusOrphanOnResolver:
+		return pb.DriftStatus_DRIFT_STATUS_ORPHAN_ON_RESOLVER
 	}
 	return pb.DriftStatus_DRIFT_STATUS_UNSPECIFIED
 }
