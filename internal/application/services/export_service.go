@@ -715,7 +715,7 @@ func (s *ExportService) ExportOperatorBytes(ctx context.Context, operatorID uuid
 
 // ImportOperatorBytes auto-detects JSON vs YAML by peeking at the first
 // non-whitespace byte. A leading '{' or '[' is JSON; anything else is YAML.
-// This lets clients write `cat export.{json,yaml} | nisctl import` without
+// This lets clients write `cat backup.{json,yaml} | nisctl restore` without
 // thinking about format. See ImportOperator for overwrite semantics.
 func (s *ExportService) ImportOperatorBytes(ctx context.Context, data []byte, overwrite bool) error {
 	exported, err := ParseExport(data)

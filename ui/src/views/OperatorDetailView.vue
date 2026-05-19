@@ -12,7 +12,7 @@
         <div>
           <button v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="btn btn-outline-success me-2" @click="showExportModal = true">
             <font-awesome-icon :icon="['fas', 'file-export']" class="me-2" />
-            Export
+            Backup
           </button>
           <router-link to="/operators" class="btn btn-outline-secondary">
             Back to Operators
@@ -267,12 +267,12 @@
       </div>
     </div>
 
-    <!-- Export Modal -->
+    <!-- Backup Modal -->
     <div v-if="showExportModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Export Operator</h5>
+            <h5 class="modal-title">Back up Operator</h5>
             <button type="button" class="btn-close" @click="closeExportModal"></button>
           </div>
           <div class="modal-body">
@@ -308,15 +308,15 @@
                   type="checkbox"
                 />
                 <label class="form-check-label" for="plaintextSecrets">
-                  <strong class="text-danger">DANGER:</strong> export seeds in plaintext
+                  <strong class="text-danger">DANGER:</strong> back up seeds in plaintext
                 </label>
                 <div class="form-text text-danger">
                   Decrypts every NKey seed with the server's current encryption key and writes them
                   as plaintext in the file. Use only for disaster-recovery backups that must remain
                   readable if the encryption key is lost. The resulting file is equivalent to a
                   plaintext NKey vault — anyone with read access can mint credentials for every
-                  entity in the export. When unchecked, seeds stay encrypted (same on-disk form as
-                  the database) and the destination must use the same encryption key to import.
+                  entity in the backup. When unchecked, seeds stay encrypted (same on-disk form as
+                  the database) and the destination must use the same encryption key to restore.
                 </div>
               </div>
             </div>
@@ -326,7 +326,7 @@
             <button type="button" class="btn btn-secondary" @click="closeExportModal">Cancel</button>
             <button type="button" class="btn btn-primary" @click="handleExport" :disabled="exporting">
               <span v-if="exporting" class="spinner-border spinner-border-sm me-2"></span>
-              Export
+              Back up
             </button>
           </div>
         </div>
@@ -556,7 +556,7 @@ const handleExport = async () => {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${operator.value.name}-export.${ext}`
+    a.download = `${operator.value.name}-backup.${ext}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -564,7 +564,7 @@ const handleExport = async () => {
 
     closeExportModal()
   } catch (err) {
-    exportError.value = err.response?.data?.message || 'Failed to export operator'
+    exportError.value = err.response?.data?.message || 'Failed to back up operator'
   } finally {
     exporting.value = false
   }

@@ -160,41 +160,41 @@ ENCRYPTION_KEY="exactly-32-bytes-..............." \
 **Development** - Quickly provision test credentials
 **Production** - Centralized credential management with encryption
 
-## Export & Import
+## Backup & Restore
 
-Operators (and everything underneath — accounts, users, scoped signing keys, clusters) can be backed up to and restored from a single file. Both **YAML** (default) and **JSON** are supported. Every export carries seed material — there is no "metadata-only" mode, because an export without seeds isn't restorable (the JWT's baked-in public key cannot be reproduced from a regenerated NKey pair).
+Operators (and everything underneath — accounts, users, scoped signing keys, clusters) can be backed up to and restored from a single file. Both **YAML** (default) and **JSON** are supported. Every backup carries seed material — there is no "metadata-only" mode, because a backup without seeds isn't restorable (the JWT's baked-in public key cannot be reproduced from a regenerated NKey pair).
 
 ```bash
 # Default: seeds stay encrypted with the server's current encryption key.
-# Importable only by a server that uses the same key.
-nisctl export operator my-operator -o backup.yaml
-nisctl export operator my-operator --format json -o backup.json
+# Restorable only by a server that uses the same key.
+nisctl backup operator my-operator -o backup.yaml
+nisctl backup operator my-operator --format json -o backup.json
 
 # Disaster-recovery: decrypt seeds and emit them as plaintext NKey seeds.
-# Importable by ANY server (the import re-encrypts with the destination's
+# Restorable by ANY server (the restore re-encrypts with the destination's
 # current key). Use this when you need a backup that survives encryption-key
 # loss or rotation.
 #
 # DANGER: the resulting file is a plaintext NKey vault — protect it like a
 # .creds file. Anyone with read access can mint credentials for every entity.
-nisctl export operator my-operator --plaintext-secrets -o backup-dr.yaml
+nisctl backup operator my-operator --plaintext-secrets -o backup-dr.yaml
 
-# Import. Format is auto-detected from the file contents — no flag needed,
+# Restore. Format is auto-detected from the file contents — no flag needed,
 # the same command handles either encoding, encrypted or plaintext.
-nisctl export import backup.yaml
-nisctl export import backup-dr.yaml
+nisctl restore backup.yaml
+nisctl restore backup-dr.yaml
 
 # Restore over an existing operator (same operator ID). Replaces the operator's
 # subtree — accounts, users, scoped signing keys — atomically. Attached
 # clusters are PRESERVED (they model live NATS infrastructure tied to the
-# operator JWT, and re-importing them from a stale backup would clobber
-# running state). Without --overwrite, importing over an existing operator
+# operator JWT, and restoring them from a stale backup would clobber
+# running state). Without --overwrite, restoring over an existing operator
 # ID is refused, since silently truncating accounts/users created since the
-# export is a footgun.
-nisctl export import backup.yaml --overwrite
+# backup is a footgun.
+nisctl restore backup.yaml --overwrite
 ```
 
-Imports are atomic: the whole flow runs in a single database transaction, so a mid-import failure rolls every partial write back instead of leaving orphan accounts behind. The same applies to `nisctl export import-nsc <archive> <operator-name>`, which ingests a tar/zip of an existing `~/.nsc/stores` tree (the other direction — migrating off `nsc`).
+Restores are atomic: the whole flow runs in a single database transaction, so a mid-restore failure rolls every partial write back instead of leaving orphan accounts behind. The same applies to `nisctl import-nsc <archive> <operator-name>`, which ingests a tar/zip of an existing `~/.nsc/stores` tree (the other direction — migrating off `nsc`).
 
 **Deleting an operator** is refused while clusters are still attached to it. `clusters.operator_id` is `ON DELETE RESTRICT` because clusters model live NATS servers configured with the operator's JWT — a silent cascade would lose track of running infrastructure. Delete (or detach by deleting) every attached cluster first, then the operator delete will succeed. The error message names the offending clusters so you know which to clean up.
 

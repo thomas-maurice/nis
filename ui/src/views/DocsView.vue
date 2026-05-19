@@ -65,7 +65,7 @@
         </h5>
         <p class="card-text">
           <code>nisctl</code> is the command-line client for this server. It owns
-          operator/account/user CRUD, cluster sync, exports, and the bulk
+          operator/account/user CRUD, cluster sync, backup/restore, and the bulk
           manifest workflow described below.
         </p>
 
