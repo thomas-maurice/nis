@@ -144,6 +144,10 @@ type Recorder struct {
 	userJWTExpiringSoonEvents metric.Int64Counter
 	userJWTExpiredEvents      metric.Int64Counter
 	userJWTAutoRenewals       metric.Int64Counter
+
+	// P9 — cluster drift dashboard.
+	clusterDriftScans   metric.Int64Counter
+	clusterDriftResults metric.Int64Counter
 }
 
 func newRecorder(m metric.Meter) (*Recorder, error) {
@@ -241,6 +245,18 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 	if r.userJWTAutoRenewals, err = m.Int64Counter(
 		"nis_user_jwt_auto_renewals_total",
 		metric.WithDescription("Total automatic user JWT renewals attempted by the sweeper, labelled by status (ok/err)."),
+	); err != nil {
+		return nil, err
+	}
+	if r.clusterDriftScans, err = m.Int64Counter(
+		"nis_cluster_drift_scans_total",
+		metric.WithDescription("Total cluster drift scans performed, labelled by outcome (ok/partial/error). 'partial' means the scan returned per-row results but at least one row was not in_sync."),
+	); err != nil {
+		return nil, err
+	}
+	if r.clusterDriftResults, err = m.Int64Counter(
+		"nis_cluster_drift_results_total",
+		metric.WithDescription("Total per-account drift classifications produced by scans, labelled by status. No cluster_id/account_id labels — cardinality is bounded by the status enum."),
 	); err != nil {
 		return nil, err
 	}
@@ -371,4 +387,24 @@ func (r *Recorder) RecordEventEmitted(ctx context.Context, eventType string) {
 		return
 	}
 	r.eventsEmitted.Add(ctx, 1, metric.WithAttributes(attribute.String("type", eventType)))
+}
+
+// RecordClusterDriftScan increments the per-scan outcome counter.
+// outcome: "ok" (all rows in_sync), "partial" (some rows not in_sync or
+// unreachable), "error" (scan failed before producing rows).
+func (r *Recorder) RecordClusterDriftScan(ctx context.Context, outcome string) {
+	if r == nil {
+		return
+	}
+	r.clusterDriftScans.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+}
+
+// RecordClusterDriftResult increments the per-row drift classification counter.
+// status is the lowercase enum label: in_sync, db_ahead, out_of_band,
+// missing_on_resolver, unreachable.
+func (r *Recorder) RecordClusterDriftResult(ctx context.Context, status string) {
+	if r == nil {
+		return
+	}
+	r.clusterDriftResults.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }

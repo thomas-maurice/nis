@@ -265,6 +265,7 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `scoped_key.created` / `scoped_key.updated` / `scoped_key.deleted` | Signing-key lifecycle |
 | `cluster.created` / `cluster.updated` / `cluster.deleted` | Cluster lifecycle |
 | `cluster.synced` / `cluster.sync_failed` | Each `SyncCluster` call |
+| `cluster.account.synced` | `ReconcileAccountOnCluster` pushed a single account's JWT to one cluster (P9 drift fix) |
 | `cluster.health_changed` | The 60s probe sees a healthy→unhealthy or unhealthy→healthy transition |
 | `webhook.test` | Operator clicks "Send Test" on a subscription |
 | `api_token.created` / `api_token.revoked` | Service-account API token lifecycle |
@@ -641,6 +642,60 @@ What is reported per cluster (counts and bytes are cluster-wide aggregates):
 
 This is a read-only inspection — no DB writes, no events, no cluster mutation.
 The system user already has access to `$SYS.REQ.ACCOUNT.*` by design.
+
+## Sync drift detection (P9)
+
+`nisctl cluster sync` pushes the NIS-DB JWTs to a cluster's NATS full-resolver,
+but once that completes there's no built-in way to know whether the resolver
+still agrees with NIS: a forgotten regen, a partial sync, or someone running
+`nsc push` out-of-band can leave the two stores diverged. The drift dashboard
+compares NIS's stored JWT against the resolver's JWT for every account on the
+operator and reports the relationship per row.
+
+```bash
+# Show drift for one cluster (in-sync accounts hidden by default)
+nisctl cluster drift demo-cluster
+
+# Include in-sync rows too — useful as a full inventory
+nisctl cluster drift demo-cluster --include-in-sync
+
+# Push one account's JWT to one cluster (the "fix this row" action)
+nisctl cluster reconcile-account demo-cluster --operator demo-operator --account app-account
+```
+
+The UI surfaces the same data on the Cluster detail page: an "Account sync
+status" table with a Refresh button (manual; no auto-poll, to avoid ambient
+NATS load) and a per-row Reconcile button. Reconcile pushes the single
+account's NIS-stored JWT to the cluster — much cheaper than a full
+`SyncCluster` when only one row is out of date.
+
+Per-account status values:
+
+- `in_sync` — resolver returned a JWT that matches NIS's stored JWT.
+- `db_ahead` — both decode; NIS's JWT was issued later than the resolver's.
+  Standard "regenerated, didn't push yet" state. Reconcile pushes the new JWT.
+- `out_of_band` — resolver has a JWT NIS does not recognise (resolver's iat is
+  newer than NIS's, or contents diverge at equal iat). Something other than
+  NIS pushed to this resolver — investigate. Reconcile from NIS overwrites
+  the resolver.
+- `missing_on_resolver` — NIS has the account in its DB but the resolver
+  returns no JWT for the account's public key. Reconcile pushes the JWT.
+- `unreachable` — cluster could not be probed (dial failed, no resolver
+  responder, decrypt failure, timeout). Per-row `error_message` carries the
+  underlying reason. No drift assertion is possible until the cluster is
+  reachable again.
+
+The comparison primitive is cheap: equality on the raw encoded JWT first
+(the common IN_SYNC case after a fresh sync), and only on mismatch does it
+decode both via `nats-io/jwt/v2` and classify by issued-at ordering. The
+event `cluster.account.synced` fires on a successful reconcile so the audit
+log records who pushed what to where.
+
+Currently scoped to admin (same gate as `SyncCluster`'s handler). A
+`unknown_to_nis` category — resolver has accounts NIS does not — is deferred
+to a follow-up because it requires listing every resolver-side account
+(`$SYS.REQ.CLAIMS.LIST`) and cross-referencing, and the operator-facing
+value of seeing it is less obvious than the four states above.
 
 ## Bulk operations (manifest apply/diff/delete/dump)
 

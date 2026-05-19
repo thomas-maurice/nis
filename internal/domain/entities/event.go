@@ -40,6 +40,7 @@ const (
 	EventTypeClusterSynced        = "cluster.synced"
 	EventTypeClusterSyncFailed    = "cluster.sync_failed"
 	EventTypeClusterHealthChanged = "cluster.health_changed"
+	EventTypeClusterAccountSynced = "cluster.account.synced"
 	EventTypeWebhookTest          = "webhook.test"
 	EventTypeAPITokenCreated      = "api_token.created"
 	EventTypeAPITokenRevoked      = "api_token.revoked"

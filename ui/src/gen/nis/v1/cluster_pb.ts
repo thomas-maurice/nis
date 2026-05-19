@@ -4,8 +4,72 @@
 // @ts-nocheck
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
-import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 import { ListOptions } from "./common_pb.js";
+
+/**
+ * DriftStatus describes the relationship between the account JWT held in NIS's
+ * database and the JWT currently stored on the NATS full-resolver for one
+ * (account, cluster) pair. Returned by GetClusterDriftStatus.
+ *
+ * @generated from enum nis.v1.DriftStatus
+ */
+export enum DriftStatus {
+  /**
+   * @generated from enum value: DRIFT_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The resolver returned a JWT whose content matches the NIS-DB JWT.
+   *
+   * @generated from enum value: DRIFT_STATUS_IN_SYNC = 1;
+   */
+  IN_SYNC = 1,
+
+  /**
+   * The resolver returned a JWT, but NIS's JWT was issued later. Standard
+   * "regenerated in NIS, not pushed yet" state — reconcilable via a push.
+   *
+   * @generated from enum value: DRIFT_STATUS_DB_AHEAD = 2;
+   */
+  DB_AHEAD = 2,
+
+  /**
+   * The resolver returned a JWT that NIS does not recognise (resolver iat
+   * >= NIS iat, or contents diverge at the same iat). Something other than
+   * NIS pushed to this resolver — investigate. Push from NIS rewinds.
+   *
+   * @generated from enum value: DRIFT_STATUS_OUT_OF_BAND = 3;
+   */
+  OUT_OF_BAND = 3,
+
+  /**
+   * NIS has the account in its DB but the resolver returns no JWT for the
+   * account's public key. Reconcilable via a push.
+   *
+   * @generated from enum value: DRIFT_STATUS_MISSING_ON_RESOLVER = 4;
+   */
+  MISSING_ON_RESOLVER = 4,
+
+  /**
+   * The cluster could not be probed (dial failed, no resolver responder,
+   * mem-resolver mode, decrypt failure, timeout). No drift assertion is
+   * possible — error_message carries the underlying reason.
+   *
+   * @generated from enum value: DRIFT_STATUS_UNREACHABLE = 5;
+   */
+  UNREACHABLE = 5,
+}
+// Retrieve enum metadata with: proto3.getEnumType(DriftStatus)
+proto3.util.setEnumType(DriftStatus, "nis.v1.DriftStatus", [
+  { no: 0, name: "DRIFT_STATUS_UNSPECIFIED" },
+  { no: 1, name: "DRIFT_STATUS_IN_SYNC" },
+  { no: 2, name: "DRIFT_STATUS_DB_AHEAD" },
+  { no: 3, name: "DRIFT_STATUS_OUT_OF_BAND" },
+  { no: 4, name: "DRIFT_STATUS_MISSING_ON_RESOLVER" },
+  { no: 5, name: "DRIFT_STATUS_UNREACHABLE" },
+]);
 
 /**
  * Cluster represents a NATS cluster configuration
@@ -1236,6 +1300,270 @@ export class DeleteResolverAccountResponse extends Message<DeleteResolverAccount
 
   static equals(a: DeleteResolverAccountResponse | PlainMessage<DeleteResolverAccountResponse> | undefined, b: DeleteResolverAccountResponse | PlainMessage<DeleteResolverAccountResponse> | undefined): boolean {
     return proto3.util.equals(DeleteResolverAccountResponse, a, b);
+  }
+}
+
+/**
+ * AccountDriftRow describes one (account, cluster) drift comparison.
+ *
+ * @generated from message nis.v1.AccountDriftRow
+ */
+export class AccountDriftRow extends Message<AccountDriftRow> {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId = "";
+
+  /**
+   * @generated from field: string account_name = 2;
+   */
+  accountName = "";
+
+  /**
+   * @generated from field: string account_public_key = 3;
+   */
+  accountPublicKey = "";
+
+  /**
+   * @generated from field: nis.v1.DriftStatus status = 4;
+   */
+  status = DriftStatus.UNSPECIFIED;
+
+  /**
+   * Unix seconds. 0 if NIS's stored JWT could not be decoded (unlikely).
+   *
+   * @generated from field: int64 nis_jwt_iat = 5;
+   */
+  nisJwtIat = protoInt64.zero;
+
+  /**
+   * Unix seconds. 0 when no JWT could be fetched from the resolver
+   * (MISSING_ON_RESOLVER / UNREACHABLE) or when its decode failed.
+   *
+   * @generated from field: int64 resolver_jwt_iat = 6;
+   */
+  resolverJwtIat = protoInt64.zero;
+
+  /**
+   * jwt v2 claim ID. Empty under the same conditions as the iat fields.
+   *
+   * @generated from field: string nis_jwt_jti = 7;
+   */
+  nisJwtJti = "";
+
+  /**
+   * @generated from field: string resolver_jwt_jti = 8;
+   */
+  resolverJwtJti = "";
+
+  /**
+   * Populated for non-OK statuses; the underlying decrypt/dial/decode error.
+   *
+   * @generated from field: string error_message = 9;
+   */
+  errorMessage = "";
+
+  constructor(data?: PartialMessage<AccountDriftRow>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.AccountDriftRow";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "account_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "account_public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "status", kind: "enum", T: proto3.getEnumType(DriftStatus) },
+    { no: 5, name: "nis_jwt_iat", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 6, name: "resolver_jwt_iat", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 7, name: "nis_jwt_jti", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "resolver_jwt_jti", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AccountDriftRow {
+    return new AccountDriftRow().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AccountDriftRow {
+    return new AccountDriftRow().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AccountDriftRow {
+    return new AccountDriftRow().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AccountDriftRow | PlainMessage<AccountDriftRow> | undefined, b: AccountDriftRow | PlainMessage<AccountDriftRow> | undefined): boolean {
+    return proto3.util.equals(AccountDriftRow, a, b);
+  }
+}
+
+/**
+ * GetClusterDriftStatusRequest is the request to scan an entire cluster's
+ * account JWT state against the NIS DB.
+ *
+ * @generated from message nis.v1.GetClusterDriftStatusRequest
+ */
+export class GetClusterDriftStatusRequest extends Message<GetClusterDriftStatusRequest> {
+  /**
+   * @generated from field: string cluster_id = 1;
+   */
+  clusterId = "";
+
+  /**
+   * When false (default), IN_SYNC rows are omitted from the response. Set true
+   * to receive the full per-account table, including healthy entries.
+   *
+   * @generated from field: bool include_in_sync = 2;
+   */
+  includeInSync = false;
+
+  constructor(data?: PartialMessage<GetClusterDriftStatusRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.GetClusterDriftStatusRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cluster_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "include_in_sync", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetClusterDriftStatusRequest {
+    return new GetClusterDriftStatusRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetClusterDriftStatusRequest {
+    return new GetClusterDriftStatusRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetClusterDriftStatusRequest {
+    return new GetClusterDriftStatusRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetClusterDriftStatusRequest | PlainMessage<GetClusterDriftStatusRequest> | undefined, b: GetClusterDriftStatusRequest | PlainMessage<GetClusterDriftStatusRequest> | undefined): boolean {
+    return proto3.util.equals(GetClusterDriftStatusRequest, a, b);
+  }
+}
+
+/**
+ * GetClusterDriftStatusResponse returns one row per account on the operator,
+ * sorted by account name.
+ *
+ * @generated from message nis.v1.GetClusterDriftStatusResponse
+ */
+export class GetClusterDriftStatusResponse extends Message<GetClusterDriftStatusResponse> {
+  /**
+   * @generated from field: repeated nis.v1.AccountDriftRow rows = 1;
+   */
+  rows: AccountDriftRow[] = [];
+
+  constructor(data?: PartialMessage<GetClusterDriftStatusResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.GetClusterDriftStatusResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "rows", kind: "message", T: AccountDriftRow, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetClusterDriftStatusResponse {
+    return new GetClusterDriftStatusResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetClusterDriftStatusResponse {
+    return new GetClusterDriftStatusResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetClusterDriftStatusResponse {
+    return new GetClusterDriftStatusResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetClusterDriftStatusResponse | PlainMessage<GetClusterDriftStatusResponse> | undefined, b: GetClusterDriftStatusResponse | PlainMessage<GetClusterDriftStatusResponse> | undefined): boolean {
+    return proto3.util.equals(GetClusterDriftStatusResponse, a, b);
+  }
+}
+
+/**
+ * ReconcileAccountOnClusterRequest pushes one account's NIS-stored JWT to one
+ * specific cluster — the "fix this row" action paired with the drift table.
+ *
+ * @generated from message nis.v1.ReconcileAccountOnClusterRequest
+ */
+export class ReconcileAccountOnClusterRequest extends Message<ReconcileAccountOnClusterRequest> {
+  /**
+   * @generated from field: string cluster_id = 1;
+   */
+  clusterId = "";
+
+  /**
+   * @generated from field: string account_id = 2;
+   */
+  accountId = "";
+
+  constructor(data?: PartialMessage<ReconcileAccountOnClusterRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ReconcileAccountOnClusterRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cluster_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReconcileAccountOnClusterRequest {
+    return new ReconcileAccountOnClusterRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReconcileAccountOnClusterRequest {
+    return new ReconcileAccountOnClusterRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReconcileAccountOnClusterRequest {
+    return new ReconcileAccountOnClusterRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReconcileAccountOnClusterRequest | PlainMessage<ReconcileAccountOnClusterRequest> | undefined, b: ReconcileAccountOnClusterRequest | PlainMessage<ReconcileAccountOnClusterRequest> | undefined): boolean {
+    return proto3.util.equals(ReconcileAccountOnClusterRequest, a, b);
+  }
+}
+
+/**
+ * ReconcileAccountOnClusterResponse is empty on success.
+ *
+ * @generated from message nis.v1.ReconcileAccountOnClusterResponse
+ */
+export class ReconcileAccountOnClusterResponse extends Message<ReconcileAccountOnClusterResponse> {
+  constructor(data?: PartialMessage<ReconcileAccountOnClusterResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ReconcileAccountOnClusterResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReconcileAccountOnClusterResponse {
+    return new ReconcileAccountOnClusterResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReconcileAccountOnClusterResponse {
+    return new ReconcileAccountOnClusterResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReconcileAccountOnClusterResponse {
+    return new ReconcileAccountOnClusterResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReconcileAccountOnClusterResponse | PlainMessage<ReconcileAccountOnClusterResponse> | undefined, b: ReconcileAccountOnClusterResponse | PlainMessage<ReconcileAccountOnClusterResponse> | undefined): boolean {
+    return proto3.util.equals(ReconcileAccountOnClusterResponse, a, b);
   }
 }
 

@@ -446,6 +446,109 @@ func (h *ClusterHandler) ListResolverAccounts(
 	}), nil
 }
 
+// GetClusterDriftStatus scans the cluster for per-account drift between the
+// NIS-DB JWT and the resolver-stored JWT. Permission gating mirrors
+// GetCluster (read access to the owning operator) — surfacing what's wrong
+// is a read action; the matching write is ReconcileAccountOnCluster.
+func (h *ClusterHandler) GetClusterDriftStatus(
+	ctx context.Context,
+	req *connect.Request[pb.GetClusterDriftStatusRequest],
+) (*connect.Response[pb.GetClusterDriftStatusResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	clusterID, err := mappers.ParseUUID(req.Msg.ClusterId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	cluster, err := h.service.GetCluster(ctx, clusterID)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	if err := h.permService.CanReadOperator(ctx, requestingUser, cluster.OperatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	rows, err := h.service.ScanClusterDrift(ctx, clusterID, req.Msg.IncludeInSync)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*pb.AccountDriftRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &pb.AccountDriftRow{
+			AccountId:        r.AccountID.String(),
+			AccountName:      r.AccountName,
+			AccountPublicKey: r.AccountPublicKey,
+			Status:           driftStatusToProto(r.Status),
+			NisJwtIat:        r.NISJwtIAT,
+			ResolverJwtIat:   r.ResolverJwtIAT,
+			NisJwtJti:        r.NISJwtJTI,
+			ResolverJwtJti:   r.ResolverJwtJTI,
+			ErrorMessage:     r.ErrorMessage,
+		})
+	}
+
+	return connect.NewResponse(&pb.GetClusterDriftStatusResponse{Rows: out}), nil
+}
+
+// ReconcileAccountOnCluster pushes one account's JWT to one cluster. Gated by
+// CanUpdateOperator to match SyncCluster's existing choice — promoting both
+// to CanSyncCluster is a separate cleanup tracked in PROPOSALS.md.
+func (h *ClusterHandler) ReconcileAccountOnCluster(
+	ctx context.Context,
+	req *connect.Request[pb.ReconcileAccountOnClusterRequest],
+) (*connect.Response[pb.ReconcileAccountOnClusterResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	clusterID, err := mappers.ParseUUID(req.Msg.ClusterId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	cluster, err := h.service.GetCluster(ctx, clusterID)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	if err := h.permService.CanUpdateOperator(requestingUser, cluster.OperatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	if err := h.service.ReconcileAccountOnCluster(ctx, clusterID, accountID); err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	return connect.NewResponse(&pb.ReconcileAccountOnClusterResponse{}), nil
+}
+
+func driftStatusToProto(s services.DriftStatus) pb.DriftStatus {
+	switch s {
+	case services.DriftStatusInSync:
+		return pb.DriftStatus_DRIFT_STATUS_IN_SYNC
+	case services.DriftStatusDBAhead:
+		return pb.DriftStatus_DRIFT_STATUS_DB_AHEAD
+	case services.DriftStatusOutOfBand:
+		return pb.DriftStatus_DRIFT_STATUS_OUT_OF_BAND
+	case services.DriftStatusMissingOnResolver:
+		return pb.DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER
+	case services.DriftStatusUnreachable:
+		return pb.DriftStatus_DRIFT_STATUS_UNREACHABLE
+	}
+	return pb.DriftStatus_DRIFT_STATUS_UNSPECIFIED
+}
+
 // DeleteResolverAccount removes an account from the NATS resolver
 func (h *ClusterHandler) DeleteResolverAccount(
 	ctx context.Context,

@@ -268,6 +268,9 @@ func (c *fakeAccountClient) PushAccountJWT(_ context.Context, _ *connect.Request
 func (c *fakeAccountClient) ListAccountJWTRevocations(_ context.Context, _ *connect.Request[nisv1.ListAccountJWTRevocationsRequest]) (*connect.Response[nisv1.ListAccountJWTRevocationsResponse], error) {
 	panic("not used in apply/delete")
 }
+func (c *fakeAccountClient) GetAccountJetStreamUsage(_ context.Context, _ *connect.Request[nisv1.GetAccountJetStreamUsageRequest]) (*connect.Response[nisv1.GetAccountJetStreamUsageResponse], error) {
+	panic("not used in apply/delete")
+}
 
 // ---- user client ----
 
@@ -497,5 +500,11 @@ func (c *fakeClusterClient) ListResolverAccounts(_ context.Context, _ *connect.R
 	panic("not used in apply/delete")
 }
 func (c *fakeClusterClient) DeleteResolverAccount(_ context.Context, _ *connect.Request[nisv1.DeleteResolverAccountRequest]) (*connect.Response[nisv1.DeleteResolverAccountResponse], error) {
+	panic("not used in apply/delete")
+}
+func (c *fakeClusterClient) GetClusterDriftStatus(_ context.Context, _ *connect.Request[nisv1.GetClusterDriftStatusRequest]) (*connect.Response[nisv1.GetClusterDriftStatusResponse], error) {
+	panic("not used in apply/delete")
+}
+func (c *fakeClusterClient) ReconcileAccountOnCluster(_ context.Context, _ *connect.Request[nisv1.ReconcileAccountOnClusterRequest]) (*connect.Response[nisv1.ReconcileAccountOnClusterResponse], error) {
 	panic("not used in apply/delete")
 }

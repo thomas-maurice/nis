@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -67,13 +68,42 @@ var clusterDeleteResolverAccountCmd = &cobra.Command{
 	RunE:  runClusterDeleteResolverAccount,
 }
 
+var clusterDriftCmd = &cobra.Command{
+	Use:   "drift ID_OR_NAME",
+	Short: "Compare cluster resolver JWTs against the NIS database",
+	Long: `Scan every account on the operator and report whether each account's
+NIS-DB JWT matches what the NATS full-resolver currently has stored.
+
+Status values:
+  in_sync             — resolver agrees with NIS DB
+  db_ahead            — NIS regenerated, push needed (use 'reconcile-account')
+  out_of_band         — resolver has a JWT NIS does not recognise
+  missing_on_resolver — NIS has it, resolver does not
+  unreachable         — could not probe (dial / decrypt / resolver error)`,
+	Args: cobra.ExactArgs(1),
+	RunE: runClusterDrift,
+}
+
+var clusterReconcileAccountCmd = &cobra.Command{
+	Use:   "reconcile-account CLUSTER_ID_OR_NAME",
+	Short: "Push a single account's JWT to one cluster",
+	Long: `Push the NIS-DB JWT for a single account to the specified cluster's NATS
+resolver. Intended for "fix this drifted row" — much cheaper than 'cluster sync'
+when only one account is out of date.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runClusterReconcileAccount,
+}
+
 var (
-	clusterOperatorID   string
-	clusterURLs         []string
-	clusterDescription  string
-	clusterForce        bool
-	clusterSyncPrune    bool
-	clusterDeleteForce  bool
+	clusterOperatorID        string
+	clusterURLs              []string
+	clusterDescription       string
+	clusterForce             bool
+	clusterSyncPrune         bool
+	clusterDeleteForce       bool
+	clusterDriftIncludeInSync bool
+	clusterReconcileOperator string
+	clusterReconcileAccount  string
 )
 
 func init() {
@@ -86,6 +116,8 @@ func init() {
 	clusterCmd.AddCommand(clusterSyncCmd)
 	clusterCmd.AddCommand(clusterResolverAccountsCmd)
 	clusterCmd.AddCommand(clusterDeleteResolverAccountCmd)
+	clusterCmd.AddCommand(clusterDriftCmd)
+	clusterCmd.AddCommand(clusterReconcileAccountCmd)
 
 	clusterCreateCmd.Flags().StringVar(&clusterOperatorID, "operator", "", "operator ID or name (required)")
 	clusterCreateCmd.Flags().StringSliceVar(&clusterURLs, "urls", []string{}, "NATS server URLs (required)")
@@ -98,6 +130,13 @@ func init() {
 	clusterSyncCmd.Flags().BoolVar(&clusterSyncPrune, "prune", false, "remove accounts from resolver that are not in the database")
 
 	clusterDeleteResolverAccountCmd.Flags().BoolVarP(&clusterDeleteForce, "force", "f", false, "skip confirmation prompt")
+
+	clusterDriftCmd.Flags().BoolVar(&clusterDriftIncludeInSync, "include-in-sync", false, "include accounts whose resolver JWT matches NIS")
+
+	clusterReconcileAccountCmd.Flags().StringVar(&clusterReconcileOperator, "operator", "", "operator ID or name (required)")
+	clusterReconcileAccountCmd.Flags().StringVar(&clusterReconcileAccount, "account", "", "account name to reconcile (required)")
+	_ = clusterReconcileAccountCmd.MarkFlagRequired("operator")
+	_ = clusterReconcileAccountCmd.MarkFlagRequired("account")
 }
 
 func runClusterCreate(cmd *cobra.Command, args []string) error {
@@ -399,6 +438,119 @@ func runClusterDeleteResolverAccount(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runClusterDrift(cmd *cobra.Command, args []string) error {
+	idOrName := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	clusterID, err := resolveClusterID(idOrName)
+	if err != nil {
+		return err
+	}
+
+	req := connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+		ClusterId:     clusterID,
+		IncludeInSync: clusterDriftIncludeInSync,
+	})
+	resp, err := GetClient().Cluster.GetClusterDriftStatus(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to scan cluster drift: %w", err)
+	}
+
+	if len(resp.Msg.Rows) == 0 {
+		if GetOutputFormat() != "quiet" {
+			if clusterDriftIncludeInSync {
+				printer.PrintMessage("No accounts found on this operator")
+			} else {
+				printer.PrintMessage("No drifted accounts — every account is in_sync")
+			}
+		}
+		return nil
+	}
+
+	if GetOutputFormat() == "table" {
+		headers := []string{"ACCOUNT", "STATUS", "NIS IAT", "RESOLVER IAT", "ERROR"}
+		rows := make([][]string, len(resp.Msg.Rows))
+		for i, r := range resp.Msg.Rows {
+			rows[i] = []string{
+				r.AccountName,
+				driftStatusLabelFromProto(r.Status),
+				formatIATAsLocal(r.NisJwtIat),
+				formatIATAsLocal(r.ResolverJwtIat),
+				truncate(r.ErrorMessage, 60),
+			}
+		}
+		return printer.PrintTable(headers, rows)
+	}
+
+	return printer.PrintList(resp.Msg.Rows)
+}
+
+func runClusterReconcileAccount(cmd *cobra.Command, args []string) error {
+	idOrName := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	clusterID, err := resolveClusterID(idOrName)
+	if err != nil {
+		return err
+	}
+
+	operatorID, err := resolveOperatorID(clusterReconcileOperator)
+	if err != nil {
+		return err
+	}
+
+	// Resolve account by name within the operator.
+	accReq := connect.NewRequest(&nisv1.GetAccountByNameRequest{
+		OperatorId: operatorID,
+		Name:       clusterReconcileAccount,
+	})
+	accResp, err := GetClient().Account.GetAccountByName(context.Background(), accReq)
+	if err != nil {
+		return fmt.Errorf("account %q not found in operator %q: %w", clusterReconcileAccount, clusterReconcileOperator, err)
+	}
+
+	req := connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
+		ClusterId: clusterID,
+		AccountId: accResp.Msg.Account.Id,
+	})
+	if _, err := GetClient().Cluster.ReconcileAccountOnCluster(context.Background(), req); err != nil {
+		return fmt.Errorf("failed to reconcile account: %w", err)
+	}
+
+	if GetOutputFormat() != "quiet" {
+		printer.PrintSuccess("Pushed account %q to cluster", clusterReconcileAccount)
+	}
+	return nil
+}
+
+// driftStatusLabelFromProto mirrors the lowercase label set used in the
+// metrics counter so CLI output and Prometheus labels agree.
+func driftStatusLabelFromProto(s nisv1.DriftStatus) string {
+	switch s {
+	case nisv1.DriftStatus_DRIFT_STATUS_IN_SYNC:
+		return "in_sync"
+	case nisv1.DriftStatus_DRIFT_STATUS_DB_AHEAD:
+		return "db_ahead"
+	case nisv1.DriftStatus_DRIFT_STATUS_OUT_OF_BAND:
+		return "out_of_band"
+	case nisv1.DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER:
+		return "missing_on_resolver"
+	case nisv1.DriftStatus_DRIFT_STATUS_UNREACHABLE:
+		return "unreachable"
+	}
+	return "unspecified"
+}
+
+// formatIATAsLocal renders a Unix-seconds JWT IssuedAt in the viewer's local
+// timezone, matching the codebase rule (SKILL §2 "Time discipline"): storage
+// is UTC, display converts at the edge.
+func formatIATAsLocal(iat int64) string {
+	if iat == 0 {
+		return "-"
+	}
+	return time.Unix(iat, 0).Local().Format("2006-01-02 15:04:05")
 }
 
 func resolveClusterID(idOrName string) (string, error) {

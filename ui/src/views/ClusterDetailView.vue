@@ -105,6 +105,87 @@
           </div>
         </div>
       </div>
+
+      <!-- Sync drift panel (P9). Refresh is on-demand only; no auto-poll
+           to avoid ambient NATS load. Matches AccountDetailView.vue's
+           JetStream-usage card pattern. -->
+      <div class="card mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <div>
+            <h5 class="mb-0">Account sync status</h5>
+            <small class="text-muted">Compares each account's NIS-DB JWT against what this cluster's resolver has stored.</small>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <div class="form-check form-switch m-0">
+              <input class="form-check-input" type="checkbox" id="driftIncludeInSync" v-model="driftIncludeInSync" @change="loadDrift">
+              <label class="form-check-label small" for="driftIncludeInSync">Show in-sync</label>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" @click="loadDrift" :disabled="driftLoading">
+              <span v-if="driftLoading" class="spinner-border spinner-border-sm me-2"></span>
+              <font-awesome-icon v-else :icon="['fas', 'sync']" class="me-2" />
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div v-if="driftError" class="alert alert-danger">{{ driftError }}</div>
+
+          <div v-if="!driftLoaded && !driftLoading" class="text-muted small">
+            Click <strong>Refresh</strong> to scan this cluster's resolver.
+          </div>
+
+          <div v-else-if="driftLoaded && driftRows.length === 0" class="text-success small">
+            <font-awesome-icon :icon="['fas', 'check-circle']" class="me-1" />
+            <span v-if="driftIncludeInSync">No accounts on this operator.</span>
+            <span v-else>No drifted accounts — every account is in sync.</span>
+          </div>
+
+          <div v-else-if="driftRows.length > 0" class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Status</th>
+                  <th>NIS JWT issued</th>
+                  <th>Resolver JWT issued</th>
+                  <th>Detail</th>
+                  <th class="text-end">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in driftRows" :key="row.accountId">
+                  <td>
+                    <router-link :to="`/accounts/${row.accountId}`">{{ row.accountName }}</router-link>
+                  </td>
+                  <td>
+                    <span :class="driftBadgeClass(row.status)">{{ driftStatusLabel(row.status) }}</span>
+                  </td>
+                  <td><small>{{ formatIAT(row.nisJwtIat) }}</small></td>
+                  <td><small>{{ formatIAT(row.resolverJwtIat) }}</small></td>
+                  <td>
+                    <small v-if="row.errorMessage" class="text-muted">{{ row.errorMessage }}</small>
+                    <small v-else class="text-muted">-</small>
+                  </td>
+                  <td class="text-end">
+                    <button
+                      v-if="canReconcile(row.status)"
+                      class="btn btn-sm btn-outline-primary"
+                      :disabled="reconcilingAccountId === row.accountId"
+                      @click="reconcile(row)">
+                      <span v-if="reconcilingAccountId === row.accountId" class="spinner-border spinner-border-sm me-1"></span>
+                      Reconcile
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <small v-if="driftLastChecked" class="text-muted d-block mt-2">
+            Last checked: {{ formatDate(driftLastChecked.toISOString()) }}
+          </small>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -122,6 +203,16 @@ const syncing = ref(false)
 const syncSuccess = ref('')
 const syncError = ref('')
 let refreshInterval = null
+
+// Drift-panel state. Loaded on demand only — no auto-poll to keep ambient
+// NATS load off the operator's cluster (one connection per scan).
+const driftLoading = ref(false)
+const driftLoaded = ref(false)
+const driftError = ref('')
+const driftRows = ref([])
+const driftIncludeInSync = ref(false)
+const driftLastChecked = ref(null)
+const reconcilingAccountId = ref('')
 
 const loadCluster = async () => {
   loading.value = true
@@ -168,6 +259,86 @@ const syncCluster = async () => {
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString()
+}
+
+const formatIAT = (iat) => {
+  // JWT iat is Unix seconds. Display in the viewer's local timezone (per
+  // SKILL §2 — storage is UTC, conversion happens at the display edge).
+  if (!iat || iat === '0' || iat === 0) return '-'
+  const n = typeof iat === 'string' ? parseInt(iat, 10) : iat
+  if (!n) return '-'
+  return new Date(n * 1000).toLocaleString()
+}
+
+// Drift status enum values come back as strings in JSON (Connect-RPC's
+// default encoding). Map to UI label + badge color.
+const driftStatusLabel = (status) => {
+  switch (status) {
+    case 'DRIFT_STATUS_IN_SYNC': return 'in sync'
+    case 'DRIFT_STATUS_DB_AHEAD': return 'db ahead'
+    case 'DRIFT_STATUS_OUT_OF_BAND': return 'out of band'
+    case 'DRIFT_STATUS_MISSING_ON_RESOLVER': return 'missing on resolver'
+    case 'DRIFT_STATUS_UNREACHABLE': return 'unreachable'
+    default: return status || 'unknown'
+  }
+}
+
+const driftBadgeClass = (status) => {
+  // Green = good; yellow = NIS knows the fix; red = something else touched
+  // the resolver (operator investigation territory); grey = no signal.
+  switch (status) {
+    case 'DRIFT_STATUS_IN_SYNC': return 'badge bg-success'
+    case 'DRIFT_STATUS_DB_AHEAD':
+    case 'DRIFT_STATUS_MISSING_ON_RESOLVER': return 'badge bg-warning text-dark'
+    case 'DRIFT_STATUS_OUT_OF_BAND': return 'badge bg-danger'
+    case 'DRIFT_STATUS_UNREACHABLE': return 'badge bg-secondary'
+    default: return 'badge bg-secondary'
+  }
+}
+
+const canReconcile = (status) => {
+  // Reconcile pushes NIS's JWT to the resolver. Useful when the resolver
+  // is behind NIS (DB_AHEAD / MISSING_ON_RESOLVER) or has been touched
+  // out-of-band (OUT_OF_BAND — push rewinds the resolver). Pointless for
+  // IN_SYNC; impossible while UNREACHABLE.
+  return status === 'DRIFT_STATUS_DB_AHEAD'
+    || status === 'DRIFT_STATUS_MISSING_ON_RESOLVER'
+    || status === 'DRIFT_STATUS_OUT_OF_BAND'
+}
+
+const loadDrift = async () => {
+  driftLoading.value = true
+  driftError.value = ''
+  try {
+    const response = await apiClient.post('/nis.v1.ClusterService/GetClusterDriftStatus', {
+      clusterId: cluster.value.id,
+      includeInSync: driftIncludeInSync.value,
+    })
+    driftRows.value = response.data.rows || []
+    driftLoaded.value = true
+    driftLastChecked.value = new Date()
+  } catch (err) {
+    driftError.value = err.response?.data?.message || 'Failed to scan cluster drift'
+  } finally {
+    driftLoading.value = false
+  }
+}
+
+const reconcile = async (row) => {
+  reconcilingAccountId.value = row.accountId
+  try {
+    await apiClient.post('/nis.v1.ClusterService/ReconcileAccountOnCluster', {
+      clusterId: cluster.value.id,
+      accountId: row.accountId,
+    })
+    // Re-scan to reflect the new state. Avoids a stale "drifted" badge
+    // sitting on a now-reconciled row.
+    await loadDrift()
+  } catch (err) {
+    driftError.value = err.response?.data?.message || `Failed to reconcile ${row.accountName}`
+  } finally {
+    reconcilingAccountId.value = ''
+  }
 }
 
 onMounted(() => {

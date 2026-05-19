@@ -176,6 +176,72 @@ message DeleteResolverAccountRequest {
 // DeleteResolverAccountResponse is the response from deleting a resolver account
 message DeleteResolverAccountResponse {}
 
+// DriftStatus describes the relationship between the account JWT held in NIS's
+// database and the JWT currently stored on the NATS full-resolver for one
+// (account, cluster) pair. Returned by GetClusterDriftStatus.
+enum DriftStatus {
+  DRIFT_STATUS_UNSPECIFIED = 0;
+  // The resolver returned a JWT whose content matches the NIS-DB JWT.
+  DRIFT_STATUS_IN_SYNC = 1;
+  // The resolver returned a JWT, but NIS's JWT was issued later. Standard
+  // "regenerated in NIS, not pushed yet" state — reconcilable via a push.
+  DRIFT_STATUS_DB_AHEAD = 2;
+  // The resolver returned a JWT that NIS does not recognise (resolver iat
+  // >= NIS iat, or contents diverge at the same iat). Something other than
+  // NIS pushed to this resolver — investigate. Push from NIS rewinds.
+  DRIFT_STATUS_OUT_OF_BAND = 3;
+  // NIS has the account in its DB but the resolver returns no JWT for the
+  // account's public key. Reconcilable via a push.
+  DRIFT_STATUS_MISSING_ON_RESOLVER = 4;
+  // The cluster could not be probed (dial failed, no resolver responder,
+  // mem-resolver mode, decrypt failure, timeout). No drift assertion is
+  // possible — error_message carries the underlying reason.
+  DRIFT_STATUS_UNREACHABLE = 5;
+}
+
+// AccountDriftRow describes one (account, cluster) drift comparison.
+message AccountDriftRow {
+  string account_id = 1;
+  string account_name = 2;
+  string account_public_key = 3;
+  DriftStatus status = 4;
+  // Unix seconds. 0 if NIS's stored JWT could not be decoded (unlikely).
+  int64 nis_jwt_iat = 5;
+  // Unix seconds. 0 when no JWT could be fetched from the resolver
+  // (MISSING_ON_RESOLVER / UNREACHABLE) or when its decode failed.
+  int64 resolver_jwt_iat = 6;
+  // jwt v2 claim ID. Empty under the same conditions as the iat fields.
+  string nis_jwt_jti = 7;
+  string resolver_jwt_jti = 8;
+  // Populated for non-OK statuses; the underlying decrypt/dial/decode error.
+  string error_message = 9;
+}
+
+// GetClusterDriftStatusRequest is the request to scan an entire cluster's
+// account JWT state against the NIS DB.
+message GetClusterDriftStatusRequest {
+  string cluster_id = 1;
+  // When false (default), IN_SYNC rows are omitted from the response. Set true
+  // to receive the full per-account table, including healthy entries.
+  bool include_in_sync = 2;
+}
+
+// GetClusterDriftStatusResponse returns one row per account on the operator,
+// sorted by account name.
+message GetClusterDriftStatusResponse {
+  repeated AccountDriftRow rows = 1;
+}
+
+// ReconcileAccountOnClusterRequest pushes one account's NIS-stored JWT to one
+// specific cluster — the "fix this row" action paired with the drift table.
+message ReconcileAccountOnClusterRequest {
+  string cluster_id = 1;
+  string account_id = 2;
+}
+
+// ReconcileAccountOnClusterResponse is empty on success.
+message ReconcileAccountOnClusterResponse {}
+
 // ClusterService manages NATS clusters
 service ClusterService {
   rpc CreateCluster(CreateClusterRequest) returns (CreateClusterResponse);
@@ -194,4 +260,10 @@ service ClusterService {
   rpc ListResolverAccounts(ListResolverAccountsRequest) returns (ListResolverAccountsResponse);
   // DeleteResolverAccount removes an account from the NATS resolver
   rpc DeleteResolverAccount(DeleteResolverAccountRequest) returns (DeleteResolverAccountResponse);
+  // GetClusterDriftStatus compares each account's NIS-DB JWT against the
+  // cluster resolver's stored JWT and returns one row per account. Read-only.
+  rpc GetClusterDriftStatus(GetClusterDriftStatusRequest) returns (GetClusterDriftStatusResponse);
+  // ReconcileAccountOnCluster pushes a single account's NIS-stored JWT to the
+  // specified cluster, intended for "fix this drifted row" in the UI.
+  rpc ReconcileAccountOnCluster(ReconcileAccountOnClusterRequest) returns (ReconcileAccountOnClusterResponse);
 }

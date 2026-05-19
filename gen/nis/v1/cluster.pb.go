@@ -22,6 +22,78 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// DriftStatus describes the relationship between the account JWT held in NIS's
+// database and the JWT currently stored on the NATS full-resolver for one
+// (account, cluster) pair. Returned by GetClusterDriftStatus.
+type DriftStatus int32
+
+const (
+	DriftStatus_DRIFT_STATUS_UNSPECIFIED DriftStatus = 0
+	// The resolver returned a JWT whose content matches the NIS-DB JWT.
+	DriftStatus_DRIFT_STATUS_IN_SYNC DriftStatus = 1
+	// The resolver returned a JWT, but NIS's JWT was issued later. Standard
+	// "regenerated in NIS, not pushed yet" state — reconcilable via a push.
+	DriftStatus_DRIFT_STATUS_DB_AHEAD DriftStatus = 2
+	// The resolver returned a JWT that NIS does not recognise (resolver iat
+	// >= NIS iat, or contents diverge at the same iat). Something other than
+	// NIS pushed to this resolver — investigate. Push from NIS rewinds.
+	DriftStatus_DRIFT_STATUS_OUT_OF_BAND DriftStatus = 3
+	// NIS has the account in its DB but the resolver returns no JWT for the
+	// account's public key. Reconcilable via a push.
+	DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER DriftStatus = 4
+	// The cluster could not be probed (dial failed, no resolver responder,
+	// mem-resolver mode, decrypt failure, timeout). No drift assertion is
+	// possible — error_message carries the underlying reason.
+	DriftStatus_DRIFT_STATUS_UNREACHABLE DriftStatus = 5
+)
+
+// Enum value maps for DriftStatus.
+var (
+	DriftStatus_name = map[int32]string{
+		0: "DRIFT_STATUS_UNSPECIFIED",
+		1: "DRIFT_STATUS_IN_SYNC",
+		2: "DRIFT_STATUS_DB_AHEAD",
+		3: "DRIFT_STATUS_OUT_OF_BAND",
+		4: "DRIFT_STATUS_MISSING_ON_RESOLVER",
+		5: "DRIFT_STATUS_UNREACHABLE",
+	}
+	DriftStatus_value = map[string]int32{
+		"DRIFT_STATUS_UNSPECIFIED":         0,
+		"DRIFT_STATUS_IN_SYNC":             1,
+		"DRIFT_STATUS_DB_AHEAD":            2,
+		"DRIFT_STATUS_OUT_OF_BAND":         3,
+		"DRIFT_STATUS_MISSING_ON_RESOLVER": 4,
+		"DRIFT_STATUS_UNREACHABLE":         5,
+	}
+)
+
+func (x DriftStatus) Enum() *DriftStatus {
+	p := new(DriftStatus)
+	*p = x
+	return p
+}
+
+func (x DriftStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DriftStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_nis_v1_cluster_proto_enumTypes[0].Descriptor()
+}
+
+func (DriftStatus) Type() protoreflect.EnumType {
+	return &file_nis_v1_cluster_proto_enumTypes[0]
+}
+
+func (x DriftStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DriftStatus.Descriptor instead.
+func (DriftStatus) EnumDescriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{0}
+}
+
 // Cluster represents a NATS cluster configuration
 type Cluster struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
@@ -1471,6 +1543,313 @@ func (*DeleteResolverAccountResponse) Descriptor() ([]byte, []int) {
 	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{25}
 }
 
+// AccountDriftRow describes one (account, cluster) drift comparison.
+type AccountDriftRow struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	AccountId        string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	AccountName      string                 `protobuf:"bytes,2,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
+	AccountPublicKey string                 `protobuf:"bytes,3,opt,name=account_public_key,json=accountPublicKey,proto3" json:"account_public_key,omitempty"`
+	Status           DriftStatus            `protobuf:"varint,4,opt,name=status,proto3,enum=nis.v1.DriftStatus" json:"status,omitempty"`
+	// Unix seconds. 0 if NIS's stored JWT could not be decoded (unlikely).
+	NisJwtIat int64 `protobuf:"varint,5,opt,name=nis_jwt_iat,json=nisJwtIat,proto3" json:"nis_jwt_iat,omitempty"`
+	// Unix seconds. 0 when no JWT could be fetched from the resolver
+	// (MISSING_ON_RESOLVER / UNREACHABLE) or when its decode failed.
+	ResolverJwtIat int64 `protobuf:"varint,6,opt,name=resolver_jwt_iat,json=resolverJwtIat,proto3" json:"resolver_jwt_iat,omitempty"`
+	// jwt v2 claim ID. Empty under the same conditions as the iat fields.
+	NisJwtJti      string `protobuf:"bytes,7,opt,name=nis_jwt_jti,json=nisJwtJti,proto3" json:"nis_jwt_jti,omitempty"`
+	ResolverJwtJti string `protobuf:"bytes,8,opt,name=resolver_jwt_jti,json=resolverJwtJti,proto3" json:"resolver_jwt_jti,omitempty"`
+	// Populated for non-OK statuses; the underlying decrypt/dial/decode error.
+	ErrorMessage  string `protobuf:"bytes,9,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountDriftRow) Reset() {
+	*x = AccountDriftRow{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountDriftRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountDriftRow) ProtoMessage() {}
+
+func (x *AccountDriftRow) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountDriftRow.ProtoReflect.Descriptor instead.
+func (*AccountDriftRow) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *AccountDriftRow) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *AccountDriftRow) GetAccountName() string {
+	if x != nil {
+		return x.AccountName
+	}
+	return ""
+}
+
+func (x *AccountDriftRow) GetAccountPublicKey() string {
+	if x != nil {
+		return x.AccountPublicKey
+	}
+	return ""
+}
+
+func (x *AccountDriftRow) GetStatus() DriftStatus {
+	if x != nil {
+		return x.Status
+	}
+	return DriftStatus_DRIFT_STATUS_UNSPECIFIED
+}
+
+func (x *AccountDriftRow) GetNisJwtIat() int64 {
+	if x != nil {
+		return x.NisJwtIat
+	}
+	return 0
+}
+
+func (x *AccountDriftRow) GetResolverJwtIat() int64 {
+	if x != nil {
+		return x.ResolverJwtIat
+	}
+	return 0
+}
+
+func (x *AccountDriftRow) GetNisJwtJti() string {
+	if x != nil {
+		return x.NisJwtJti
+	}
+	return ""
+}
+
+func (x *AccountDriftRow) GetResolverJwtJti() string {
+	if x != nil {
+		return x.ResolverJwtJti
+	}
+	return ""
+}
+
+func (x *AccountDriftRow) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+// GetClusterDriftStatusRequest is the request to scan an entire cluster's
+// account JWT state against the NIS DB.
+type GetClusterDriftStatusRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	// When false (default), IN_SYNC rows are omitted from the response. Set true
+	// to receive the full per-account table, including healthy entries.
+	IncludeInSync bool `protobuf:"varint,2,opt,name=include_in_sync,json=includeInSync,proto3" json:"include_in_sync,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetClusterDriftStatusRequest) Reset() {
+	*x = GetClusterDriftStatusRequest{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetClusterDriftStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetClusterDriftStatusRequest) ProtoMessage() {}
+
+func (x *GetClusterDriftStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetClusterDriftStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetClusterDriftStatusRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *GetClusterDriftStatusRequest) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *GetClusterDriftStatusRequest) GetIncludeInSync() bool {
+	if x != nil {
+		return x.IncludeInSync
+	}
+	return false
+}
+
+// GetClusterDriftStatusResponse returns one row per account on the operator,
+// sorted by account name.
+type GetClusterDriftStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rows          []*AccountDriftRow     `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetClusterDriftStatusResponse) Reset() {
+	*x = GetClusterDriftStatusResponse{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetClusterDriftStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetClusterDriftStatusResponse) ProtoMessage() {}
+
+func (x *GetClusterDriftStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetClusterDriftStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetClusterDriftStatusResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GetClusterDriftStatusResponse) GetRows() []*AccountDriftRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+// ReconcileAccountOnClusterRequest pushes one account's NIS-stored JWT to one
+// specific cluster — the "fix this row" action paired with the drift table.
+type ReconcileAccountOnClusterRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId     string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReconcileAccountOnClusterRequest) Reset() {
+	*x = ReconcileAccountOnClusterRequest{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileAccountOnClusterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileAccountOnClusterRequest) ProtoMessage() {}
+
+func (x *ReconcileAccountOnClusterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileAccountOnClusterRequest.ProtoReflect.Descriptor instead.
+func (*ReconcileAccountOnClusterRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ReconcileAccountOnClusterRequest) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *ReconcileAccountOnClusterRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+// ReconcileAccountOnClusterResponse is empty on success.
+type ReconcileAccountOnClusterResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReconcileAccountOnClusterResponse) Reset() {
+	*x = ReconcileAccountOnClusterResponse{}
+	mi := &file_nis_v1_cluster_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileAccountOnClusterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileAccountOnClusterResponse) ProtoMessage() {}
+
+func (x *ReconcileAccountOnClusterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_cluster_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileAccountOnClusterResponse.ProtoReflect.Descriptor instead.
+func (*ReconcileAccountOnClusterResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_cluster_proto_rawDescGZIP(), []int{30}
+}
+
 var File_nis_v1_cluster_proto protoreflect.FileDescriptor
 
 const file_nis_v1_cluster_proto_rawDesc = "" +
@@ -1578,7 +1957,38 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x02 \x01(\tR\tpublicKey\"\x1f\n" +
-	"\x1dDeleteResolverAccountResponse2\xaa\b\n" +
+	"\x1dDeleteResolverAccountResponse\"\xe7\x02\n" +
+	"\x0fAccountDriftRow\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12!\n" +
+	"\faccount_name\x18\x02 \x01(\tR\vaccountName\x12,\n" +
+	"\x12account_public_key\x18\x03 \x01(\tR\x10accountPublicKey\x12+\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x13.nis.v1.DriftStatusR\x06status\x12\x1e\n" +
+	"\vnis_jwt_iat\x18\x05 \x01(\x03R\tnisJwtIat\x12(\n" +
+	"\x10resolver_jwt_iat\x18\x06 \x01(\x03R\x0eresolverJwtIat\x12\x1e\n" +
+	"\vnis_jwt_jti\x18\a \x01(\tR\tnisJwtJti\x12(\n" +
+	"\x10resolver_jwt_jti\x18\b \x01(\tR\x0eresolverJwtJti\x12#\n" +
+	"\rerror_message\x18\t \x01(\tR\ferrorMessage\"e\n" +
+	"\x1cGetClusterDriftStatusRequest\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12&\n" +
+	"\x0finclude_in_sync\x18\x02 \x01(\bR\rincludeInSync\"L\n" +
+	"\x1dGetClusterDriftStatusResponse\x12+\n" +
+	"\x04rows\x18\x01 \x03(\v2\x17.nis.v1.AccountDriftRowR\x04rows\"`\n" +
+	" ReconcileAccountOnClusterRequest\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x02 \x01(\tR\taccountId\"#\n" +
+	"!ReconcileAccountOnClusterResponse*\xc2\x01\n" +
+	"\vDriftStatus\x12\x1c\n" +
+	"\x18DRIFT_STATUS_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14DRIFT_STATUS_IN_SYNC\x10\x01\x12\x19\n" +
+	"\x15DRIFT_STATUS_DB_AHEAD\x10\x02\x12\x1c\n" +
+	"\x18DRIFT_STATUS_OUT_OF_BAND\x10\x03\x12$\n" +
+	" DRIFT_STATUS_MISSING_ON_RESOLVER\x10\x04\x12\x1c\n" +
+	"\x18DRIFT_STATUS_UNREACHABLE\x10\x052\x82\n" +
+	"\n" +
 	"\x0eClusterService\x12L\n" +
 	"\rCreateCluster\x12\x1c.nis.v1.CreateClusterRequest\x1a\x1d.nis.v1.CreateClusterResponse\x12C\n" +
 	"\n" +
@@ -1592,7 +2002,9 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"\x14GenerateServerConfig\x12#.nis.v1.GenerateServerConfigRequest\x1a$.nis.v1.GenerateServerConfigResponse\x12F\n" +
 	"\vSyncCluster\x12\x1a.nis.v1.SyncClusterRequest\x1a\x1b.nis.v1.SyncClusterResponse\x12a\n" +
 	"\x14ListResolverAccounts\x12#.nis.v1.ListResolverAccountsRequest\x1a$.nis.v1.ListResolverAccountsResponse\x12d\n" +
-	"\x15DeleteResolverAccount\x12$.nis.v1.DeleteResolverAccountRequest\x1a%.nis.v1.DeleteResolverAccountResponseB\x83\x01\n" +
+	"\x15DeleteResolverAccount\x12$.nis.v1.DeleteResolverAccountRequest\x1a%.nis.v1.DeleteResolverAccountResponse\x12d\n" +
+	"\x15GetClusterDriftStatus\x12$.nis.v1.GetClusterDriftStatusRequest\x1a%.nis.v1.GetClusterDriftStatusResponse\x12p\n" +
+	"\x19ReconcileAccountOnCluster\x12(.nis.v1.ReconcileAccountOnClusterRequest\x1a).nis.v1.ReconcileAccountOnClusterResponseB\x83\x01\n" +
 	"\n" +
 	"com.nis.v1B\fClusterProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -1608,78 +2020,91 @@ func file_nis_v1_cluster_proto_rawDescGZIP() []byte {
 	return file_nis_v1_cluster_proto_rawDescData
 }
 
-var file_nis_v1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_nis_v1_cluster_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_nis_v1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_nis_v1_cluster_proto_goTypes = []any{
-	(*Cluster)(nil),                          // 0: nis.v1.Cluster
-	(*CreateClusterRequest)(nil),             // 1: nis.v1.CreateClusterRequest
-	(*CreateClusterResponse)(nil),            // 2: nis.v1.CreateClusterResponse
-	(*GetClusterRequest)(nil),                // 3: nis.v1.GetClusterRequest
-	(*GetClusterResponse)(nil),               // 4: nis.v1.GetClusterResponse
-	(*GetClusterByNameRequest)(nil),          // 5: nis.v1.GetClusterByNameRequest
-	(*GetClusterByNameResponse)(nil),         // 6: nis.v1.GetClusterByNameResponse
-	(*ListClustersRequest)(nil),              // 7: nis.v1.ListClustersRequest
-	(*ListClustersResponse)(nil),             // 8: nis.v1.ListClustersResponse
-	(*UpdateClusterRequest)(nil),             // 9: nis.v1.UpdateClusterRequest
-	(*UpdateClusterResponse)(nil),            // 10: nis.v1.UpdateClusterResponse
-	(*UpdateClusterCredentialsRequest)(nil),  // 11: nis.v1.UpdateClusterCredentialsRequest
-	(*UpdateClusterCredentialsResponse)(nil), // 12: nis.v1.UpdateClusterCredentialsResponse
-	(*DeleteClusterRequest)(nil),             // 13: nis.v1.DeleteClusterRequest
-	(*DeleteClusterResponse)(nil),            // 14: nis.v1.DeleteClusterResponse
-	(*GetClusterCredentialsRequest)(nil),     // 15: nis.v1.GetClusterCredentialsRequest
-	(*GetClusterCredentialsResponse)(nil),    // 16: nis.v1.GetClusterCredentialsResponse
-	(*GenerateServerConfigRequest)(nil),      // 17: nis.v1.GenerateServerConfigRequest
-	(*GenerateServerConfigResponse)(nil),     // 18: nis.v1.GenerateServerConfigResponse
-	(*SyncClusterRequest)(nil),               // 19: nis.v1.SyncClusterRequest
-	(*SyncClusterResponse)(nil),              // 20: nis.v1.SyncClusterResponse
-	(*SyncError)(nil),                        // 21: nis.v1.SyncError
-	(*ListResolverAccountsRequest)(nil),      // 22: nis.v1.ListResolverAccountsRequest
-	(*ListResolverAccountsResponse)(nil),     // 23: nis.v1.ListResolverAccountsResponse
-	(*DeleteResolverAccountRequest)(nil),     // 24: nis.v1.DeleteResolverAccountRequest
-	(*DeleteResolverAccountResponse)(nil),    // 25: nis.v1.DeleteResolverAccountResponse
-	(*timestamppb.Timestamp)(nil),            // 26: google.protobuf.Timestamp
-	(*ListOptions)(nil),                      // 27: nis.v1.ListOptions
+	(DriftStatus)(0),                          // 0: nis.v1.DriftStatus
+	(*Cluster)(nil),                           // 1: nis.v1.Cluster
+	(*CreateClusterRequest)(nil),              // 2: nis.v1.CreateClusterRequest
+	(*CreateClusterResponse)(nil),             // 3: nis.v1.CreateClusterResponse
+	(*GetClusterRequest)(nil),                 // 4: nis.v1.GetClusterRequest
+	(*GetClusterResponse)(nil),                // 5: nis.v1.GetClusterResponse
+	(*GetClusterByNameRequest)(nil),           // 6: nis.v1.GetClusterByNameRequest
+	(*GetClusterByNameResponse)(nil),          // 7: nis.v1.GetClusterByNameResponse
+	(*ListClustersRequest)(nil),               // 8: nis.v1.ListClustersRequest
+	(*ListClustersResponse)(nil),              // 9: nis.v1.ListClustersResponse
+	(*UpdateClusterRequest)(nil),              // 10: nis.v1.UpdateClusterRequest
+	(*UpdateClusterResponse)(nil),             // 11: nis.v1.UpdateClusterResponse
+	(*UpdateClusterCredentialsRequest)(nil),   // 12: nis.v1.UpdateClusterCredentialsRequest
+	(*UpdateClusterCredentialsResponse)(nil),  // 13: nis.v1.UpdateClusterCredentialsResponse
+	(*DeleteClusterRequest)(nil),              // 14: nis.v1.DeleteClusterRequest
+	(*DeleteClusterResponse)(nil),             // 15: nis.v1.DeleteClusterResponse
+	(*GetClusterCredentialsRequest)(nil),      // 16: nis.v1.GetClusterCredentialsRequest
+	(*GetClusterCredentialsResponse)(nil),     // 17: nis.v1.GetClusterCredentialsResponse
+	(*GenerateServerConfigRequest)(nil),       // 18: nis.v1.GenerateServerConfigRequest
+	(*GenerateServerConfigResponse)(nil),      // 19: nis.v1.GenerateServerConfigResponse
+	(*SyncClusterRequest)(nil),                // 20: nis.v1.SyncClusterRequest
+	(*SyncClusterResponse)(nil),               // 21: nis.v1.SyncClusterResponse
+	(*SyncError)(nil),                         // 22: nis.v1.SyncError
+	(*ListResolverAccountsRequest)(nil),       // 23: nis.v1.ListResolverAccountsRequest
+	(*ListResolverAccountsResponse)(nil),      // 24: nis.v1.ListResolverAccountsResponse
+	(*DeleteResolverAccountRequest)(nil),      // 25: nis.v1.DeleteResolverAccountRequest
+	(*DeleteResolverAccountResponse)(nil),     // 26: nis.v1.DeleteResolverAccountResponse
+	(*AccountDriftRow)(nil),                   // 27: nis.v1.AccountDriftRow
+	(*GetClusterDriftStatusRequest)(nil),      // 28: nis.v1.GetClusterDriftStatusRequest
+	(*GetClusterDriftStatusResponse)(nil),     // 29: nis.v1.GetClusterDriftStatusResponse
+	(*ReconcileAccountOnClusterRequest)(nil),  // 30: nis.v1.ReconcileAccountOnClusterRequest
+	(*ReconcileAccountOnClusterResponse)(nil), // 31: nis.v1.ReconcileAccountOnClusterResponse
+	(*timestamppb.Timestamp)(nil),             // 32: google.protobuf.Timestamp
+	(*ListOptions)(nil),                       // 33: nis.v1.ListOptions
 }
 var file_nis_v1_cluster_proto_depIdxs = []int32{
-	26, // 0: nis.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
-	26, // 1: nis.v1.Cluster.updated_at:type_name -> google.protobuf.Timestamp
-	26, // 2: nis.v1.Cluster.last_health_check:type_name -> google.protobuf.Timestamp
-	0,  // 3: nis.v1.CreateClusterResponse.cluster:type_name -> nis.v1.Cluster
-	0,  // 4: nis.v1.GetClusterResponse.cluster:type_name -> nis.v1.Cluster
-	0,  // 5: nis.v1.GetClusterByNameResponse.cluster:type_name -> nis.v1.Cluster
-	27, // 6: nis.v1.ListClustersRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 7: nis.v1.ListClustersResponse.clusters:type_name -> nis.v1.Cluster
-	0,  // 8: nis.v1.UpdateClusterResponse.cluster:type_name -> nis.v1.Cluster
-	0,  // 9: nis.v1.UpdateClusterCredentialsResponse.cluster:type_name -> nis.v1.Cluster
-	21, // 10: nis.v1.SyncClusterResponse.errors:type_name -> nis.v1.SyncError
-	1,  // 11: nis.v1.ClusterService.CreateCluster:input_type -> nis.v1.CreateClusterRequest
-	3,  // 12: nis.v1.ClusterService.GetCluster:input_type -> nis.v1.GetClusterRequest
-	5,  // 13: nis.v1.ClusterService.GetClusterByName:input_type -> nis.v1.GetClusterByNameRequest
-	7,  // 14: nis.v1.ClusterService.ListClusters:input_type -> nis.v1.ListClustersRequest
-	9,  // 15: nis.v1.ClusterService.UpdateCluster:input_type -> nis.v1.UpdateClusterRequest
-	11, // 16: nis.v1.ClusterService.UpdateClusterCredentials:input_type -> nis.v1.UpdateClusterCredentialsRequest
-	13, // 17: nis.v1.ClusterService.DeleteCluster:input_type -> nis.v1.DeleteClusterRequest
-	15, // 18: nis.v1.ClusterService.GetClusterCredentials:input_type -> nis.v1.GetClusterCredentialsRequest
-	17, // 19: nis.v1.ClusterService.GenerateServerConfig:input_type -> nis.v1.GenerateServerConfigRequest
-	19, // 20: nis.v1.ClusterService.SyncCluster:input_type -> nis.v1.SyncClusterRequest
-	22, // 21: nis.v1.ClusterService.ListResolverAccounts:input_type -> nis.v1.ListResolverAccountsRequest
-	24, // 22: nis.v1.ClusterService.DeleteResolverAccount:input_type -> nis.v1.DeleteResolverAccountRequest
-	2,  // 23: nis.v1.ClusterService.CreateCluster:output_type -> nis.v1.CreateClusterResponse
-	4,  // 24: nis.v1.ClusterService.GetCluster:output_type -> nis.v1.GetClusterResponse
-	6,  // 25: nis.v1.ClusterService.GetClusterByName:output_type -> nis.v1.GetClusterByNameResponse
-	8,  // 26: nis.v1.ClusterService.ListClusters:output_type -> nis.v1.ListClustersResponse
-	10, // 27: nis.v1.ClusterService.UpdateCluster:output_type -> nis.v1.UpdateClusterResponse
-	12, // 28: nis.v1.ClusterService.UpdateClusterCredentials:output_type -> nis.v1.UpdateClusterCredentialsResponse
-	14, // 29: nis.v1.ClusterService.DeleteCluster:output_type -> nis.v1.DeleteClusterResponse
-	16, // 30: nis.v1.ClusterService.GetClusterCredentials:output_type -> nis.v1.GetClusterCredentialsResponse
-	18, // 31: nis.v1.ClusterService.GenerateServerConfig:output_type -> nis.v1.GenerateServerConfigResponse
-	20, // 32: nis.v1.ClusterService.SyncCluster:output_type -> nis.v1.SyncClusterResponse
-	23, // 33: nis.v1.ClusterService.ListResolverAccounts:output_type -> nis.v1.ListResolverAccountsResponse
-	25, // 34: nis.v1.ClusterService.DeleteResolverAccount:output_type -> nis.v1.DeleteResolverAccountResponse
-	23, // [23:35] is the sub-list for method output_type
-	11, // [11:23] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	32, // 0: nis.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	32, // 1: nis.v1.Cluster.updated_at:type_name -> google.protobuf.Timestamp
+	32, // 2: nis.v1.Cluster.last_health_check:type_name -> google.protobuf.Timestamp
+	1,  // 3: nis.v1.CreateClusterResponse.cluster:type_name -> nis.v1.Cluster
+	1,  // 4: nis.v1.GetClusterResponse.cluster:type_name -> nis.v1.Cluster
+	1,  // 5: nis.v1.GetClusterByNameResponse.cluster:type_name -> nis.v1.Cluster
+	33, // 6: nis.v1.ListClustersRequest.options:type_name -> nis.v1.ListOptions
+	1,  // 7: nis.v1.ListClustersResponse.clusters:type_name -> nis.v1.Cluster
+	1,  // 8: nis.v1.UpdateClusterResponse.cluster:type_name -> nis.v1.Cluster
+	1,  // 9: nis.v1.UpdateClusterCredentialsResponse.cluster:type_name -> nis.v1.Cluster
+	22, // 10: nis.v1.SyncClusterResponse.errors:type_name -> nis.v1.SyncError
+	0,  // 11: nis.v1.AccountDriftRow.status:type_name -> nis.v1.DriftStatus
+	27, // 12: nis.v1.GetClusterDriftStatusResponse.rows:type_name -> nis.v1.AccountDriftRow
+	2,  // 13: nis.v1.ClusterService.CreateCluster:input_type -> nis.v1.CreateClusterRequest
+	4,  // 14: nis.v1.ClusterService.GetCluster:input_type -> nis.v1.GetClusterRequest
+	6,  // 15: nis.v1.ClusterService.GetClusterByName:input_type -> nis.v1.GetClusterByNameRequest
+	8,  // 16: nis.v1.ClusterService.ListClusters:input_type -> nis.v1.ListClustersRequest
+	10, // 17: nis.v1.ClusterService.UpdateCluster:input_type -> nis.v1.UpdateClusterRequest
+	12, // 18: nis.v1.ClusterService.UpdateClusterCredentials:input_type -> nis.v1.UpdateClusterCredentialsRequest
+	14, // 19: nis.v1.ClusterService.DeleteCluster:input_type -> nis.v1.DeleteClusterRequest
+	16, // 20: nis.v1.ClusterService.GetClusterCredentials:input_type -> nis.v1.GetClusterCredentialsRequest
+	18, // 21: nis.v1.ClusterService.GenerateServerConfig:input_type -> nis.v1.GenerateServerConfigRequest
+	20, // 22: nis.v1.ClusterService.SyncCluster:input_type -> nis.v1.SyncClusterRequest
+	23, // 23: nis.v1.ClusterService.ListResolverAccounts:input_type -> nis.v1.ListResolverAccountsRequest
+	25, // 24: nis.v1.ClusterService.DeleteResolverAccount:input_type -> nis.v1.DeleteResolverAccountRequest
+	28, // 25: nis.v1.ClusterService.GetClusterDriftStatus:input_type -> nis.v1.GetClusterDriftStatusRequest
+	30, // 26: nis.v1.ClusterService.ReconcileAccountOnCluster:input_type -> nis.v1.ReconcileAccountOnClusterRequest
+	3,  // 27: nis.v1.ClusterService.CreateCluster:output_type -> nis.v1.CreateClusterResponse
+	5,  // 28: nis.v1.ClusterService.GetCluster:output_type -> nis.v1.GetClusterResponse
+	7,  // 29: nis.v1.ClusterService.GetClusterByName:output_type -> nis.v1.GetClusterByNameResponse
+	9,  // 30: nis.v1.ClusterService.ListClusters:output_type -> nis.v1.ListClustersResponse
+	11, // 31: nis.v1.ClusterService.UpdateCluster:output_type -> nis.v1.UpdateClusterResponse
+	13, // 32: nis.v1.ClusterService.UpdateClusterCredentials:output_type -> nis.v1.UpdateClusterCredentialsResponse
+	15, // 33: nis.v1.ClusterService.DeleteCluster:output_type -> nis.v1.DeleteClusterResponse
+	17, // 34: nis.v1.ClusterService.GetClusterCredentials:output_type -> nis.v1.GetClusterCredentialsResponse
+	19, // 35: nis.v1.ClusterService.GenerateServerConfig:output_type -> nis.v1.GenerateServerConfigResponse
+	21, // 36: nis.v1.ClusterService.SyncCluster:output_type -> nis.v1.SyncClusterResponse
+	24, // 37: nis.v1.ClusterService.ListResolverAccounts:output_type -> nis.v1.ListResolverAccountsResponse
+	26, // 38: nis.v1.ClusterService.DeleteResolverAccount:output_type -> nis.v1.DeleteResolverAccountResponse
+	29, // 39: nis.v1.ClusterService.GetClusterDriftStatus:output_type -> nis.v1.GetClusterDriftStatusResponse
+	31, // 40: nis.v1.ClusterService.ReconcileAccountOnCluster:output_type -> nis.v1.ReconcileAccountOnClusterResponse
+	27, // [27:41] is the sub-list for method output_type
+	13, // [13:27] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_cluster_proto_init() }
@@ -1694,13 +2119,14 @@ func file_nis_v1_cluster_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_cluster_proto_rawDesc), len(file_nis_v1_cluster_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   26,
+			NumEnums:      1,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_nis_v1_cluster_proto_goTypes,
 		DependencyIndexes: file_nis_v1_cluster_proto_depIdxs,
+		EnumInfos:         file_nis_v1_cluster_proto_enumTypes,
 		MessageInfos:      file_nis_v1_cluster_proto_msgTypes,
 	}.Build()
 	File_nis_v1_cluster_proto = out.File

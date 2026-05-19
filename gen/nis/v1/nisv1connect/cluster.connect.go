@@ -69,6 +69,12 @@ const (
 	// ClusterServiceDeleteResolverAccountProcedure is the fully-qualified name of the ClusterService's
 	// DeleteResolverAccount RPC.
 	ClusterServiceDeleteResolverAccountProcedure = "/nis.v1.ClusterService/DeleteResolverAccount"
+	// ClusterServiceGetClusterDriftStatusProcedure is the fully-qualified name of the ClusterService's
+	// GetClusterDriftStatus RPC.
+	ClusterServiceGetClusterDriftStatusProcedure = "/nis.v1.ClusterService/GetClusterDriftStatus"
+	// ClusterServiceReconcileAccountOnClusterProcedure is the fully-qualified name of the
+	// ClusterService's ReconcileAccountOnCluster RPC.
+	ClusterServiceReconcileAccountOnClusterProcedure = "/nis.v1.ClusterService/ReconcileAccountOnCluster"
 )
 
 // ClusterServiceClient is a client for the nis.v1.ClusterService service.
@@ -89,6 +95,12 @@ type ClusterServiceClient interface {
 	ListResolverAccounts(context.Context, *connect.Request[v1.ListResolverAccountsRequest]) (*connect.Response[v1.ListResolverAccountsResponse], error)
 	// DeleteResolverAccount removes an account from the NATS resolver
 	DeleteResolverAccount(context.Context, *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error)
+	// GetClusterDriftStatus compares each account's NIS-DB JWT against the
+	// cluster resolver's stored JWT and returns one row per account. Read-only.
+	GetClusterDriftStatus(context.Context, *connect.Request[v1.GetClusterDriftStatusRequest]) (*connect.Response[v1.GetClusterDriftStatusResponse], error)
+	// ReconcileAccountOnCluster pushes a single account's NIS-stored JWT to the
+	// specified cluster, intended for "fix this drifted row" in the UI.
+	ReconcileAccountOnCluster(context.Context, *connect.Request[v1.ReconcileAccountOnClusterRequest]) (*connect.Response[v1.ReconcileAccountOnClusterResponse], error)
 }
 
 // NewClusterServiceClient constructs a client for the nis.v1.ClusterService service. By default, it
@@ -174,23 +186,37 @@ func NewClusterServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(clusterServiceMethods.ByName("DeleteResolverAccount")),
 			connect.WithClientOptions(opts...),
 		),
+		getClusterDriftStatus: connect.NewClient[v1.GetClusterDriftStatusRequest, v1.GetClusterDriftStatusResponse](
+			httpClient,
+			baseURL+ClusterServiceGetClusterDriftStatusProcedure,
+			connect.WithSchema(clusterServiceMethods.ByName("GetClusterDriftStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		reconcileAccountOnCluster: connect.NewClient[v1.ReconcileAccountOnClusterRequest, v1.ReconcileAccountOnClusterResponse](
+			httpClient,
+			baseURL+ClusterServiceReconcileAccountOnClusterProcedure,
+			connect.WithSchema(clusterServiceMethods.ByName("ReconcileAccountOnCluster")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // clusterServiceClient implements ClusterServiceClient.
 type clusterServiceClient struct {
-	createCluster            *connect.Client[v1.CreateClusterRequest, v1.CreateClusterResponse]
-	getCluster               *connect.Client[v1.GetClusterRequest, v1.GetClusterResponse]
-	getClusterByName         *connect.Client[v1.GetClusterByNameRequest, v1.GetClusterByNameResponse]
-	listClusters             *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
-	updateCluster            *connect.Client[v1.UpdateClusterRequest, v1.UpdateClusterResponse]
-	updateClusterCredentials *connect.Client[v1.UpdateClusterCredentialsRequest, v1.UpdateClusterCredentialsResponse]
-	deleteCluster            *connect.Client[v1.DeleteClusterRequest, v1.DeleteClusterResponse]
-	getClusterCredentials    *connect.Client[v1.GetClusterCredentialsRequest, v1.GetClusterCredentialsResponse]
-	generateServerConfig     *connect.Client[v1.GenerateServerConfigRequest, v1.GenerateServerConfigResponse]
-	syncCluster              *connect.Client[v1.SyncClusterRequest, v1.SyncClusterResponse]
-	listResolverAccounts     *connect.Client[v1.ListResolverAccountsRequest, v1.ListResolverAccountsResponse]
-	deleteResolverAccount    *connect.Client[v1.DeleteResolverAccountRequest, v1.DeleteResolverAccountResponse]
+	createCluster             *connect.Client[v1.CreateClusterRequest, v1.CreateClusterResponse]
+	getCluster                *connect.Client[v1.GetClusterRequest, v1.GetClusterResponse]
+	getClusterByName          *connect.Client[v1.GetClusterByNameRequest, v1.GetClusterByNameResponse]
+	listClusters              *connect.Client[v1.ListClustersRequest, v1.ListClustersResponse]
+	updateCluster             *connect.Client[v1.UpdateClusterRequest, v1.UpdateClusterResponse]
+	updateClusterCredentials  *connect.Client[v1.UpdateClusterCredentialsRequest, v1.UpdateClusterCredentialsResponse]
+	deleteCluster             *connect.Client[v1.DeleteClusterRequest, v1.DeleteClusterResponse]
+	getClusterCredentials     *connect.Client[v1.GetClusterCredentialsRequest, v1.GetClusterCredentialsResponse]
+	generateServerConfig      *connect.Client[v1.GenerateServerConfigRequest, v1.GenerateServerConfigResponse]
+	syncCluster               *connect.Client[v1.SyncClusterRequest, v1.SyncClusterResponse]
+	listResolverAccounts      *connect.Client[v1.ListResolverAccountsRequest, v1.ListResolverAccountsResponse]
+	deleteResolverAccount     *connect.Client[v1.DeleteResolverAccountRequest, v1.DeleteResolverAccountResponse]
+	getClusterDriftStatus     *connect.Client[v1.GetClusterDriftStatusRequest, v1.GetClusterDriftStatusResponse]
+	reconcileAccountOnCluster *connect.Client[v1.ReconcileAccountOnClusterRequest, v1.ReconcileAccountOnClusterResponse]
 }
 
 // CreateCluster calls nis.v1.ClusterService.CreateCluster.
@@ -253,6 +279,16 @@ func (c *clusterServiceClient) DeleteResolverAccount(ctx context.Context, req *c
 	return c.deleteResolverAccount.CallUnary(ctx, req)
 }
 
+// GetClusterDriftStatus calls nis.v1.ClusterService.GetClusterDriftStatus.
+func (c *clusterServiceClient) GetClusterDriftStatus(ctx context.Context, req *connect.Request[v1.GetClusterDriftStatusRequest]) (*connect.Response[v1.GetClusterDriftStatusResponse], error) {
+	return c.getClusterDriftStatus.CallUnary(ctx, req)
+}
+
+// ReconcileAccountOnCluster calls nis.v1.ClusterService.ReconcileAccountOnCluster.
+func (c *clusterServiceClient) ReconcileAccountOnCluster(ctx context.Context, req *connect.Request[v1.ReconcileAccountOnClusterRequest]) (*connect.Response[v1.ReconcileAccountOnClusterResponse], error) {
+	return c.reconcileAccountOnCluster.CallUnary(ctx, req)
+}
+
 // ClusterServiceHandler is an implementation of the nis.v1.ClusterService service.
 type ClusterServiceHandler interface {
 	CreateCluster(context.Context, *connect.Request[v1.CreateClusterRequest]) (*connect.Response[v1.CreateClusterResponse], error)
@@ -271,6 +307,12 @@ type ClusterServiceHandler interface {
 	ListResolverAccounts(context.Context, *connect.Request[v1.ListResolverAccountsRequest]) (*connect.Response[v1.ListResolverAccountsResponse], error)
 	// DeleteResolverAccount removes an account from the NATS resolver
 	DeleteResolverAccount(context.Context, *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error)
+	// GetClusterDriftStatus compares each account's NIS-DB JWT against the
+	// cluster resolver's stored JWT and returns one row per account. Read-only.
+	GetClusterDriftStatus(context.Context, *connect.Request[v1.GetClusterDriftStatusRequest]) (*connect.Response[v1.GetClusterDriftStatusResponse], error)
+	// ReconcileAccountOnCluster pushes a single account's NIS-stored JWT to the
+	// specified cluster, intended for "fix this drifted row" in the UI.
+	ReconcileAccountOnCluster(context.Context, *connect.Request[v1.ReconcileAccountOnClusterRequest]) (*connect.Response[v1.ReconcileAccountOnClusterResponse], error)
 }
 
 // NewClusterServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -352,6 +394,18 @@ func NewClusterServiceHandler(svc ClusterServiceHandler, opts ...connect.Handler
 		connect.WithSchema(clusterServiceMethods.ByName("DeleteResolverAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
+	clusterServiceGetClusterDriftStatusHandler := connect.NewUnaryHandler(
+		ClusterServiceGetClusterDriftStatusProcedure,
+		svc.GetClusterDriftStatus,
+		connect.WithSchema(clusterServiceMethods.ByName("GetClusterDriftStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	clusterServiceReconcileAccountOnClusterHandler := connect.NewUnaryHandler(
+		ClusterServiceReconcileAccountOnClusterProcedure,
+		svc.ReconcileAccountOnCluster,
+		connect.WithSchema(clusterServiceMethods.ByName("ReconcileAccountOnCluster")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.ClusterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ClusterServiceCreateClusterProcedure:
@@ -378,6 +432,10 @@ func NewClusterServiceHandler(svc ClusterServiceHandler, opts ...connect.Handler
 			clusterServiceListResolverAccountsHandler.ServeHTTP(w, r)
 		case ClusterServiceDeleteResolverAccountProcedure:
 			clusterServiceDeleteResolverAccountHandler.ServeHTTP(w, r)
+		case ClusterServiceGetClusterDriftStatusProcedure:
+			clusterServiceGetClusterDriftStatusHandler.ServeHTTP(w, r)
+		case ClusterServiceReconcileAccountOnClusterProcedure:
+			clusterServiceReconcileAccountOnClusterHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -433,4 +491,12 @@ func (UnimplementedClusterServiceHandler) ListResolverAccounts(context.Context, 
 
 func (UnimplementedClusterServiceHandler) DeleteResolverAccount(context.Context, *connect.Request[v1.DeleteResolverAccountRequest]) (*connect.Response[v1.DeleteResolverAccountResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ClusterService.DeleteResolverAccount is not implemented"))
+}
+
+func (UnimplementedClusterServiceHandler) GetClusterDriftStatus(context.Context, *connect.Request[v1.GetClusterDriftStatusRequest]) (*connect.Response[v1.GetClusterDriftStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ClusterService.GetClusterDriftStatus is not implemented"))
+}
+
+func (UnimplementedClusterServiceHandler) ReconcileAccountOnCluster(context.Context, *connect.Request[v1.ReconcileAccountOnClusterRequest]) (*connect.Response[v1.ReconcileAccountOnClusterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ClusterService.ReconcileAccountOnCluster is not implemented"))
 }

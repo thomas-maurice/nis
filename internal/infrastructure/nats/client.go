@@ -294,7 +294,15 @@ func (c *Client) DeleteAccountJWT(ctx context.Context, deleteClaimJWT string) er
 	return nil
 }
 
-// GetAccountJWT retrieves an account JWT from the NATS resolver
+// ErrAccountNotOnResolver is returned by GetAccountJWT when the resolver has
+// no JWT stored for the requested account public key. Distinguishable from
+// transport/dial errors via errors.Is — callers use it to differentiate
+// "account drifted to missing" from "cluster unreachable" in drift reporting.
+var ErrAccountNotOnResolver = errors.New("account JWT not on resolver")
+
+// GetAccountJWT retrieves an account JWT from the NATS resolver. Returns
+// ErrAccountNotOnResolver (wrapped) when the resolver has no JWT for the key —
+// callers should errors.Is-check before treating it as a generic failure.
 func (c *Client) GetAccountJWT(ctx context.Context, publicKey string) (string, error) {
 	if !c.IsConnected() {
 		return "", fmt.Errorf("not connected to NATS")
@@ -316,13 +324,44 @@ func (c *Client) GetAccountJWT(ctx context.Context, publicKey string) (string, e
 		return "", fmt.Errorf("failed to get account JWT: %w", err)
 	}
 
+	// Empty payload from the full-resolver means "no JWT stored for that key".
+	// Treated as a real status, not a transport error.
 	if len(msg.Data) == 0 {
-		return "", fmt.Errorf("empty response from resolver")
+		return "", fmt.Errorf("resolver returned empty payload: %w", ErrAccountNotOnResolver)
 	}
 
 	response := string(msg.Data)
 	if response[0] == '-' {
+		// Some resolver builds reply "-ERR ..." for not-found; classify these
+		// by description so drift callers don't paint a generic ERROR badge.
+		if strings.Contains(strings.ToLower(response), "not found") {
+			return "", fmt.Errorf("resolver: %s: %w", response, ErrAccountNotOnResolver)
+		}
 		return "", fmt.Errorf("resolver error: %s", response)
+	}
+
+	// JSON envelope (newer resolver builds): {"data":"<jwt>"} or {"error":{...}}.
+	if response[0] == '{' {
+		var env struct {
+			Data  string `json:"data"`
+			Error *struct {
+				Code        int    `json:"code"`
+				Description string `json:"description"`
+			} `json:"error,omitempty"`
+		}
+		if jerr := json.Unmarshal(msg.Data, &env); jerr == nil {
+			if env.Error != nil {
+				if env.Error.Code == 404 || strings.Contains(strings.ToLower(env.Error.Description), "not found") {
+					return "", fmt.Errorf("resolver: %s: %w", env.Error.Description, ErrAccountNotOnResolver)
+				}
+				return "", fmt.Errorf("resolver error %d: %s", env.Error.Code, env.Error.Description)
+			}
+			if env.Data == "" {
+				return "", fmt.Errorf("resolver returned empty data field: %w", ErrAccountNotOnResolver)
+			}
+			return env.Data, nil
+		}
+		// Fall through to raw-string handling if JSON decode failed.
 	}
 
 	return response, nil

@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateClusterRequest, CreateClusterResponse, DeleteClusterRequest, DeleteClusterResponse, DeleteResolverAccountRequest, DeleteResolverAccountResponse, GenerateServerConfigRequest, GenerateServerConfigResponse, GetClusterByNameRequest, GetClusterByNameResponse, GetClusterCredentialsRequest, GetClusterCredentialsResponse, GetClusterRequest, GetClusterResponse, ListClustersRequest, ListClustersResponse, ListResolverAccountsRequest, ListResolverAccountsResponse, SyncClusterRequest, SyncClusterResponse, UpdateClusterCredentialsRequest, UpdateClusterCredentialsResponse, UpdateClusterRequest, UpdateClusterResponse } from "./cluster_pb.js";
+import { CreateClusterRequest, CreateClusterResponse, DeleteClusterRequest, DeleteClusterResponse, DeleteResolverAccountRequest, DeleteResolverAccountResponse, GenerateServerConfigRequest, GenerateServerConfigResponse, GetClusterByNameRequest, GetClusterByNameResponse, GetClusterCredentialsRequest, GetClusterCredentialsResponse, GetClusterDriftStatusRequest, GetClusterDriftStatusResponse, GetClusterRequest, GetClusterResponse, ListClustersRequest, ListClustersResponse, ListResolverAccountsRequest, ListResolverAccountsResponse, ReconcileAccountOnClusterRequest, ReconcileAccountOnClusterResponse, SyncClusterRequest, SyncClusterResponse, UpdateClusterCredentialsRequest, UpdateClusterCredentialsResponse, UpdateClusterRequest, UpdateClusterResponse } from "./cluster_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -127,6 +127,30 @@ export const ClusterService = {
       name: "DeleteResolverAccount",
       I: DeleteResolverAccountRequest,
       O: DeleteResolverAccountResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetClusterDriftStatus compares each account's NIS-DB JWT against the
+     * cluster resolver's stored JWT and returns one row per account. Read-only.
+     *
+     * @generated from rpc nis.v1.ClusterService.GetClusterDriftStatus
+     */
+    getClusterDriftStatus: {
+      name: "GetClusterDriftStatus",
+      I: GetClusterDriftStatusRequest,
+      O: GetClusterDriftStatusResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ReconcileAccountOnCluster pushes a single account's NIS-stored JWT to the
+     * specified cluster, intended for "fix this drifted row" in the UI.
+     *
+     * @generated from rpc nis.v1.ClusterService.ReconcileAccountOnCluster
+     */
+    reconcileAccountOnCluster: {
+      name: "ReconcileAccountOnCluster",
+      I: ReconcileAccountOnClusterRequest,
+      O: ReconcileAccountOnClusterResponse,
       kind: MethodKind.Unary,
     },
   }
