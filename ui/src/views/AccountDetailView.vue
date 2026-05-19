@@ -192,6 +192,131 @@
           </div>
         </div>
       </div>
+
+      <div v-if="account.jetstreamLimits?.enabled" class="row g-4 mt-1">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">
+                Live JetStream usage
+                <span class="badge bg-secondary ms-2">{{ jsUsage.length }} cluster(s)</span>
+              </h5>
+              <div class="d-flex align-items-center gap-2">
+                <span v-if="jsUsageFetchedAt" class="text-muted small">
+                  Updated {{ formatRelative(jsUsageFetchedAt) }}
+                </span>
+                <div class="form-check form-switch mb-0">
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="jsIncludeUnhealthy"
+                    v-model="jsIncludeUnhealthy"
+                    :disabled="jsUsageLoading"
+                  >
+                  <label class="form-check-label small text-muted" for="jsIncludeUnhealthy">
+                    Include unhealthy
+                  </label>
+                </div>
+                <button
+                  class="btn btn-sm btn-outline-secondary"
+                  :disabled="jsUsageLoading"
+                  @click="loadJSUsage"
+                >
+                  <span v-if="jsUsageLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div v-if="jsUsageError" class="alert alert-warning mb-3">{{ jsUsageError }}</div>
+              <div v-if="!jsUsageFetchedAt && !jsUsageLoading" class="text-muted">
+                Click Refresh to query live usage from each attached cluster.
+              </div>
+              <div v-if="jsUsage.length === 0 && jsUsageFetchedAt" class="text-muted">
+                No clusters attached to this operator.
+              </div>
+              <div v-for="c in jsUsage" :key="c.clusterId" class="mb-3 p-3 border rounded">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h6 class="mb-0">
+                    <router-link :to="`/clusters/${c.clusterId}`">{{ c.clusterName }}</router-link>
+                  </h6>
+                  <span :class="probeStatusBadgeClass(c.status)" :title="c.errorMessage">
+                    {{ probeStatusLabel(c.status) }}
+                  </span>
+                </div>
+                <div v-if="probeStatusIsNotActivated(c.status)" class="alert alert-info py-2 mb-2 small">
+                  JetStream is enabled for this account on this cluster, but NATS
+                  hasn't initialised JS state yet. NATS does this lazily on the
+                  first client connect (or first JS API call) for the account.
+                  Connect once — e.g. <code>nats --creds=app.creds rtt</code> —
+                  and refresh.
+                </div>
+                <div v-if="probeStatusIsOk(c.status) || probeStatusIsNotActivated(c.status)" class="row g-3">
+                  <div class="col-md-6">
+                    <div class="small text-muted">Memory</div>
+                    <div class="progress mt-1" style="height: 1.25rem;">
+                      <div
+                        class="progress-bar"
+                        :class="usageBarClass(c.usage?.memoryUsed, account.jetstreamLimits?.maxMemory)"
+                        role="progressbar"
+                        :style="`width: ${usagePct(c.usage?.memoryUsed, account.jetstreamLimits?.maxMemory)}%`"
+                      >
+                        {{ formatBytes(c.usage?.memoryUsed) }} / {{ formatLimitBytes(account.jetstreamLimits?.maxMemory) }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="small text-muted">Storage</div>
+                    <div class="progress mt-1" style="height: 1.25rem;">
+                      <div
+                        class="progress-bar"
+                        :class="usageBarClass(c.usage?.storageUsed, account.jetstreamLimits?.maxStorage)"
+                        role="progressbar"
+                        :style="`width: ${usagePct(c.usage?.storageUsed, account.jetstreamLimits?.maxStorage)}%`"
+                      >
+                        {{ formatBytes(c.usage?.storageUsed) }} / {{ formatLimitBytes(account.jetstreamLimits?.maxStorage) }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="small text-muted">Streams</div>
+                    <div class="progress mt-1" style="height: 1.25rem;">
+                      <div
+                        class="progress-bar"
+                        :class="usageBarClass(c.usage?.streams, account.jetstreamLimits?.maxStreams)"
+                        role="progressbar"
+                        :style="`width: ${usagePct(c.usage?.streams, account.jetstreamLimits?.maxStreams)}%`"
+                      >
+                        {{ c.usage?.streams || 0 }} / {{ formatLimitCount(account.jetstreamLimits?.maxStreams) }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="small text-muted">Consumers</div>
+                    <div class="progress mt-1" style="height: 1.25rem;">
+                      <div
+                        class="progress-bar"
+                        :class="usageBarClass(c.usage?.consumers, account.jetstreamLimits?.maxConsumers)"
+                        role="progressbar"
+                        :style="`width: ${usagePct(c.usage?.consumers, account.jetstreamLimits?.maxConsumers)}%`"
+                      >
+                        {{ c.usage?.consumers || 0 }} / {{ formatLimitCount(account.jetstreamLimits?.maxConsumers) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-muted small">
+                  {{ c.errorMessage || 'No usage data available.' }}
+                </div>
+              </div>
+              <p class="text-muted small mb-0 mt-2">
+                Usage is queried live from each cluster via NATS. Values reflect what the cluster reports right now;
+                refresh to re-poll. No auto-refresh.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -213,6 +338,14 @@ const activeRevocations = ref(0)
 const revocations = ref([])
 const revocationsLoading = ref(false)
 const revocationsError = ref('')
+
+// Live JetStream usage (P10). Manual refresh only — no auto-poll so the page
+// doesn't generate ambient NATS load on every operator's clusters.
+const jsUsage = ref([])
+const jsUsageLoading = ref(false)
+const jsUsageError = ref('')
+const jsUsageFetchedAt = ref(null)
+const jsIncludeUnhealthy = ref(false)
 
 // Account JWT exp (P2). The exp lives in the signed JWT itself; decoding is
 // the cheapest read. NB: jwt-decode does NOT verify the signature — it's
@@ -321,6 +454,115 @@ const formatLimit = (value) => {
   if (value === -1 || value === '-1') return 'Unlimited'
   if (value === 0) return 'None'
   return value.toLocaleString()
+}
+
+// --- Live JetStream usage helpers (P10) ---
+
+const loadJSUsage = async () => {
+  jsUsageLoading.value = true
+  jsUsageError.value = ''
+  try {
+    const resp = await apiClient.post('/nis.v1.AccountService/GetAccountJetStreamUsage', {
+      accountId: route.params.id,
+      includeUnhealthy: jsIncludeUnhealthy.value,
+    })
+    jsUsage.value = resp.data.clusters || []
+    jsUsageFetchedAt.value = new Date()
+  } catch (err) {
+    jsUsageError.value = err.response?.data?.message || 'Failed to query JetStream usage'
+    jsUsage.value = []
+  } finally {
+    jsUsageLoading.value = false
+  }
+}
+
+const PROBE_OK = 'JET_STREAM_PROBE_STATUS_OK'
+const PROBE_UNREACHABLE = 'JET_STREAM_PROBE_STATUS_UNREACHABLE'
+const PROBE_NO_JS = 'JET_STREAM_PROBE_STATUS_NO_JETSTREAM'
+const PROBE_ACCOUNT_NOT_FOUND = 'JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND'
+const PROBE_NOT_ACTIVATED = 'JET_STREAM_PROBE_STATUS_NOT_ACTIVATED'
+
+// Wire enum: ConnectRPC over JSON serializes proto enums as their string name.
+// Compare against the string constants above; numeric fallback covers the
+// (uncommon) case where a transport surfaces the int instead.
+const probeStatusIsOk = (s) => s === PROBE_OK || s === 1
+const probeStatusIsNotActivated = (s) => s === PROBE_NOT_ACTIVATED || s === 6
+
+const probeStatusLabel = (s) => {
+  switch (s) {
+    case PROBE_OK:
+    case 1: return 'OK'
+    case PROBE_UNREACHABLE:
+    case 2: return 'Unreachable'
+    case PROBE_NO_JS:
+    case 3: return 'No JetStream'
+    case PROBE_ACCOUNT_NOT_FOUND:
+    case 4: return 'Account not found on cluster'
+    case PROBE_NOT_ACTIVATED:
+    case 6: return 'Not activated'
+    default: return 'Error'
+  }
+}
+
+const probeStatusBadgeClass = (s) => {
+  switch (s) {
+    case PROBE_OK:
+    case 1: return 'badge bg-success'
+    case PROBE_UNREACHABLE:
+    case 2: return 'badge bg-warning text-dark'
+    case PROBE_NO_JS:
+    case 3: return 'badge bg-secondary'
+    case PROBE_ACCOUNT_NOT_FOUND:
+    case 4: return 'badge bg-warning text-dark'
+    case PROBE_NOT_ACTIVATED:
+    case 6: return 'badge bg-info'
+    default: return 'badge bg-danger'
+  }
+}
+
+const usagePct = (used, max) => {
+  const u = Number(used) || 0
+  const m = Number(max) || 0
+  if (m <= 0) return Math.min(100, u > 0 ? 5 : 0) // unlimited: token bar
+  return Math.min(100, (u / m) * 100)
+}
+
+const usageBarClass = (used, max) => {
+  const pct = usagePct(used, max)
+  if (Number(max) <= 0) return 'bg-info'
+  if (pct >= 90) return 'bg-danger'
+  if (pct >= 75) return 'bg-warning text-dark'
+  return 'bg-success'
+}
+
+const formatBytes = (n) => {
+  const v = Number(n) || 0
+  if (v < 1024) return `${v} B`
+  const units = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+  let i = -1
+  let x = v
+  while (x >= 1024 && i < units.length - 1) { x /= 1024; i++ }
+  return `${x.toFixed(1)} ${units[i]}`
+}
+
+const formatLimitBytes = (v) => {
+  if (v === -1 || v === '-1') return '∞'
+  if (!v || v === 0) return '0'
+  return formatBytes(v)
+}
+
+const formatLimitCount = (v) => {
+  if (v === -1 || v === '-1') return '∞'
+  return Number(v) || 0
+}
+
+const formatRelative = (d) => {
+  if (!d) return ''
+  const diff = Math.floor((Date.now() - d.getTime()) / 1000)
+  if (diff < 5) return 'just now'
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  return d.toLocaleString()
 }
 
 onMounted(() => {

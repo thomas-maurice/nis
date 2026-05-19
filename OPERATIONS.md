@@ -382,6 +382,34 @@ readinessProbe:
   periodSeconds: 10
 ```
 
+### Per-account JetStream usage
+
+NIS surfaces live per-cluster JetStream usage for any account via
+`nis.v1.AccountService/GetAccountJetStreamUsage` (CLI: `nisctl account
+jetstream-usage NAME --operator OP`). The query runs at request time against
+each attached cluster — there is no background polling, so usage is fresh
+but generates a NATS round-trip per refresh. The UI on the Account detail
+page exposes the same data with a manual Refresh button; no auto-poll.
+
+Per-cluster failures are surfaced as status fields (`ok` / `unreachable` /
+`no-jetstream` / `account-not-found` / `not-activated` / `error`), not
+RPC errors — one broken cluster doesn't hide the others. Clusters
+confirmed unhealthy by the 60s health-check loop are short-circuited
+with `unreachable` to keep refresh latency down; pass
+`--include-unhealthy` to force a dial.
+
+The most common surprise on a fresh setup is `not-activated`: you've
+enabled JS on an account in NIS, synced the cluster, but no client has
+ever connected. NATS initialises per-account JS state lazily, so JSZ
+reports the account as not-found even though its JWT is on the
+resolver. Connect once with the account's credentials (e.g. `nats
+--creds=app.creds rtt`) or publish to a JS subject and the status
+flips to `ok` with zero usage. This is normal NATS behaviour, not a
+bug.
+
+The system-account credentials NIS stores per cluster are sufficient — no
+extra grant required beyond what's already needed for `$SYS.REQ.CLAIMS.*`.
+
 ### NATS Monitoring
 
 NATS exposes monitoring data on port 8222:

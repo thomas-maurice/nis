@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -446,4 +448,161 @@ func (c *Client) Request(ctx context.Context, subject string, data []byte) (*nat
 		return nil, fmt.Errorf("not connected to NATS")
 	}
 	return c.nc.RequestWithContext(ctx, subject, data)
+}
+
+// JetStreamAccountInfo is a minimal local mirror of nats-server's monitor.JSInfo
+// + JetStreamStats. We intentionally do NOT import nats-server/v2 (a heavy module
+// that drags in the full server) just to decode a system-account reply.
+//
+// Field set is the cluster-wide aggregate for one account, as returned by
+// $SYS.REQ.ACCOUNT.<accountPublicKey>.JSZ. Add fields here as we need them;
+// the JSON decoder ignores unknown fields.
+type JetStreamAccountInfo struct {
+	Memory          uint64 `json:"memory"`
+	Storage         uint64 `json:"storage"`
+	ReservedMemory  uint64 `json:"reserved_memory"`
+	ReservedStorage uint64 `json:"reserved_storage"`
+	Streams         int    `json:"streams"`
+	Consumers       int    `json:"consumers"`
+	APITotal        uint64 `json:"-"`
+	APIErrors       uint64 `json:"-"`
+	Disabled        bool   `json:"disabled,omitempty"`
+}
+
+// Sentinel errors returned by QueryAccountJetStreamInfo so the service layer
+// can map them to the public JetStreamProbeStatus enum.
+var (
+	// ErrJetStreamUnreachable: no NATS server responded, or the server has
+	// no JetStream subsystem at all. Includes nats.ErrNoResponders and
+	// context-deadline cases.
+	ErrJetStreamUnreachable = errors.New("jetstream: cluster unreachable or no jetstream subsystem")
+
+	// ErrJetStreamAccountNotFound: the cluster has no record of the account
+	// (no JWT pushed, or JS state never initialised for it).
+	ErrJetStreamAccountNotFound = errors.New("jetstream: account not found on cluster")
+
+	// ErrJetStreamNotEnabled: cluster knows the account but JS is disabled
+	// for it (limits set to zero, or response carries disabled=true).
+	ErrJetStreamNotEnabled = errors.New("jetstream: not enabled for account on cluster")
+)
+
+// jszEnvelope mirrors NATS's AccountDetail (the actual payload for
+// $SYS.REQ.ACCOUNT.<id>.JSZ — the request handler returns JszAccount, not Jsz).
+// AccountDetail embeds JetStreamStats at the top level (memory/storage/api),
+// plus an optional stream_detail array — populated when the request body sets
+// {"streams": true}. We count the array length to derive the per-account stream
+// count, and sum per-stream consumer counts from each stream's state.
+type jszEnvelope struct {
+	// embedded JetStreamStats
+	Memory          uint64 `json:"memory"`
+	Storage         uint64 `json:"storage"`
+	ReservedMemory  uint64 `json:"reserved_memory"`
+	ReservedStorage uint64 `json:"reserved_storage"`
+	API             struct {
+		Total  uint64 `json:"total"`
+		Errors uint64 `json:"errors"`
+	} `json:"api"`
+	// stream_detail is populated only when the request sets streams=true.
+	StreamDetail []jszStreamDetail `json:"stream_detail,omitempty"`
+	Disabled     bool              `json:"disabled,omitempty"`
+}
+
+// jszStreamDetail is the slice of StreamDetail we actually care about — name
+// plus consumer count from state. Everything else (config, cluster info, raft
+// group) is ignored at decode time.
+type jszStreamDetail struct {
+	Name  string `json:"name"`
+	State struct {
+		Consumers int `json:"consumer_count"`
+	} `json:"state"`
+}
+
+type jszResponse struct {
+	Server *struct {
+		ID string `json:"id"`
+	} `json:"server,omitempty"`
+	Data  *jszEnvelope `json:"data,omitempty"`
+	Error *struct {
+		Code        int    `json:"code"`
+		Description string `json:"description"`
+	} `json:"error,omitempty"`
+}
+
+// QueryAccountJetStreamInfo returns live JetStream usage for the given account
+// public key by sending $SYS.REQ.ACCOUNT.<key>.JSZ. The connecting user must
+// be on the system account (which the cluster's stored system-user creds are).
+// The 3-second internal timeout matches the existing ProbeResolver/health-check
+// pattern; the caller's ctx deadline still takes precedence if shorter.
+func (c *Client) QueryAccountJetStreamInfo(ctx context.Context, accountPublicKey string) (*JetStreamAccountInfo, error) {
+	if !c.IsConnected() {
+		return nil, ErrJetStreamUnreachable
+	}
+	if accountPublicKey == "" {
+		return nil, fmt.Errorf("accountPublicKey is required")
+	}
+
+	reqCtx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		reqCtx, cancel = context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+	}
+
+	subject := fmt.Sprintf("$SYS.REQ.ACCOUNT.%s.JSZ", accountPublicKey)
+
+	// Request body asks for the per-stream array so we can derive the
+	// account's stream count and (by summing per-stream state.consumer_count)
+	// its consumer total. Without streams=true the response carries only
+	// JetStreamStats (bytes), which is most of the picture but leaves the
+	// "N streams / N consumers" headline unpopulated.
+	body := []byte(`{"streams":true}`)
+	msg, err := c.nc.RequestWithContext(reqCtx, subject, body)
+	if err != nil {
+		if errors.Is(err, nats.ErrNoResponders) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, ErrJetStreamUnreachable
+		}
+		return nil, fmt.Errorf("jetstream: query failed: %w", err)
+	}
+	if len(msg.Data) == 0 {
+		return nil, ErrJetStreamUnreachable
+	}
+
+	var resp jszResponse
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		return nil, fmt.Errorf("jetstream: decode response: %w", err)
+	}
+	if resp.Error != nil {
+		desc := strings.ToLower(resp.Error.Description)
+		if resp.Error.Code == 404 || strings.Contains(desc, "not found") || strings.Contains(desc, "no account") {
+			return nil, ErrJetStreamAccountNotFound
+		}
+		if strings.Contains(desc, "jetstream not enabled") || strings.Contains(desc, "not enabled for jetstream") {
+			return nil, ErrJetStreamNotEnabled
+		}
+		return nil, fmt.Errorf("jetstream: resolver error %d: %s", resp.Error.Code, resp.Error.Description)
+	}
+	if resp.Data == nil {
+		// No data and no error: treat as unreachable rather than silently
+		// returning zeros — operator should see something is off.
+		return nil, ErrJetStreamUnreachable
+	}
+	if resp.Data.Disabled {
+		return nil, ErrJetStreamNotEnabled
+	}
+
+	consumers := 0
+	for _, sd := range resp.Data.StreamDetail {
+		consumers += sd.State.Consumers
+	}
+
+	return &JetStreamAccountInfo{
+		Memory:          resp.Data.Memory,
+		Storage:         resp.Data.Storage,
+		ReservedMemory:  resp.Data.ReservedMemory,
+		ReservedStorage: resp.Data.ReservedStorage,
+		Streams:         len(resp.Data.StreamDetail),
+		Consumers:       consumers,
+		APITotal:        resp.Data.API.Total,
+		APIErrors:       resp.Data.API.Errors,
+	}, nil
 }

@@ -22,6 +22,84 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// JetStreamProbeStatus is the per-cluster outcome of a live JetStream usage
+// query. Returning the status as a field (instead of an RPC-level error) lets
+// the UI show partial results when one of an operator's clusters is down.
+type JetStreamProbeStatus int32
+
+const (
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_UNSPECIFIED JetStreamProbeStatus = 0
+	// OK: query succeeded; usage is populated.
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_OK JetStreamProbeStatus = 1
+	// UNREACHABLE: dial or system-account request timed out / refused.
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_UNREACHABLE JetStreamProbeStatus = 2
+	// NO_JETSTREAM: cluster responded but JetStream is not enabled for this
+	// account on this cluster (response has disabled=true or empty stats).
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NO_JETSTREAM JetStreamProbeStatus = 3
+	// ACCOUNT_NOT_FOUND: cluster has no record of the account (no JWT pushed,
+	// or sync drift).
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND JetStreamProbeStatus = 4
+	// ERROR: any other failure (malformed response, decode error, etc.).
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_ERROR JetStreamProbeStatus = 5
+	// NOT_ACTIVATED: account's JWT has JetStream enabled, but the cluster has
+	// not yet initialised JS state for it. NATS activates per-account JS state
+	// lazily on the first client connect or first JS API call. Until then,
+	// $SYS.REQ.ACCOUNT.<key>.JSZ returns "account not found" even though the
+	// JWT is on the resolver and JS is configured. Usage is reported as zero.
+	// To activate: connect once with the account's credentials (e.g.
+	// `nats --creds=app.creds rtt`) or publish to a JS subject.
+	JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NOT_ACTIVATED JetStreamProbeStatus = 6
+)
+
+// Enum value maps for JetStreamProbeStatus.
+var (
+	JetStreamProbeStatus_name = map[int32]string{
+		0: "JET_STREAM_PROBE_STATUS_UNSPECIFIED",
+		1: "JET_STREAM_PROBE_STATUS_OK",
+		2: "JET_STREAM_PROBE_STATUS_UNREACHABLE",
+		3: "JET_STREAM_PROBE_STATUS_NO_JETSTREAM",
+		4: "JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND",
+		5: "JET_STREAM_PROBE_STATUS_ERROR",
+		6: "JET_STREAM_PROBE_STATUS_NOT_ACTIVATED",
+	}
+	JetStreamProbeStatus_value = map[string]int32{
+		"JET_STREAM_PROBE_STATUS_UNSPECIFIED":       0,
+		"JET_STREAM_PROBE_STATUS_OK":                1,
+		"JET_STREAM_PROBE_STATUS_UNREACHABLE":       2,
+		"JET_STREAM_PROBE_STATUS_NO_JETSTREAM":      3,
+		"JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND": 4,
+		"JET_STREAM_PROBE_STATUS_ERROR":             5,
+		"JET_STREAM_PROBE_STATUS_NOT_ACTIVATED":     6,
+	}
+)
+
+func (x JetStreamProbeStatus) Enum() *JetStreamProbeStatus {
+	p := new(JetStreamProbeStatus)
+	*p = x
+	return p
+}
+
+func (x JetStreamProbeStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JetStreamProbeStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_nis_v1_account_proto_enumTypes[0].Descriptor()
+}
+
+func (JetStreamProbeStatus) Type() protoreflect.EnumType {
+	return &file_nis_v1_account_proto_enumTypes[0]
+}
+
+func (x JetStreamProbeStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JetStreamProbeStatus.Descriptor instead.
+func (JetStreamProbeStatus) EnumDescriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{0}
+}
+
 // Account represents a NATS account
 type Account struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -1107,6 +1185,290 @@ func (x *ListAccountJWTRevocationsResponse) GetRevocations() []*AccountJWTRevoca
 	return nil
 }
 
+// JetStreamUsage is the live usage snapshot from one cluster, aggregated
+// across all servers in the cluster by the receiving NATS server.
+type JetStreamUsage struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	MemoryUsed      uint64                 `protobuf:"varint,1,opt,name=memory_used,json=memoryUsed,proto3" json:"memory_used,omitempty"`
+	StorageUsed     uint64                 `protobuf:"varint,2,opt,name=storage_used,json=storageUsed,proto3" json:"storage_used,omitempty"`
+	ReservedMemory  uint64                 `protobuf:"varint,3,opt,name=reserved_memory,json=reservedMemory,proto3" json:"reserved_memory,omitempty"`
+	ReservedStorage uint64                 `protobuf:"varint,4,opt,name=reserved_storage,json=reservedStorage,proto3" json:"reserved_storage,omitempty"`
+	Streams         int32                  `protobuf:"varint,5,opt,name=streams,proto3" json:"streams,omitempty"`
+	Consumers       int32                  `protobuf:"varint,6,opt,name=consumers,proto3" json:"consumers,omitempty"`
+	ApiTotal        uint64                 `protobuf:"varint,7,opt,name=api_total,json=apiTotal,proto3" json:"api_total,omitempty"`
+	ApiErrors       uint64                 `protobuf:"varint,8,opt,name=api_errors,json=apiErrors,proto3" json:"api_errors,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *JetStreamUsage) Reset() {
+	*x = JetStreamUsage{}
+	mi := &file_nis_v1_account_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JetStreamUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JetStreamUsage) ProtoMessage() {}
+
+func (x *JetStreamUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JetStreamUsage.ProtoReflect.Descriptor instead.
+func (*JetStreamUsage) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *JetStreamUsage) GetMemoryUsed() uint64 {
+	if x != nil {
+		return x.MemoryUsed
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetStorageUsed() uint64 {
+	if x != nil {
+		return x.StorageUsed
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetReservedMemory() uint64 {
+	if x != nil {
+		return x.ReservedMemory
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetReservedStorage() uint64 {
+	if x != nil {
+		return x.ReservedStorage
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetStreams() int32 {
+	if x != nil {
+		return x.Streams
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetConsumers() int32 {
+	if x != nil {
+		return x.Consumers
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetApiTotal() uint64 {
+	if x != nil {
+		return x.ApiTotal
+	}
+	return 0
+}
+
+func (x *JetStreamUsage) GetApiErrors() uint64 {
+	if x != nil {
+		return x.ApiErrors
+	}
+	return 0
+}
+
+// ClusterJetStreamUsage is the per-cluster result of a live usage query.
+type ClusterJetStreamUsage struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId    string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	ClusterName  string                 `protobuf:"bytes,2,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
+	Status       JetStreamProbeStatus   `protobuf:"varint,3,opt,name=status,proto3,enum=nis.v1.JetStreamProbeStatus" json:"status,omitempty"`
+	ErrorMessage string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// usage is set only when status == OK.
+	Usage         *JetStreamUsage `protobuf:"bytes,5,opt,name=usage,proto3" json:"usage,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClusterJetStreamUsage) Reset() {
+	*x = ClusterJetStreamUsage{}
+	mi := &file_nis_v1_account_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClusterJetStreamUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClusterJetStreamUsage) ProtoMessage() {}
+
+func (x *ClusterJetStreamUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClusterJetStreamUsage.ProtoReflect.Descriptor instead.
+func (*ClusterJetStreamUsage) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ClusterJetStreamUsage) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *ClusterJetStreamUsage) GetClusterName() string {
+	if x != nil {
+		return x.ClusterName
+	}
+	return ""
+}
+
+func (x *ClusterJetStreamUsage) GetStatus() JetStreamProbeStatus {
+	if x != nil {
+		return x.Status
+	}
+	return JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_UNSPECIFIED
+}
+
+func (x *ClusterJetStreamUsage) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ClusterJetStreamUsage) GetUsage() *JetStreamUsage {
+	if x != nil {
+		return x.Usage
+	}
+	return nil
+}
+
+// GetAccountJetStreamUsageRequest queries every cluster attached to the
+// account's operator and returns per-cluster usage.
+type GetAccountJetStreamUsageRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	AccountId string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	// include_unhealthy forces a dial attempt even when the cluster row's
+	// health flag is false. Default false; the request will short-circuit
+	// unhealthy clusters with UNREACHABLE to avoid paying the dial timeout
+	// on every refresh.
+	IncludeUnhealthy bool `protobuf:"varint,2,opt,name=include_unhealthy,json=includeUnhealthy,proto3" json:"include_unhealthy,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetAccountJetStreamUsageRequest) Reset() {
+	*x = GetAccountJetStreamUsageRequest{}
+	mi := &file_nis_v1_account_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountJetStreamUsageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountJetStreamUsageRequest) ProtoMessage() {}
+
+func (x *GetAccountJetStreamUsageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountJetStreamUsageRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountJetStreamUsageRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *GetAccountJetStreamUsageRequest) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *GetAccountJetStreamUsageRequest) GetIncludeUnhealthy() bool {
+	if x != nil {
+		return x.IncludeUnhealthy
+	}
+	return false
+}
+
+// GetAccountJetStreamUsageResponse returns per-cluster usage in stable
+// cluster-name order.
+type GetAccountJetStreamUsageResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Clusters      []*ClusterJetStreamUsage `protobuf:"bytes,1,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountJetStreamUsageResponse) Reset() {
+	*x = GetAccountJetStreamUsageResponse{}
+	mi := &file_nis_v1_account_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountJetStreamUsageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountJetStreamUsageResponse) ProtoMessage() {}
+
+func (x *GetAccountJetStreamUsageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_account_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountJetStreamUsageResponse.ProtoReflect.Descriptor instead.
+func (*GetAccountJetStreamUsageResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_account_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *GetAccountJetStreamUsageResponse) GetClusters() []*ClusterJetStreamUsage {
+	if x != nil {
+		return x.Clusters
+	}
+	return nil
+}
+
 var File_nis_v1_account_proto protoreflect.FileDescriptor
 
 const file_nis_v1_account_proto_rawDesc = "" +
@@ -1185,7 +1547,39 @@ const file_nis_v1_account_proto_rawDesc = "" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\"c\n" +
 	"!ListAccountJWTRevocationsResponse\x12>\n" +
-	"\vrevocations\x18\x01 \x03(\v2\x1c.nis.v1.AccountJWTRevocationR\vrevocations2\x8a\x06\n" +
+	"\vrevocations\x18\x01 \x03(\v2\x1c.nis.v1.AccountJWTRevocationR\vrevocations\"\x9c\x02\n" +
+	"\x0eJetStreamUsage\x12\x1f\n" +
+	"\vmemory_used\x18\x01 \x01(\x04R\n" +
+	"memoryUsed\x12!\n" +
+	"\fstorage_used\x18\x02 \x01(\x04R\vstorageUsed\x12'\n" +
+	"\x0freserved_memory\x18\x03 \x01(\x04R\x0ereservedMemory\x12)\n" +
+	"\x10reserved_storage\x18\x04 \x01(\x04R\x0freservedStorage\x12\x18\n" +
+	"\astreams\x18\x05 \x01(\x05R\astreams\x12\x1c\n" +
+	"\tconsumers\x18\x06 \x01(\x05R\tconsumers\x12\x1b\n" +
+	"\tapi_total\x18\a \x01(\x04R\bapiTotal\x12\x1d\n" +
+	"\n" +
+	"api_errors\x18\b \x01(\x04R\tapiErrors\"\xe2\x01\n" +
+	"\x15ClusterJetStreamUsage\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12!\n" +
+	"\fcluster_name\x18\x02 \x01(\tR\vclusterName\x124\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1c.nis.v1.JetStreamProbeStatusR\x06status\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12,\n" +
+	"\x05usage\x18\x05 \x01(\v2\x16.nis.v1.JetStreamUsageR\x05usage\"m\n" +
+	"\x1fGetAccountJetStreamUsageRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12+\n" +
+	"\x11include_unhealthy\x18\x02 \x01(\bR\x10includeUnhealthy\"]\n" +
+	" GetAccountJetStreamUsageResponse\x129\n" +
+	"\bclusters\x18\x01 \x03(\v2\x1d.nis.v1.ClusterJetStreamUsageR\bclusters*\xaf\x02\n" +
+	"\x14JetStreamProbeStatus\x12'\n" +
+	"#JET_STREAM_PROBE_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aJET_STREAM_PROBE_STATUS_OK\x10\x01\x12'\n" +
+	"#JET_STREAM_PROBE_STATUS_UNREACHABLE\x10\x02\x12(\n" +
+	"$JET_STREAM_PROBE_STATUS_NO_JETSTREAM\x10\x03\x12-\n" +
+	")JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND\x10\x04\x12!\n" +
+	"\x1dJET_STREAM_PROBE_STATUS_ERROR\x10\x05\x12)\n" +
+	"%JET_STREAM_PROBE_STATUS_NOT_ACTIVATED\x10\x062\xf9\x06\n" +
 	"\x0eAccountService\x12L\n" +
 	"\rCreateAccount\x12\x1c.nis.v1.CreateAccountRequest\x1a\x1d.nis.v1.CreateAccountResponse\x12C\n" +
 	"\n" +
@@ -1196,7 +1590,8 @@ const file_nis_v1_account_proto_rawDesc = "" +
 	"\x15UpdateJetStreamLimits\x12$.nis.v1.UpdateJetStreamLimitsRequest\x1a%.nis.v1.UpdateJetStreamLimitsResponse\x12L\n" +
 	"\rDeleteAccount\x12\x1c.nis.v1.DeleteAccountRequest\x1a\x1d.nis.v1.DeleteAccountResponse\x12O\n" +
 	"\x0ePushAccountJWT\x12\x1d.nis.v1.PushAccountJWTRequest\x1a\x1e.nis.v1.PushAccountJWTResponse\x12p\n" +
-	"\x19ListAccountJWTRevocations\x12(.nis.v1.ListAccountJWTRevocationsRequest\x1a).nis.v1.ListAccountJWTRevocationsResponseB\x83\x01\n" +
+	"\x19ListAccountJWTRevocations\x12(.nis.v1.ListAccountJWTRevocationsRequest\x1a).nis.v1.ListAccountJWTRevocationsResponse\x12m\n" +
+	"\x18GetAccountJetStreamUsage\x12'.nis.v1.GetAccountJetStreamUsageRequest\x1a(.nis.v1.GetAccountJetStreamUsageResponseB\x83\x01\n" +
 	"\n" +
 	"com.nis.v1B\fAccountProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -1212,71 +1607,82 @@ func file_nis_v1_account_proto_rawDescGZIP() []byte {
 	return file_nis_v1_account_proto_rawDescData
 }
 
-var file_nis_v1_account_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_nis_v1_account_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_nis_v1_account_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_nis_v1_account_proto_goTypes = []any{
-	(*Account)(nil),                           // 0: nis.v1.Account
-	(*CreateAccountRequest)(nil),              // 1: nis.v1.CreateAccountRequest
-	(*CreateAccountResponse)(nil),             // 2: nis.v1.CreateAccountResponse
-	(*GetAccountRequest)(nil),                 // 3: nis.v1.GetAccountRequest
-	(*GetAccountResponse)(nil),                // 4: nis.v1.GetAccountResponse
-	(*GetAccountByNameRequest)(nil),           // 5: nis.v1.GetAccountByNameRequest
-	(*GetAccountByNameResponse)(nil),          // 6: nis.v1.GetAccountByNameResponse
-	(*ListAccountsRequest)(nil),               // 7: nis.v1.ListAccountsRequest
-	(*ListAccountsResponse)(nil),              // 8: nis.v1.ListAccountsResponse
-	(*UpdateAccountRequest)(nil),              // 9: nis.v1.UpdateAccountRequest
-	(*UpdateAccountResponse)(nil),             // 10: nis.v1.UpdateAccountResponse
-	(*UpdateJetStreamLimitsRequest)(nil),      // 11: nis.v1.UpdateJetStreamLimitsRequest
-	(*UpdateJetStreamLimitsResponse)(nil),     // 12: nis.v1.UpdateJetStreamLimitsResponse
-	(*DeleteAccountRequest)(nil),              // 13: nis.v1.DeleteAccountRequest
-	(*DeleteAccountResponse)(nil),             // 14: nis.v1.DeleteAccountResponse
-	(*PushAccountJWTRequest)(nil),             // 15: nis.v1.PushAccountJWTRequest
-	(*PushAccountJWTResponse)(nil),            // 16: nis.v1.PushAccountJWTResponse
-	(*AccountJWTRevocation)(nil),              // 17: nis.v1.AccountJWTRevocation
-	(*ListAccountJWTRevocationsRequest)(nil),  // 18: nis.v1.ListAccountJWTRevocationsRequest
-	(*ListAccountJWTRevocationsResponse)(nil), // 19: nis.v1.ListAccountJWTRevocationsResponse
-	(*JetStreamLimits)(nil),                   // 20: nis.v1.JetStreamLimits
-	(*timestamppb.Timestamp)(nil),             // 21: google.protobuf.Timestamp
-	(*ListOptions)(nil),                       // 22: nis.v1.ListOptions
+	(JetStreamProbeStatus)(0),                 // 0: nis.v1.JetStreamProbeStatus
+	(*Account)(nil),                           // 1: nis.v1.Account
+	(*CreateAccountRequest)(nil),              // 2: nis.v1.CreateAccountRequest
+	(*CreateAccountResponse)(nil),             // 3: nis.v1.CreateAccountResponse
+	(*GetAccountRequest)(nil),                 // 4: nis.v1.GetAccountRequest
+	(*GetAccountResponse)(nil),                // 5: nis.v1.GetAccountResponse
+	(*GetAccountByNameRequest)(nil),           // 6: nis.v1.GetAccountByNameRequest
+	(*GetAccountByNameResponse)(nil),          // 7: nis.v1.GetAccountByNameResponse
+	(*ListAccountsRequest)(nil),               // 8: nis.v1.ListAccountsRequest
+	(*ListAccountsResponse)(nil),              // 9: nis.v1.ListAccountsResponse
+	(*UpdateAccountRequest)(nil),              // 10: nis.v1.UpdateAccountRequest
+	(*UpdateAccountResponse)(nil),             // 11: nis.v1.UpdateAccountResponse
+	(*UpdateJetStreamLimitsRequest)(nil),      // 12: nis.v1.UpdateJetStreamLimitsRequest
+	(*UpdateJetStreamLimitsResponse)(nil),     // 13: nis.v1.UpdateJetStreamLimitsResponse
+	(*DeleteAccountRequest)(nil),              // 14: nis.v1.DeleteAccountRequest
+	(*DeleteAccountResponse)(nil),             // 15: nis.v1.DeleteAccountResponse
+	(*PushAccountJWTRequest)(nil),             // 16: nis.v1.PushAccountJWTRequest
+	(*PushAccountJWTResponse)(nil),            // 17: nis.v1.PushAccountJWTResponse
+	(*AccountJWTRevocation)(nil),              // 18: nis.v1.AccountJWTRevocation
+	(*ListAccountJWTRevocationsRequest)(nil),  // 19: nis.v1.ListAccountJWTRevocationsRequest
+	(*ListAccountJWTRevocationsResponse)(nil), // 20: nis.v1.ListAccountJWTRevocationsResponse
+	(*JetStreamUsage)(nil),                    // 21: nis.v1.JetStreamUsage
+	(*ClusterJetStreamUsage)(nil),             // 22: nis.v1.ClusterJetStreamUsage
+	(*GetAccountJetStreamUsageRequest)(nil),   // 23: nis.v1.GetAccountJetStreamUsageRequest
+	(*GetAccountJetStreamUsageResponse)(nil),  // 24: nis.v1.GetAccountJetStreamUsageResponse
+	(*JetStreamLimits)(nil),                   // 25: nis.v1.JetStreamLimits
+	(*timestamppb.Timestamp)(nil),             // 26: google.protobuf.Timestamp
+	(*ListOptions)(nil),                       // 27: nis.v1.ListOptions
 }
 var file_nis_v1_account_proto_depIdxs = []int32{
-	20, // 0: nis.v1.Account.jetstream_limits:type_name -> nis.v1.JetStreamLimits
-	21, // 1: nis.v1.Account.created_at:type_name -> google.protobuf.Timestamp
-	21, // 2: nis.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
-	20, // 3: nis.v1.CreateAccountRequest.jetstream_limits:type_name -> nis.v1.JetStreamLimits
-	0,  // 4: nis.v1.CreateAccountResponse.account:type_name -> nis.v1.Account
-	0,  // 5: nis.v1.GetAccountResponse.account:type_name -> nis.v1.Account
-	0,  // 6: nis.v1.GetAccountByNameResponse.account:type_name -> nis.v1.Account
-	22, // 7: nis.v1.ListAccountsRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 8: nis.v1.ListAccountsResponse.accounts:type_name -> nis.v1.Account
-	0,  // 9: nis.v1.UpdateAccountResponse.account:type_name -> nis.v1.Account
-	20, // 10: nis.v1.UpdateJetStreamLimitsRequest.limits:type_name -> nis.v1.JetStreamLimits
-	0,  // 11: nis.v1.UpdateJetStreamLimitsResponse.account:type_name -> nis.v1.Account
-	21, // 12: nis.v1.AccountJWTRevocation.revoked_at:type_name -> google.protobuf.Timestamp
-	21, // 13: nis.v1.AccountJWTRevocation.jwt_exp:type_name -> google.protobuf.Timestamp
-	17, // 14: nis.v1.ListAccountJWTRevocationsResponse.revocations:type_name -> nis.v1.AccountJWTRevocation
-	1,  // 15: nis.v1.AccountService.CreateAccount:input_type -> nis.v1.CreateAccountRequest
-	3,  // 16: nis.v1.AccountService.GetAccount:input_type -> nis.v1.GetAccountRequest
-	5,  // 17: nis.v1.AccountService.GetAccountByName:input_type -> nis.v1.GetAccountByNameRequest
-	7,  // 18: nis.v1.AccountService.ListAccounts:input_type -> nis.v1.ListAccountsRequest
-	9,  // 19: nis.v1.AccountService.UpdateAccount:input_type -> nis.v1.UpdateAccountRequest
-	11, // 20: nis.v1.AccountService.UpdateJetStreamLimits:input_type -> nis.v1.UpdateJetStreamLimitsRequest
-	13, // 21: nis.v1.AccountService.DeleteAccount:input_type -> nis.v1.DeleteAccountRequest
-	15, // 22: nis.v1.AccountService.PushAccountJWT:input_type -> nis.v1.PushAccountJWTRequest
-	18, // 23: nis.v1.AccountService.ListAccountJWTRevocations:input_type -> nis.v1.ListAccountJWTRevocationsRequest
-	2,  // 24: nis.v1.AccountService.CreateAccount:output_type -> nis.v1.CreateAccountResponse
-	4,  // 25: nis.v1.AccountService.GetAccount:output_type -> nis.v1.GetAccountResponse
-	6,  // 26: nis.v1.AccountService.GetAccountByName:output_type -> nis.v1.GetAccountByNameResponse
-	8,  // 27: nis.v1.AccountService.ListAccounts:output_type -> nis.v1.ListAccountsResponse
-	10, // 28: nis.v1.AccountService.UpdateAccount:output_type -> nis.v1.UpdateAccountResponse
-	12, // 29: nis.v1.AccountService.UpdateJetStreamLimits:output_type -> nis.v1.UpdateJetStreamLimitsResponse
-	14, // 30: nis.v1.AccountService.DeleteAccount:output_type -> nis.v1.DeleteAccountResponse
-	16, // 31: nis.v1.AccountService.PushAccountJWT:output_type -> nis.v1.PushAccountJWTResponse
-	19, // 32: nis.v1.AccountService.ListAccountJWTRevocations:output_type -> nis.v1.ListAccountJWTRevocationsResponse
-	24, // [24:33] is the sub-list for method output_type
-	15, // [15:24] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	25, // 0: nis.v1.Account.jetstream_limits:type_name -> nis.v1.JetStreamLimits
+	26, // 1: nis.v1.Account.created_at:type_name -> google.protobuf.Timestamp
+	26, // 2: nis.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
+	25, // 3: nis.v1.CreateAccountRequest.jetstream_limits:type_name -> nis.v1.JetStreamLimits
+	1,  // 4: nis.v1.CreateAccountResponse.account:type_name -> nis.v1.Account
+	1,  // 5: nis.v1.GetAccountResponse.account:type_name -> nis.v1.Account
+	1,  // 6: nis.v1.GetAccountByNameResponse.account:type_name -> nis.v1.Account
+	27, // 7: nis.v1.ListAccountsRequest.options:type_name -> nis.v1.ListOptions
+	1,  // 8: nis.v1.ListAccountsResponse.accounts:type_name -> nis.v1.Account
+	1,  // 9: nis.v1.UpdateAccountResponse.account:type_name -> nis.v1.Account
+	25, // 10: nis.v1.UpdateJetStreamLimitsRequest.limits:type_name -> nis.v1.JetStreamLimits
+	1,  // 11: nis.v1.UpdateJetStreamLimitsResponse.account:type_name -> nis.v1.Account
+	26, // 12: nis.v1.AccountJWTRevocation.revoked_at:type_name -> google.protobuf.Timestamp
+	26, // 13: nis.v1.AccountJWTRevocation.jwt_exp:type_name -> google.protobuf.Timestamp
+	18, // 14: nis.v1.ListAccountJWTRevocationsResponse.revocations:type_name -> nis.v1.AccountJWTRevocation
+	0,  // 15: nis.v1.ClusterJetStreamUsage.status:type_name -> nis.v1.JetStreamProbeStatus
+	21, // 16: nis.v1.ClusterJetStreamUsage.usage:type_name -> nis.v1.JetStreamUsage
+	22, // 17: nis.v1.GetAccountJetStreamUsageResponse.clusters:type_name -> nis.v1.ClusterJetStreamUsage
+	2,  // 18: nis.v1.AccountService.CreateAccount:input_type -> nis.v1.CreateAccountRequest
+	4,  // 19: nis.v1.AccountService.GetAccount:input_type -> nis.v1.GetAccountRequest
+	6,  // 20: nis.v1.AccountService.GetAccountByName:input_type -> nis.v1.GetAccountByNameRequest
+	8,  // 21: nis.v1.AccountService.ListAccounts:input_type -> nis.v1.ListAccountsRequest
+	10, // 22: nis.v1.AccountService.UpdateAccount:input_type -> nis.v1.UpdateAccountRequest
+	12, // 23: nis.v1.AccountService.UpdateJetStreamLimits:input_type -> nis.v1.UpdateJetStreamLimitsRequest
+	14, // 24: nis.v1.AccountService.DeleteAccount:input_type -> nis.v1.DeleteAccountRequest
+	16, // 25: nis.v1.AccountService.PushAccountJWT:input_type -> nis.v1.PushAccountJWTRequest
+	19, // 26: nis.v1.AccountService.ListAccountJWTRevocations:input_type -> nis.v1.ListAccountJWTRevocationsRequest
+	23, // 27: nis.v1.AccountService.GetAccountJetStreamUsage:input_type -> nis.v1.GetAccountJetStreamUsageRequest
+	3,  // 28: nis.v1.AccountService.CreateAccount:output_type -> nis.v1.CreateAccountResponse
+	5,  // 29: nis.v1.AccountService.GetAccount:output_type -> nis.v1.GetAccountResponse
+	7,  // 30: nis.v1.AccountService.GetAccountByName:output_type -> nis.v1.GetAccountByNameResponse
+	9,  // 31: nis.v1.AccountService.ListAccounts:output_type -> nis.v1.ListAccountsResponse
+	11, // 32: nis.v1.AccountService.UpdateAccount:output_type -> nis.v1.UpdateAccountResponse
+	13, // 33: nis.v1.AccountService.UpdateJetStreamLimits:output_type -> nis.v1.UpdateJetStreamLimitsResponse
+	15, // 34: nis.v1.AccountService.DeleteAccount:output_type -> nis.v1.DeleteAccountResponse
+	17, // 35: nis.v1.AccountService.PushAccountJWT:output_type -> nis.v1.PushAccountJWTResponse
+	20, // 36: nis.v1.AccountService.ListAccountJWTRevocations:output_type -> nis.v1.ListAccountJWTRevocationsResponse
+	24, // 37: nis.v1.AccountService.GetAccountJetStreamUsage:output_type -> nis.v1.GetAccountJetStreamUsageResponse
+	28, // [28:38] is the sub-list for method output_type
+	18, // [18:28] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_account_proto_init() }
@@ -1291,13 +1697,14 @@ func file_nis_v1_account_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_account_proto_rawDesc), len(file_nis_v1_account_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   20,
+			NumEnums:      1,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_nis_v1_account_proto_goTypes,
 		DependencyIndexes: file_nis_v1_account_proto_depIdxs,
+		EnumInfos:         file_nis_v1_account_proto_enumTypes,
 		MessageInfos:      file_nis_v1_account_proto_msgTypes,
 	}.Build()
 	File_nis_v1_account_proto = out.File

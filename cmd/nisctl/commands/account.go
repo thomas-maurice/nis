@@ -44,14 +44,32 @@ var accountDeleteCmd = &cobra.Command{
 	RunE:  runAccountDelete,
 }
 
+var accountJetStreamUsageCmd = &cobra.Command{
+	Use:   "jetstream-usage NAME",
+	Short: "Show live per-cluster JetStream usage for an account",
+	Long: `Query every cluster attached to the account's operator over NATS and report
+live JetStream usage (memory, storage, streams, consumers) per cluster.
+
+Status column meanings:
+  ok                  cluster responded; usage populated
+  unreachable         dial failed, timed out, or cluster marked unhealthy
+                      (use --include-unhealthy to retry)
+  no-jetstream        cluster reachable but JetStream not enabled for account
+  account-not-found   cluster has no record of the account (sync drift)
+  error               other failure (see error column)`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAccountJetStreamUsage,
+}
+
 var (
-	accountOperatorID   string
-	accountDescription  string
-	accountMaxMemory    int64
-	accountMaxStorage   int64
-	accountMaxStreams   int32
-	accountMaxConsumers int32
-	accountForce        bool
+	accountOperatorID       string
+	accountDescription      string
+	accountMaxMemory        int64
+	accountMaxStorage       int64
+	accountMaxStreams       int32
+	accountMaxConsumers     int32
+	accountForce            bool
+	accountJSUsageIncludeUH bool
 )
 
 func init() {
@@ -61,6 +79,7 @@ func init() {
 	accountCmd.AddCommand(accountListCmd)
 	accountCmd.AddCommand(accountGetCmd)
 	accountCmd.AddCommand(accountDeleteCmd)
+	accountCmd.AddCommand(accountJetStreamUsageCmd)
 
 	// Create flags
 	accountCreateCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
@@ -79,6 +98,155 @@ func init() {
 	accountDeleteCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
 	accountDeleteCmd.Flags().BoolVarP(&accountForce, "force", "f", false, "skip confirmation prompt")
 	_ = accountDeleteCmd.MarkFlagRequired("operator")
+
+	// JetStream usage flags
+	accountJetStreamUsageCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
+	accountJetStreamUsageCmd.Flags().BoolVar(&accountJSUsageIncludeUH, "include-unhealthy", false, "force a dial attempt on clusters marked unhealthy (slower)")
+	_ = accountJetStreamUsageCmd.MarkFlagRequired("operator")
+}
+
+// runAccountJetStreamUsage fetches the account by name then queries every
+// attached cluster for live JetStream usage. Per-cluster failures are surfaced
+// as status rows in the table — the command exits 0 unless the account isn't
+// found or the caller lacks permission, so it stays pipe-friendly.
+func runAccountJetStreamUsage(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	operatorID, err := resolveOperatorID(accountOperatorID)
+	if err != nil {
+		return err
+	}
+
+	getResp, err := GetClient().Account.GetAccountByName(context.Background(), connect.NewRequest(&nisv1.GetAccountByNameRequest{
+		OperatorId: operatorID,
+		Name:       name,
+	}))
+	if err != nil {
+		return fmt.Errorf("account not found: %w", err)
+	}
+
+	resp, err := GetClient().Account.GetAccountJetStreamUsage(context.Background(), connect.NewRequest(&nisv1.GetAccountJetStreamUsageRequest{
+		AccountId:        getResp.Msg.Account.Id,
+		IncludeUnhealthy: accountJSUsageIncludeUH,
+	}))
+	if err != nil {
+		return fmt.Errorf("failed to query JetStream usage: %w", err)
+	}
+
+	if len(resp.Msg.Clusters) == 0 {
+		if GetOutputFormat() != "quiet" {
+			printer.PrintMessage("No clusters attached to this operator")
+		}
+		return nil
+	}
+
+	limits := getResp.Msg.Account.JetstreamLimits
+	if GetOutputFormat() == "table" {
+		headers := []string{"CLUSTER", "STATUS", "MEMORY", "STORAGE", "STREAMS", "CONSUMERS", "ERROR"}
+		rows := make([][]string, len(resp.Msg.Clusters))
+		for i, c := range resp.Msg.Clusters {
+			rows[i] = []string{
+				c.ClusterName,
+				probeStatusToString(c.Status),
+				formatUsageVsLimit(c.Usage.GetMemoryUsed(), limitOrZero(limits, "memory"), c.Status),
+				formatUsageVsLimit(c.Usage.GetStorageUsed(), limitOrZero(limits, "storage"), c.Status),
+				formatCountVsLimit(int64(c.Usage.GetStreams()), limitOrZero(limits, "streams"), c.Status),
+				formatCountVsLimit(int64(c.Usage.GetConsumers()), limitOrZero(limits, "consumers"), c.Status),
+				truncErrMsg(c.ErrorMessage),
+			}
+		}
+		return printer.PrintTable(headers, rows)
+	}
+
+	return printer.PrintList(resp.Msg.Clusters)
+}
+
+func probeStatusToString(s nisv1.JetStreamProbeStatus) string {
+	switch s {
+	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_OK:
+		return "ok"
+	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_UNREACHABLE:
+		return "unreachable"
+	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NO_JETSTREAM:
+		return "no-jetstream"
+	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND:
+		return "account-not-found"
+	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NOT_ACTIVATED:
+		return "not-activated"
+	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_ERROR:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
+func limitOrZero(l *nisv1.JetStreamLimits, kind string) int64 {
+	if l == nil {
+		return 0
+	}
+	switch kind {
+	case "memory":
+		return l.MaxMemory
+	case "storage":
+		return l.MaxStorage
+	case "streams":
+		return int64(l.MaxStreams)
+	case "consumers":
+		return int64(l.MaxConsumers)
+	}
+	return 0
+}
+
+// hasUsageRow returns true when the status carries meaningful usage numbers
+// (either real OK usage, or NOT_ACTIVATED which we want to render as zero).
+func hasUsageRow(s nisv1.JetStreamProbeStatus) bool {
+	return s == nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_OK ||
+		s == nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NOT_ACTIVATED
+}
+
+func formatUsageVsLimit(used uint64, max int64, status nisv1.JetStreamProbeStatus) string {
+	if !hasUsageRow(status) {
+		return "-"
+	}
+	if max <= 0 {
+		return fmt.Sprintf("%s / -", humanBytes(used))
+	}
+	pct := float64(used) / float64(max) * 100
+	return fmt.Sprintf("%s / %s (%.0f%%)", humanBytes(used), humanBytes(uint64(max)), pct)
+}
+
+func formatCountVsLimit(used, max int64, status nisv1.JetStreamProbeStatus) string {
+	if !hasUsageRow(status) {
+		return "-"
+	}
+	if max <= 0 {
+		return fmt.Sprintf("%d / -", used)
+	}
+	pct := float64(used) / float64(max) * 100
+	return fmt.Sprintf("%d / %d (%.0f%%)", used, max, pct)
+}
+
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	suffix := "KMGTPE"[exp]
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), suffix)
+}
+
+func truncErrMsg(s string) string {
+	const max = 40
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
 }
 
 func runAccountCreate(cmd *cobra.Command, args []string) error {

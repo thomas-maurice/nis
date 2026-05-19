@@ -4,8 +4,82 @@
 // @ts-nocheck
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
-import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 import { JetStreamLimits, ListOptions } from "./common_pb.js";
+
+/**
+ * JetStreamProbeStatus is the per-cluster outcome of a live JetStream usage
+ * query. Returning the status as a field (instead of an RPC-level error) lets
+ * the UI show partial results when one of an operator's clusters is down.
+ *
+ * @generated from enum nis.v1.JetStreamProbeStatus
+ */
+export enum JetStreamProbeStatus {
+  /**
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * OK: query succeeded; usage is populated.
+   *
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_OK = 1;
+   */
+  OK = 1,
+
+  /**
+   * UNREACHABLE: dial or system-account request timed out / refused.
+   *
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_UNREACHABLE = 2;
+   */
+  UNREACHABLE = 2,
+
+  /**
+   * NO_JETSTREAM: cluster responded but JetStream is not enabled for this
+   * account on this cluster (response has disabled=true or empty stats).
+   *
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_NO_JETSTREAM = 3;
+   */
+  NO_JETSTREAM = 3,
+
+  /**
+   * ACCOUNT_NOT_FOUND: cluster has no record of the account (no JWT pushed,
+   * or sync drift).
+   *
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND = 4;
+   */
+  ACCOUNT_NOT_FOUND = 4,
+
+  /**
+   * ERROR: any other failure (malformed response, decode error, etc.).
+   *
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_ERROR = 5;
+   */
+  ERROR = 5,
+
+  /**
+   * NOT_ACTIVATED: account's JWT has JetStream enabled, but the cluster has
+   * not yet initialised JS state for it. NATS activates per-account JS state
+   * lazily on the first client connect or first JS API call. Until then,
+   * $SYS.REQ.ACCOUNT.<key>.JSZ returns "account not found" even though the
+   * JWT is on the resolver and JS is configured. Usage is reported as zero.
+   * To activate: connect once with the account's credentials (e.g.
+   * `nats --creds=app.creds rtt`) or publish to a JS subject.
+   *
+   * @generated from enum value: JET_STREAM_PROBE_STATUS_NOT_ACTIVATED = 6;
+   */
+  NOT_ACTIVATED = 6,
+}
+// Retrieve enum metadata with: proto3.getEnumType(JetStreamProbeStatus)
+proto3.util.setEnumType(JetStreamProbeStatus, "nis.v1.JetStreamProbeStatus", [
+  { no: 0, name: "JET_STREAM_PROBE_STATUS_UNSPECIFIED" },
+  { no: 1, name: "JET_STREAM_PROBE_STATUS_OK" },
+  { no: 2, name: "JET_STREAM_PROBE_STATUS_UNREACHABLE" },
+  { no: 3, name: "JET_STREAM_PROBE_STATUS_NO_JETSTREAM" },
+  { no: 4, name: "JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND" },
+  { no: 5, name: "JET_STREAM_PROBE_STATUS_ERROR" },
+  { no: 6, name: "JET_STREAM_PROBE_STATUS_NOT_ACTIVATED" },
+]);
 
 /**
  * Account represents a NATS account
@@ -928,6 +1002,244 @@ export class ListAccountJWTRevocationsResponse extends Message<ListAccountJWTRev
 
   static equals(a: ListAccountJWTRevocationsResponse | PlainMessage<ListAccountJWTRevocationsResponse> | undefined, b: ListAccountJWTRevocationsResponse | PlainMessage<ListAccountJWTRevocationsResponse> | undefined): boolean {
     return proto3.util.equals(ListAccountJWTRevocationsResponse, a, b);
+  }
+}
+
+/**
+ * JetStreamUsage is the live usage snapshot from one cluster, aggregated
+ * across all servers in the cluster by the receiving NATS server.
+ *
+ * @generated from message nis.v1.JetStreamUsage
+ */
+export class JetStreamUsage extends Message<JetStreamUsage> {
+  /**
+   * @generated from field: uint64 memory_used = 1;
+   */
+  memoryUsed = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 storage_used = 2;
+   */
+  storageUsed = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 reserved_memory = 3;
+   */
+  reservedMemory = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 reserved_storage = 4;
+   */
+  reservedStorage = protoInt64.zero;
+
+  /**
+   * @generated from field: int32 streams = 5;
+   */
+  streams = 0;
+
+  /**
+   * @generated from field: int32 consumers = 6;
+   */
+  consumers = 0;
+
+  /**
+   * @generated from field: uint64 api_total = 7;
+   */
+  apiTotal = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 api_errors = 8;
+   */
+  apiErrors = protoInt64.zero;
+
+  constructor(data?: PartialMessage<JetStreamUsage>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.JetStreamUsage";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "memory_used", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 2, name: "storage_used", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 3, name: "reserved_memory", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 4, name: "reserved_storage", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 5, name: "streams", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 6, name: "consumers", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 7, name: "api_total", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 8, name: "api_errors", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JetStreamUsage {
+    return new JetStreamUsage().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): JetStreamUsage {
+    return new JetStreamUsage().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): JetStreamUsage {
+    return new JetStreamUsage().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: JetStreamUsage | PlainMessage<JetStreamUsage> | undefined, b: JetStreamUsage | PlainMessage<JetStreamUsage> | undefined): boolean {
+    return proto3.util.equals(JetStreamUsage, a, b);
+  }
+}
+
+/**
+ * ClusterJetStreamUsage is the per-cluster result of a live usage query.
+ *
+ * @generated from message nis.v1.ClusterJetStreamUsage
+ */
+export class ClusterJetStreamUsage extends Message<ClusterJetStreamUsage> {
+  /**
+   * @generated from field: string cluster_id = 1;
+   */
+  clusterId = "";
+
+  /**
+   * @generated from field: string cluster_name = 2;
+   */
+  clusterName = "";
+
+  /**
+   * @generated from field: nis.v1.JetStreamProbeStatus status = 3;
+   */
+  status = JetStreamProbeStatus.UNSPECIFIED;
+
+  /**
+   * @generated from field: string error_message = 4;
+   */
+  errorMessage = "";
+
+  /**
+   * usage is set only when status == OK.
+   *
+   * @generated from field: nis.v1.JetStreamUsage usage = 5;
+   */
+  usage?: JetStreamUsage;
+
+  constructor(data?: PartialMessage<ClusterJetStreamUsage>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ClusterJetStreamUsage";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cluster_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "cluster_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "status", kind: "enum", T: proto3.getEnumType(JetStreamProbeStatus) },
+    { no: 4, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "usage", kind: "message", T: JetStreamUsage },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ClusterJetStreamUsage {
+    return new ClusterJetStreamUsage().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ClusterJetStreamUsage {
+    return new ClusterJetStreamUsage().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ClusterJetStreamUsage {
+    return new ClusterJetStreamUsage().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ClusterJetStreamUsage | PlainMessage<ClusterJetStreamUsage> | undefined, b: ClusterJetStreamUsage | PlainMessage<ClusterJetStreamUsage> | undefined): boolean {
+    return proto3.util.equals(ClusterJetStreamUsage, a, b);
+  }
+}
+
+/**
+ * GetAccountJetStreamUsageRequest queries every cluster attached to the
+ * account's operator and returns per-cluster usage.
+ *
+ * @generated from message nis.v1.GetAccountJetStreamUsageRequest
+ */
+export class GetAccountJetStreamUsageRequest extends Message<GetAccountJetStreamUsageRequest> {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId = "";
+
+  /**
+   * include_unhealthy forces a dial attempt even when the cluster row's
+   * health flag is false. Default false; the request will short-circuit
+   * unhealthy clusters with UNREACHABLE to avoid paying the dial timeout
+   * on every refresh.
+   *
+   * @generated from field: bool include_unhealthy = 2;
+   */
+  includeUnhealthy = false;
+
+  constructor(data?: PartialMessage<GetAccountJetStreamUsageRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.GetAccountJetStreamUsageRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "include_unhealthy", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetAccountJetStreamUsageRequest {
+    return new GetAccountJetStreamUsageRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetAccountJetStreamUsageRequest {
+    return new GetAccountJetStreamUsageRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetAccountJetStreamUsageRequest {
+    return new GetAccountJetStreamUsageRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetAccountJetStreamUsageRequest | PlainMessage<GetAccountJetStreamUsageRequest> | undefined, b: GetAccountJetStreamUsageRequest | PlainMessage<GetAccountJetStreamUsageRequest> | undefined): boolean {
+    return proto3.util.equals(GetAccountJetStreamUsageRequest, a, b);
+  }
+}
+
+/**
+ * GetAccountJetStreamUsageResponse returns per-cluster usage in stable
+ * cluster-name order.
+ *
+ * @generated from message nis.v1.GetAccountJetStreamUsageResponse
+ */
+export class GetAccountJetStreamUsageResponse extends Message<GetAccountJetStreamUsageResponse> {
+  /**
+   * @generated from field: repeated nis.v1.ClusterJetStreamUsage clusters = 1;
+   */
+  clusters: ClusterJetStreamUsage[] = [];
+
+  constructor(data?: PartialMessage<GetAccountJetStreamUsageResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.GetAccountJetStreamUsageResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "clusters", kind: "message", T: ClusterJetStreamUsage, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetAccountJetStreamUsageResponse {
+    return new GetAccountJetStreamUsageResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetAccountJetStreamUsageResponse {
+    return new GetAccountJetStreamUsageResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetAccountJetStreamUsageResponse {
+    return new GetAccountJetStreamUsageResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetAccountJetStreamUsageResponse | PlainMessage<GetAccountJetStreamUsageResponse> | undefined, b: GetAccountJetStreamUsageResponse | PlainMessage<GetAccountJetStreamUsageResponse> | undefined): boolean {
+    return proto3.util.equals(GetAccountJetStreamUsageResponse, a, b);
   }
 }
 

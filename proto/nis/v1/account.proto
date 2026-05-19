@@ -136,6 +136,73 @@ message ListAccountJWTRevocationsResponse {
   repeated AccountJWTRevocation revocations = 1;
 }
 
+// JetStreamProbeStatus is the per-cluster outcome of a live JetStream usage
+// query. Returning the status as a field (instead of an RPC-level error) lets
+// the UI show partial results when one of an operator's clusters is down.
+enum JetStreamProbeStatus {
+  JET_STREAM_PROBE_STATUS_UNSPECIFIED = 0;
+  // OK: query succeeded; usage is populated.
+  JET_STREAM_PROBE_STATUS_OK = 1;
+  // UNREACHABLE: dial or system-account request timed out / refused.
+  JET_STREAM_PROBE_STATUS_UNREACHABLE = 2;
+  // NO_JETSTREAM: cluster responded but JetStream is not enabled for this
+  // account on this cluster (response has disabled=true or empty stats).
+  JET_STREAM_PROBE_STATUS_NO_JETSTREAM = 3;
+  // ACCOUNT_NOT_FOUND: cluster has no record of the account (no JWT pushed,
+  // or sync drift).
+  JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND = 4;
+  // ERROR: any other failure (malformed response, decode error, etc.).
+  JET_STREAM_PROBE_STATUS_ERROR = 5;
+  // NOT_ACTIVATED: account's JWT has JetStream enabled, but the cluster has
+  // not yet initialised JS state for it. NATS activates per-account JS state
+  // lazily on the first client connect or first JS API call. Until then,
+  // $SYS.REQ.ACCOUNT.<key>.JSZ returns "account not found" even though the
+  // JWT is on the resolver and JS is configured. Usage is reported as zero.
+  // To activate: connect once with the account's credentials (e.g.
+  // `nats --creds=app.creds rtt`) or publish to a JS subject.
+  JET_STREAM_PROBE_STATUS_NOT_ACTIVATED = 6;
+}
+
+// JetStreamUsage is the live usage snapshot from one cluster, aggregated
+// across all servers in the cluster by the receiving NATS server.
+message JetStreamUsage {
+  uint64 memory_used = 1;
+  uint64 storage_used = 2;
+  uint64 reserved_memory = 3;
+  uint64 reserved_storage = 4;
+  int32 streams = 5;
+  int32 consumers = 6;
+  uint64 api_total = 7;
+  uint64 api_errors = 8;
+}
+
+// ClusterJetStreamUsage is the per-cluster result of a live usage query.
+message ClusterJetStreamUsage {
+  string cluster_id = 1;
+  string cluster_name = 2;
+  JetStreamProbeStatus status = 3;
+  string error_message = 4;
+  // usage is set only when status == OK.
+  JetStreamUsage usage = 5;
+}
+
+// GetAccountJetStreamUsageRequest queries every cluster attached to the
+// account's operator and returns per-cluster usage.
+message GetAccountJetStreamUsageRequest {
+  string account_id = 1;
+  // include_unhealthy forces a dial attempt even when the cluster row's
+  // health flag is false. Default false; the request will short-circuit
+  // unhealthy clusters with UNREACHABLE to avoid paying the dial timeout
+  // on every refresh.
+  bool include_unhealthy = 2;
+}
+
+// GetAccountJetStreamUsageResponse returns per-cluster usage in stable
+// cluster-name order.
+message GetAccountJetStreamUsageResponse {
+  repeated ClusterJetStreamUsage clusters = 1;
+}
+
 // AccountService manages NATS accounts
 service AccountService {
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
@@ -147,4 +214,5 @@ service AccountService {
   rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
   rpc PushAccountJWT(PushAccountJWTRequest) returns (PushAccountJWTResponse);
   rpc ListAccountJWTRevocations(ListAccountJWTRevocationsRequest) returns (ListAccountJWTRevocationsResponse);
+  rpc GetAccountJetStreamUsage(GetAccountJetStreamUsageRequest) returns (GetAccountJetStreamUsageResponse);
 }

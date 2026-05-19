@@ -282,3 +282,38 @@ func (h *AccountHandler) ListAccountJWTRevocations(
 		Revocations: mappers.AccountJWTRevocationViewsToProto(views),
 	}), nil
 }
+
+// GetAccountJetStreamUsage probes every cluster attached to the account's
+// operator over NATS and returns per-cluster live JetStream usage (memory,
+// storage, streams, consumers). Read-only — no DB mutations, no events. The
+// service returns per-cluster status fields rather than a single error so the
+// UI can show partial results when one cluster of many is unreachable.
+func (h *AccountHandler) GetAccountJetStreamUsage(
+	ctx context.Context,
+	req *connect.Request[pb.GetAccountJetStreamUsageRequest],
+) (*connect.Response[pb.GetAccountJetStreamUsageResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if err := h.permService.CanReadAccount(ctx, requestingUser, accountID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
+	results, err := h.service.GetAccountJetStreamUsage(ctx, accountID, services.GetAccountJetStreamUsageOptions{
+		IncludeUnhealthy: req.Msg.IncludeUnhealthy,
+	})
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+
+	return connect.NewResponse(&pb.GetAccountJetStreamUsageResponse{
+		Clusters: mappers.ClusterJetStreamUsagesToProto(results),
+	}), nil
+}

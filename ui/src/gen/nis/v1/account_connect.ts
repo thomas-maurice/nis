@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateAccountRequest, CreateAccountResponse, DeleteAccountRequest, DeleteAccountResponse, GetAccountByNameRequest, GetAccountByNameResponse, GetAccountRequest, GetAccountResponse, ListAccountJWTRevocationsRequest, ListAccountJWTRevocationsResponse, ListAccountsRequest, ListAccountsResponse, PushAccountJWTRequest, PushAccountJWTResponse, UpdateAccountRequest, UpdateAccountResponse, UpdateJetStreamLimitsRequest, UpdateJetStreamLimitsResponse } from "./account_pb.js";
+import { CreateAccountRequest, CreateAccountResponse, DeleteAccountRequest, DeleteAccountResponse, GetAccountByNameRequest, GetAccountByNameResponse, GetAccountJetStreamUsageRequest, GetAccountJetStreamUsageResponse, GetAccountRequest, GetAccountResponse, ListAccountJWTRevocationsRequest, ListAccountJWTRevocationsResponse, ListAccountsRequest, ListAccountsResponse, PushAccountJWTRequest, PushAccountJWTResponse, UpdateAccountRequest, UpdateAccountResponse, UpdateJetStreamLimitsRequest, UpdateJetStreamLimitsResponse } from "./account_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -93,6 +93,15 @@ export const AccountService = {
       name: "ListAccountJWTRevocations",
       I: ListAccountJWTRevocationsRequest,
       O: ListAccountJWTRevocationsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc nis.v1.AccountService.GetAccountJetStreamUsage
+     */
+    getAccountJetStreamUsage: {
+      name: "GetAccountJetStreamUsage",
+      I: GetAccountJetStreamUsageRequest,
+      O: GetAccountJetStreamUsageResponse,
       kind: MethodKind.Unary,
     },
   }

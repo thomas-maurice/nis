@@ -83,3 +83,40 @@ func AccountJWTRevocationViewsToProto(vs []*services.AccountJWTRevocationView) [
 	}
 	return out
 }
+
+// ClusterJetStreamUsageToProto converts a service-level probe result to its
+// proto representation. The internal enum values are kept aligned with the
+// proto enum order so this is a direct cast — if you reorder one, mirror it.
+func ClusterJetStreamUsageToProto(u *services.ClusterJetStreamUsage) *pb.ClusterJetStreamUsage {
+	if u == nil {
+		return nil
+	}
+	out := &pb.ClusterJetStreamUsage{
+		ClusterId:    UUIDToString(u.ClusterID),
+		ClusterName:  u.ClusterName,
+		Status:       pb.JetStreamProbeStatus(u.Status),
+		ErrorMessage: u.ErrorMessage,
+	}
+	if u.Usage != nil {
+		out.Usage = &pb.JetStreamUsage{
+			MemoryUsed:      u.Usage.Memory,
+			StorageUsed:     u.Usage.Storage,
+			ReservedMemory:  u.Usage.ReservedMemory,
+			ReservedStorage: u.Usage.ReservedStorage,
+			Streams:         int32(u.Usage.Streams),
+			Consumers:       int32(u.Usage.Consumers),
+			ApiTotal:        u.Usage.APITotal,
+			ApiErrors:       u.Usage.APIErrors,
+		}
+	}
+	return out
+}
+
+// ClusterJetStreamUsagesToProto maps a slice.
+func ClusterJetStreamUsagesToProto(us []*services.ClusterJetStreamUsage) []*pb.ClusterJetStreamUsage {
+	out := make([]*pb.ClusterJetStreamUsage, len(us))
+	for i, u := range us {
+		out[i] = ClusterJetStreamUsageToProto(u)
+	}
+	return out
+}

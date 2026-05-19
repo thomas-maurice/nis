@@ -592,6 +592,56 @@ nisctl search 'metrics.>' --kind scoped-key
 nisctl search payments --kind operator,account --limit 10
 ```
 
+## Live JetStream usage (P10)
+
+JetStream limits configured on an account (`max_memory`, `max_storage`, `max_streams`,
+`max_consumers`) tell NATS what an account is *allowed* to use. They say nothing about
+what it's *actually* using. NIS now queries each attached cluster live via
+`$SYS.REQ.ACCOUNT.<accountPublicKey>.JSZ` using the cluster's stored system-account
+credentials and returns per-cluster usage you can put next to the limits.
+
+```bash
+# Show per-cluster usage for an account
+nisctl account jetstream-usage app-account --operator demo-operator
+
+# Force a dial against clusters marked unhealthy (slower; pays the dial timeout)
+nisctl account jetstream-usage app-account --operator demo-operator --include-unhealthy
+```
+
+The UI surfaces the same data on the Account detail page as four progress bars
+(memory, storage, streams, consumers) per cluster, with a manual Refresh button —
+no auto-poll, to avoid ambient NATS load.
+
+Per-cluster status codes:
+
+- `ok` — query succeeded; usage populated.
+- `unreachable` — dial failed, request timed out, or the cluster was marked
+  unhealthy by the 60s health-check loop AND a check actually ran (clusters that
+  haven't been checked yet are still dialed; never-checked is not treated as
+  failed).
+- `no-jetstream` — cluster responded but JS is not enabled for this account on
+  this cluster.
+- `not-activated` — the account's JWT has JS enabled, but NATS hasn't
+  initialised per-account JS state yet. NATS does this lazily on the first
+  client connect (or first JS API call) from the account. Connect once
+  (`nats --creds=app.creds rtt`) or publish to a JS subject and refresh.
+  Usage bars render as 0 / max — accurate, nothing has been used yet.
+- `account-not-found` — cluster has no record of the account (no JWT pushed, or
+  sync drift). Distinct from `not-activated`: the JWT itself is missing.
+- `error` — any other failure (decryption, malformed response, etc.).
+
+What is reported per cluster (counts and bytes are cluster-wide aggregates):
+
+- `memory_used` / `storage_used` — bytes currently in use vs. the account JWT's
+  `max_memory` / `max_storage` limit.
+- `reserved_memory` / `reserved_storage` — bytes reserved by streams.
+- `streams` / `consumers` — count across all streams in the account.
+- `api_total` / `api_errors` — cumulative JetStream API call counts for the
+  account (useful as a "did this account talk JS at all" tripwire).
+
+This is a read-only inspection — no DB writes, no events, no cluster mutation.
+The system user already has access to `$SYS.REQ.ACCOUNT.*` by design.
+
 ## Bulk operations (manifest apply/diff/delete/dump)
 
 NIS supports a declarative, kubectl-style workflow for managing the full
