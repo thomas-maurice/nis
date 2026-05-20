@@ -24,9 +24,22 @@ import (
 // JobHandler executes one job. The payload is opaque (handler-specific JSON
 // in practice). Return nil for success; return non-nil to trigger retry.
 //
+// Wrap ErrPermanentJobFailure in the returned error to dead-letter the row
+// immediately, regardless of remaining attempts. Use this for failures the
+// handler has already classified as unrecoverable (e.g. it has already
+// written terminal state to a typed companion row, like webhook_deliveries
+// → dead_letter). Without the sentinel, the substrate would retry until
+// MaxAttempts before dead-lettering, painting a misleading "still pending"
+// state on the companion row in between.
+//
 // Panics are recovered by the runner and treated as a non-nil error so a
 // buggy handler can't take down the runner goroutine.
 type JobHandler func(ctx context.Context, payload []byte) error
+
+// ErrPermanentJobFailure marks a handler error as unretryable. Wrap with
+// fmt.Errorf("...: %w", services.ErrPermanentJobFailure) so errors.Is can
+// detect it.
+var ErrPermanentJobFailure = errors.New("permanent job failure")
 
 // AuditPolicy controls which lifecycle events the runner emits to the
 // events table for a given handler. High-frequency recurring sweeps should
@@ -446,7 +459,8 @@ func (r *JobRunner) processOne(ctx context.Context, j *entities.Job) {
 
 	// Handler error path. Decide retry vs dead-letter.
 	errMsg := handlerErr.Error()
-	if j.Attempts >= spec.MaxAttempts {
+	permanent := errors.Is(handlerErr, ErrPermanentJobFailure)
+	if permanent || j.Attempts >= spec.MaxAttempts {
 		if err := r.factory.JobRepository().MarkFailed(writeCtx, j.ID, errMsg, nil); err != nil {
 			log.Error("job runner: MarkFailed (dead-letter) failed",
 				"job_id", j.ID, "type", j.Type, "error", err)

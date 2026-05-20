@@ -331,8 +331,10 @@ func TestWebhooks_RetryThenSuccess(t *testing.T) {
 
 	h.createAccount(t, opID, "retry-account")
 
-	// Wait for the successful (second) delivery, up to 15s.
-	waitFor(t, 15*time.Second, "retry succeeded delivery", func() bool {
+	// Wait for the successful (second) delivery. Generous timeout to cover
+	// worst-case substrate scheduling on SQLite: ~12s jittered backoff + up
+	// to 10s until the next runner poll claims the rescheduled job.
+	waitFor(t, 45*time.Second, "retry succeeded delivery", func() bool {
 		select {
 		case <-allReceived:
 			return true

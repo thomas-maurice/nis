@@ -414,8 +414,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// jobs.retention_sweep — registered on the JobRunner. The runner's
 	// per-tick watchdog keeps both schedules healthy across handler
 	// crashes, and the JobsView UI / JobService RPC surface gives admins
-	// visibility into the schedule (filed as P12/A14/A15/A16 follow-ups
-	// in PROPOSALS.md will plug onto this same substrate).
+	// visibility into the schedule. A16 (webhook.deliver) is now also on
+	// this substrate; A14/A15 remain in-process goroutines for now.
 	jobsPollInterval := time.Duration(viper.GetInt("jobs.poll_interval_seconds")) * time.Second
 	if jobsPollInterval == 0 {
 		jobsPollInterval = 2 * time.Second
@@ -435,37 +435,39 @@ func runServe(cmd *cobra.Command, args []string) error {
 		JobRetentionDays:               viper.GetInt("jobs.retention_days"),
 		SweepInterval:                  24 * time.Hour,
 	})
+	// Webhook delivery (A16). Per-delivery jobs of type webhook.deliver;
+	// fanoutDeliveries in the events package enqueues one alongside each
+	// webhook_deliveries row inside the same tx (atomic enqueue).
+	webhookMaxAttempts := viper.GetInt("webhooks.max_attempts")
+	services.RegisterWebhookHandlers(jobRunner, repoFactory, encryptor, services.WebhookHandlerConfig{
+		MaxAttempts:     webhookMaxAttempts,
+		BackoffBase:     time.Duration(viper.GetInt("webhooks.backoff_base_seconds")) * time.Second,
+		BackoffCap:      time.Duration(viper.GetInt("webhooks.backoff_cap_seconds")) * time.Second,
+		DeliveryTimeout: time.Duration(viper.GetInt("webhooks.delivery_timeout_seconds")) * time.Second,
+	})
+	if viper.GetInt("webhooks.poll_interval_seconds") != 0 ||
+		viper.GetInt("webhooks.shutdown_timeout_seconds") != 30 {
+		logger.Info("webhook delivery now runs on jobs substrate; webhooks.poll_interval_seconds and webhooks.shutdown_timeout_seconds are ignored (use jobs.poll_interval_seconds and jobs.shutdown_timeout_seconds instead)")
+	}
 	go func() { _ = jobRunner.Run(ctx) }()
+
+	// Catch up any non-terminal webhook_deliveries rows that don't already
+	// have a job — covers (a) operators upgrading from the pre-A16 worker
+	// with rows in-flight, and (b) the rare window where an EmitTx ran
+	// before SetJobEnqueuer was installed. Async so a large backlog doesn't
+	// block startup; the runner's claim path is race-free vs new enqueues
+	// (dedup_key=delivery_id on the partial unique index).
+	go func() {
+		if _, err := services.EnqueueCatchUpDeliveries(ctx, repoFactory, webhookMaxAttempts); err != nil {
+			logger.Error("webhook catch-up scan failed", "error", err)
+		}
+	}()
 
 	// JWT expiry sweeper (P2). Off-by-default behaviour comes from the per-
 	// operator policy (TTL=0 means the sweeper finds nothing to do). When an
 	// operator opts in, this loop emits expiring-soon/expired events, optionally
 	// auto-renews, and prunes the parent account's Revocations map.
 	go jwtExpirySweeper.Run(ctx)
-
-	// Webhook delivery worker. Poll interval is auto-detected by DB driver when
-	// the flag is left at its default of 0.
-	pollInterval := time.Duration(viper.GetInt("webhooks.poll_interval_seconds")) * time.Second
-	if pollInterval == 0 {
-		pollInterval = 2 * time.Second
-		if dbDriver == "sqlite" {
-			pollInterval = 10 * time.Second
-		}
-	}
-	webhookWorker := services.NewWebhookDeliveryWorker(
-		repoFactory,
-		encryptor,
-		services.WebhookDeliveryWorkerConfig{
-			PollInterval:    pollInterval,
-			DeliveryTimeout: time.Duration(viper.GetInt("webhooks.delivery_timeout_seconds")) * time.Second,
-			MaxAttempts:     viper.GetInt("webhooks.max_attempts"),
-			BackoffBase:     time.Duration(viper.GetInt("webhooks.backoff_base_seconds")) * time.Second,
-			BackoffCap:      time.Duration(viper.GetInt("webhooks.backoff_cap_seconds")) * time.Second,
-			ShutdownTimeout: time.Duration(viper.GetInt("webhooks.shutdown_timeout_seconds")) * time.Second,
-			BatchSize:       50,
-		},
-	)
-	go webhookWorker.Run(ctx)
 
 	apiTokenFlusher.Start(ctx)
 	defer apiTokenFlusher.Stop()

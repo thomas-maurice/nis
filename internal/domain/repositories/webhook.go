@@ -39,9 +39,6 @@ type WebhookDeliveryRepository interface {
 	Create(ctx context.Context, d *entities.WebhookDelivery) error
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.WebhookDelivery, error)
 	List(ctx context.Context, filter WebhookDeliveryFilter) ([]*entities.WebhookDelivery, error)
-	// ClaimDue returns up to limit pending deliveries whose next_attempt_at <= now,
-	// ordered by next_attempt_at ASC. No locking — single-replica assumption.
-	ClaimDue(ctx context.Context, now time.Time, limit int) ([]*entities.WebhookDelivery, error)
 	Update(ctx context.Context, d *entities.WebhookDelivery) error
 	// DeleteSucceededOlderThan removes succeeded deliveries with completed_at < cutoff.
 	DeleteSucceededOlderThan(ctx context.Context, cutoff time.Time) (int64, error)

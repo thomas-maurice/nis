@@ -6,8 +6,12 @@
 // webhook deliveries — both inside the same transaction — so the event log
 // is consistent with the state change that produced it.
 //
-// Side-effect-bearing async work (HTTP POSTs to webhook receivers) runs in a
-// separate worker; see internal/application/services/webhook_delivery_worker.go.
+// Side-effect-bearing async work (HTTP POSTs to webhook receivers) runs on
+// the generic jobs substrate. fanoutDeliveries inserts both the
+// webhook_deliveries row AND its companion `webhook.deliver` job inside the
+// caller's tx via the JobEnqueueFn callback registered by SetJobEnqueuer.
+// Atomic with the row that drives it — a crash between the two is impossible.
+// The handler lives in internal/application/services/job_handlers_webhook.go.
 package events
 
 import (
@@ -21,6 +25,23 @@ import (
 	"github.com/thomas-maurice/nis/internal/infrastructure/authctx"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
+
+// JobEnqueueFn is the callback that fanoutDeliveries invokes for each
+// freshly-inserted webhook_deliveries row to enqueue its companion
+// `webhook.deliver` job in the same tx. Wired at startup by serve.go via
+// SetJobEnqueuer — the indirection avoids an events → services import
+// cycle (services already imports events for EmitTx). If no enqueuer is
+// set (tests, fresh boot before wiring) fanoutDeliveries skips the call
+// and the delivery row sits pending; the startup catch-up scan will pick
+// it up on next boot.
+type JobEnqueueFn func(ctx context.Context, tx persistence.RepositoryFactory, deliveryID uuid.UUID) error
+
+var jobEnqueueFn JobEnqueueFn
+
+// SetJobEnqueuer registers the callback that fanoutDeliveries calls to
+// enqueue companion `webhook.deliver` jobs. Idempotent — call once at
+// startup. Pass nil to unregister (tests).
+func SetJobEnqueuer(fn JobEnqueueFn) { jobEnqueueFn = fn }
 
 // Event is the input form used by callers — typed to make construction
 // ergonomic. It is converted to entities.Event inside Emit. Fields ID and
@@ -147,6 +168,11 @@ func fanoutDeliveries(ctx context.Context, tx persistence.RepositoryFactory, evt
 		}
 		if err := tx.WebhookDeliveryRepository().Create(ctx, delivery); err != nil {
 			return fmt.Errorf("enqueue webhook delivery for subscription %s: %w", sub.ID, err)
+		}
+		if jobEnqueueFn != nil {
+			if err := jobEnqueueFn(ctx, tx, delivery.ID); err != nil {
+				return fmt.Errorf("enqueue webhook.deliver job for delivery %s: %w", delivery.ID, err)
+			}
 		}
 	}
 	return nil

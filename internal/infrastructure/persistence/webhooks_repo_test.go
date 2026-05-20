@@ -183,60 +183,6 @@ func TestDeliveryRepo_CreateAndGet(t *testing.T) {
 	assert.Equal(t, entities.DeliveryStatusPending, got.Status)
 }
 
-func TestDeliveryRepo_ClaimDue_OrdersByNextAttempt(t *testing.T) {
-	factory := newTestFactory(t)
-	ctx := context.Background()
-	op := makeOperatorForWebhook(t, factory, "op-claim-order")
-	sub := makeSubscription(op.ID, "claim-hook", []string{"*"}, true)
-	require.NoError(t, factory.WebhookSubscriptionRepository().Create(ctx, sub))
-
-	now := time.Now().UTC()
-	ev1 := makeEventForDelivery(t, factory)
-	ev2 := makeEventForDelivery(t, factory)
-	ev3 := makeEventForDelivery(t, factory)
-
-	d1 := makeDelivery(sub.ID, ev1.ID, entities.DeliveryStatusPending, now.Add(-3*time.Minute))
-	d2 := makeDelivery(sub.ID, ev2.ID, entities.DeliveryStatusPending, now.Add(-1*time.Minute))
-	d3 := makeDelivery(sub.ID, ev3.ID, entities.DeliveryStatusPending, now.Add(-2*time.Minute))
-
-	for _, d := range []*entities.WebhookDelivery{d1, d2, d3} {
-		require.NoError(t, factory.WebhookDeliveryRepository().Create(ctx, d))
-	}
-
-	claimed, err := factory.WebhookDeliveryRepository().ClaimDue(ctx, now, 10)
-	require.NoError(t, err)
-	require.Len(t, claimed, 3)
-	// Ordered by next_attempt_at ASC: d1 (-3m), d3 (-2m), d2 (-1m)
-	assert.Equal(t, d1.ID, claimed[0].ID)
-	assert.Equal(t, d3.ID, claimed[1].ID)
-	assert.Equal(t, d2.ID, claimed[2].ID)
-}
-
-func TestDeliveryRepo_ClaimDue_SkipsFutureAndNonPending(t *testing.T) {
-	factory := newTestFactory(t)
-	ctx := context.Background()
-	op := makeOperatorForWebhook(t, factory, "op-claim-skip")
-	sub := makeSubscription(op.ID, "skip-hook", []string{"*"}, true)
-	require.NoError(t, factory.WebhookSubscriptionRepository().Create(ctx, sub))
-
-	now := time.Now().UTC()
-	ev1 := makeEventForDelivery(t, factory)
-	ev2 := makeEventForDelivery(t, factory)
-	ev3 := makeEventForDelivery(t, factory)
-
-	due := makeDelivery(sub.ID, ev1.ID, entities.DeliveryStatusPending, now.Add(-1*time.Minute))
-	future := makeDelivery(sub.ID, ev2.ID, entities.DeliveryStatusPending, now.Add(1*time.Hour))
-	succeeded := makeDelivery(sub.ID, ev3.ID, entities.DeliveryStatusSucceeded, now.Add(-5*time.Minute))
-
-	for _, d := range []*entities.WebhookDelivery{due, future, succeeded} {
-		require.NoError(t, factory.WebhookDeliveryRepository().Create(ctx, d))
-	}
-
-	claimed, err := factory.WebhookDeliveryRepository().ClaimDue(ctx, now, 10)
-	require.NoError(t, err)
-	require.Len(t, claimed, 1)
-	assert.Equal(t, due.ID, claimed[0].ID)
-}
 
 func TestDeliveryRepo_DeleteSucceededOlderThan_PreservesDeadLetter(t *testing.T) {
 	factory := newTestFactory(t)

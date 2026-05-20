@@ -69,23 +69,6 @@ func (r *WebhookDeliveryRepo) List(ctx context.Context, filter repositories.Webh
 	return deliveries, nil
 }
 
-func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now time.Time, limit int) ([]*entities.WebhookDelivery, error) {
-	var models []WebhookDeliveryModel
-	err := r.db.WithContext(ctx).
-		Where("status = ? AND next_attempt_at <= ?", string(entities.DeliveryStatusPending), now).
-		Order("next_attempt_at ASC").
-		Limit(limit).
-		Find(&models).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to claim due deliveries: %w", err)
-	}
-	deliveries := make([]*entities.WebhookDelivery, len(models))
-	for i, m := range models {
-		deliveries[i] = m.ToEntity()
-	}
-	return deliveries, nil
-}
-
 func (r *WebhookDeliveryRepo) Update(ctx context.Context, d *entities.WebhookDelivery) error {
 	model := WebhookDeliveryModelFromEntity(d)
 	result := r.db.WithContext(ctx).Model(&WebhookDeliveryModel{}).

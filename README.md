@@ -400,12 +400,12 @@ Reject deliveries whose `X-NIS-Timestamp` is more than ~5 minutes off your clock
 |---|---|---|
 | `--events-retention-days` / `events.retention_days` | 30 | How long audit-log rows are kept; older rows are swept every 24h |
 | `--webhooks-succeeded-retention-days` / `webhooks.succeeded_retention_days` | 7 | Retention for `succeeded` delivery rows. `dead_letter` rows are never auto-deleted. |
-| `--webhooks-poll-interval-seconds` / `webhooks.poll_interval_seconds` | 0 (auto) | Delivery-worker poll cadence. 0 ⇒ 2s on Postgres, 10s on SQLite. |
 | `--webhooks-delivery-timeout-seconds` / `webhooks.delivery_timeout_seconds` | 10 | Per-POST timeout. |
 | `--webhooks-max-attempts` / `webhooks.max_attempts` | 5 | Deliveries become `dead_letter` after this many failed attempts. |
 | `--webhooks-backoff-base-seconds` / `webhooks.backoff_base_seconds` | 10 | Exponential backoff base. |
 | `--webhooks-backoff-cap-seconds` / `webhooks.backoff_cap_seconds` | 600 | Backoff cap. |
-| `--webhooks-shutdown-timeout-seconds` / `webhooks.shutdown_timeout_seconds` | 30 | Graceful drain of in-flight deliveries on SIGTERM. |
+
+Webhook delivery runs on the generic jobs substrate (A2/A16). Poll cadence and shutdown drain are controlled by `jobs.poll_interval_seconds` and `jobs.shutdown_timeout_seconds`; the legacy `webhooks.poll_interval_seconds` / `webhooks.shutdown_timeout_seconds` keys are ignored. Per-delivery dispatch is visible in the JobsView UI under job type `webhook.deliver`.
 
 ## Build
 
@@ -878,11 +878,12 @@ the two retention sweeps:
 |---|---|---|
 | `events.retention_sweep` | 24h | Deletes events older than `events.retention_days` (default 30d) and succeeded webhook deliveries older than `webhooks.succeeded_retention_days` (default 7d). Dead-letter deliveries are never auto-deleted. |
 | `jobs.retention_sweep`   | 24h | Deletes `succeeded` and `cancelled` job rows older than `jobs.retention_days` (default 30d). `failed` and `dead_lettered` rows survive forever — operator audit. |
+| `webhook.deliver`        | per-delivery, in-tx enqueue | Dispatches one webhook subscription POST per row. Inserted into the same tx as the `webhook_deliveries` row (atomic). Permanent failures (subscription disabled, decrypt error, malformed payload) signal `ErrPermanentJobFailure` and dead-letter the job immediately; transient (5xx, transport) retry with the substrate's backoff up to `webhooks.max_attempts`. `AuditNone` — per-delivery audit lives on the typed `webhook_deliveries` row. |
 
 Future scheduled work — P12 (scheduled backup + restore-verify), A14
-(JWT expiry sweeper as a job), A15 (per-cluster health check as a job),
-A16 (webhook delivery on the generic substrate) — will plug onto this
-same runner. See [PROPOSALS.md](PROPOSALS.md) for the follow-up roadmap.
+(JWT expiry sweeper as a job), A15 (per-cluster health check as a job)
+— will plug onto this same runner. See [PROPOSALS.md](PROPOSALS.md)
+for the follow-up roadmap.
 
 ### Admin surface
 

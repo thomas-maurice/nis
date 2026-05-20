@@ -70,7 +70,7 @@ func createSubscription(t *testing.T, factory persistence.RepositoryFactory, sub
 
 func countDeliveries(t *testing.T, factory persistence.RepositoryFactory) int {
 	t.Helper()
-	ds, err := factory.WebhookDeliveryRepository().ClaimDue(context.Background(), time.Now().Add(time.Hour), 1000)
+	ds, err := factory.WebhookDeliveryRepository().List(context.Background(), repositories.WebhookDeliveryFilter{Limit: 1000})
 	require.NoError(t, err)
 	return len(ds)
 }
@@ -165,7 +165,7 @@ func TestEmit_MatchingSubscription_OneDelivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ds, err := factory.WebhookDeliveryRepository().ClaimDue(ctx, time.Now().Add(time.Hour), 10)
+	ds, err := factory.WebhookDeliveryRepository().List(ctx, repositories.WebhookDeliveryFilter{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, ds, 1)
 	assert.Equal(t, entities.DeliveryStatusPending, ds[0].Status)
