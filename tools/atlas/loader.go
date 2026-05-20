@@ -39,6 +39,8 @@ func main() {
 		&sqlmodels.WebhookSubscriptionModel{},
 		&sqlmodels.WebhookDeliveryModel{},
 		&sqlmodels.UserJWTRevocationModel{},
+		&sqlmodels.TemplateModel{},
+		&sqlmodels.TemplateVersionModel{},
 	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load:", err)

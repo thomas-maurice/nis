@@ -274,6 +274,8 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `user.cred.expired` | Sweeper found a user JWT past `exp` (auto-renew is NOT applied — explicit `RegenerateUserCredentials` required) |
 | `user.cred.renewed` | RegenerateUserCredentials minted a fresh user JWT (manual or sweeper auto-renew) |
 | `user.revocation_pruned` | Sweeper removed an expired revocation entry from an account JWT |
+| `template.created` / `template.updated` / `template.deleted` | Permission template lifecycle (P6). `template.updated` carries `bumped:true` when the edit created a new version |
+| `template.applied_to_scoped_key` | An SKK adopted a template version. `action` payload distinguishes `create` (SKK was created from the template), `bump` (existing SKK was rolled to a new version), and `detach` |
 
 Events carry `actor_type` (`user` for RPC-driven events from human logins, `api_token` for RPCs driven by a service-account token, `system` for background ones), `actor_id` (the API user OR the token ID, depending on actor_type), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
 
@@ -800,6 +802,71 @@ nisctl apply -f acme-prod.yaml
   `.creds` file. Delete and recreate the user explicitly instead.
 
 Full per-kind examples with annotated fields: [`example/manifests/`](example/manifests/).
+
+## Permission templates (P6)
+
+Templates are operator-scoped, versioned permission bundles. Instead of
+re-typing the same `pub_allow`/`sub_deny` lists across 50 scoped signing
+keys for a "ServiceReader" role, declare it once as a `Template`, then
+create SKKs from it with `--from-template`. The SKK carries a snapshot
+of the template's permissions plus a pin to a specific version.
+
+**Template updates never auto-cascade.** Bumping a template creates a
+new `template_versions` row and advances `latest_version`; SKKs pinned
+to an older version stay on it until an operator explicitly bumps each
+one. This is deliberate — surprise permission rollouts to production
+clusters are exactly what P6 exists to prevent.
+
+```bash
+# Create a template (this stamps v1).
+nisctl template create service-reader --operator my-op \
+  --description "Read-only service consumer" \
+  --sub-allow "events.>" --sub-allow "_INBOX.>" \
+  --pub-deny ">"
+
+# Create an SKK from it. The SKK is pinned to the template's current
+# latest_version unless --template-version is set.
+nisctl signing-key create reader-skk --operator my-op --account web \
+  --from-template service-reader
+
+# Update the template (new permissions ⇒ new version row + latest_version bump).
+nisctl template update service-reader --operator my-op \
+  --sub-allow "events.>" --sub-allow "metrics.>" --sub-allow "_INBOX.>" \
+  --pub-deny ">" \
+  --change-note "add metrics read access"
+
+# Existing SKKs still on v1 until explicit roll-out. List + bump:
+nisctl template dependents service-reader --operator my-op
+nisctl signing-key bump-template <SKK_ID>          # to current latest
+nisctl signing-key bump-template <SKK_ID> --to-version 2
+
+# Detach an SKK from its template — keeps current permissions, stops
+# tracking. After detach, future template updates have no effect.
+nisctl signing-key detach-template <SKK_ID>
+```
+
+**Drift flag.** Editing a templated SKK's permissions directly (via
+`UpdatePermissions` / the UI) sets `template_drifted=true`. The
+template binding is preserved; the UI surfaces an "edited" badge so
+operators can decide whether a future bump should overwrite their
+custom edits or whether to detach first.
+
+**Reserved names.** `default` and `system` are refused as template
+names (collisions with the per-account default SKK and the `$SYS`
+system user).
+
+**Manifests.** `Template` is a new kind; SKK specs gain optional
+`template` + `templateVersion` fields. See
+[`example/manifests/template.yaml`](example/manifests/template.yaml)
+and [`example/manifests/full-stack.yaml`](example/manifests/full-stack.yaml).
+
+**Auto-sync (A13-lite, shipped with P6).** SKK mutations and account
+JSON edits now push the regenerated account JWT to every attached
+cluster after the DB tx commits. Best-effort: per-cluster failures are
+logged but don't fail the API call (`nisctl cluster sync` and the
+[sync drift dashboard](#sync-drift-detection-p9) still reconcile when
+a cluster comes back). `nisctl cluster sync` becomes a recovery tool
+rather than the primary roll-out command.
 
 ## Observability
 

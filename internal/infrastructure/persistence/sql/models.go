@@ -156,14 +156,42 @@ type ScopedSigningKeyModel struct {
 	SubDeny         []string       `gorm:"type:text;serializer:json"`
 	ResponseMaxMsgs int            `gorm:"type:integer;not null;default:0"`
 	ResponseTTLSecs int64          `gorm:"column:response_ttl_seconds;type:bigint;not null;default:0"`
-	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	// Template ref: SET NULL on template delete (not RESTRICT) so an operator
+	// cascade isn't deadlocked by its own children. The "can't delete a
+	// template with dependents" guard lives in TemplateService at the app
+	// layer; this FK is just the safety net. The CHECK keeps template_id and
+	// template_version in lockstep — both NULL or both set — so the
+	// bump/detach logic never has to handle a "pinned to template X but no
+	// version" half-state.
+	TemplateID      *string         `gorm:"type:text;index:idx_scoped_signing_keys_template_id;check:chk_scoped_signing_keys_template_pair,(template_id IS NULL) = (template_version IS NULL)"`
+	Template        *TemplateModel  `gorm:"foreignKey:TemplateID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	TemplateVersion *int            `gorm:"type:integer"`
+	TemplateDrifted bool            `gorm:"type:boolean;not null;default:false"`
+	// TrackLatest opts this SKK into TemplateService.UpdateTemplate's
+	// auto-propagation: when a new template_versions row is created, every
+	// SKK with track_latest=true gets its perm columns snapshotted from
+	// the new version and its parent account JWT re-signed + pushed.
+	// Service-layer invariants (not enforced by FK/CHECK): only allowed
+	// when template_id IS NOT NULL AND template_drifted=false.
+	TrackLatest     bool            `gorm:"type:boolean;not null;default:false"`
+	// IsPlainSigner marks SKKs that were imported from an NSC store
+	// where the parent account JWT lists this key as a plain string in
+	// signing_keys (not as a UserScope). For these keys NIS must:
+	//   1) emit them as plain strings on account-JWT regen (so existing
+	//      user JWTs whose own perms were authoritative remain valid),
+	//   2) NOT call SetScoped(true) on user JWTs we mint signed by them
+	//      (NATS would then apply the user JWT's perms directly, and a
+	//      SetScoped-zeroed JWT has subs:0/payload:0 = locked-out user).
+	// Default false: every NIS-native SKK is a real UserScope.
+	IsPlainSigner   bool            `gorm:"type:boolean;not null;default:false"`
+	CreatedAt       time.Time       `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt       time.Time       `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (ScopedSigningKeyModel) TableName() string { return "scoped_signing_keys" }
 
 func (m *ScopedSigningKeyModel) ToEntity() *entities.ScopedSigningKey {
-	return &entities.ScopedSigningKey{
+	out := &entities.ScopedSigningKey{
 		ID:              uuid.MustParse(m.ID),
 		AccountID:       uuid.MustParse(m.AccountID),
 		Name:            m.Name,
@@ -176,13 +204,22 @@ func (m *ScopedSigningKeyModel) ToEntity() *entities.ScopedSigningKey {
 		SubDeny:         m.SubDeny,
 		ResponseMaxMsgs: m.ResponseMaxMsgs,
 		ResponseTTL:     time.Duration(m.ResponseTTLSecs) * time.Second,
+		TemplateVersion: m.TemplateVersion,
+		TemplateDrifted: m.TemplateDrifted,
+		TrackLatest:     m.TrackLatest,
+		IsPlainSigner:   m.IsPlainSigner,
 		CreatedAt:       m.CreatedAt,
 		UpdatedAt:       m.UpdatedAt,
 	}
+	if m.TemplateID != nil && *m.TemplateID != "" {
+		id := uuid.MustParse(*m.TemplateID)
+		out.TemplateID = &id
+	}
+	return out
 }
 
 func ScopedSigningKeyModelFromEntity(e *entities.ScopedSigningKey) *ScopedSigningKeyModel {
-	return &ScopedSigningKeyModel{
+	m := &ScopedSigningKeyModel{
 		ID:              e.ID.String(),
 		AccountID:       e.AccountID.String(),
 		Name:            e.Name,
@@ -195,9 +232,123 @@ func ScopedSigningKeyModelFromEntity(e *entities.ScopedSigningKey) *ScopedSignin
 		SubDeny:         e.SubDeny,
 		ResponseMaxMsgs: e.ResponseMaxMsgs,
 		ResponseTTLSecs: int64(e.ResponseTTL.Seconds()),
+		TemplateVersion: e.TemplateVersion,
+		TemplateDrifted: e.TemplateDrifted,
+		TrackLatest:     e.TrackLatest,
+		IsPlainSigner:   e.IsPlainSigner,
 		CreatedAt:       e.CreatedAt,
 		UpdatedAt:       e.UpdatedAt,
 	}
+	if e.TemplateID != nil {
+		s := e.TemplateID.String()
+		m.TemplateID = &s
+	}
+	return m
+}
+
+// TemplateModel — templates table. Operator-scoped permission template; the
+// permission bytes live in template_versions, this row is just identity +
+// "what's the latest version number to pin against".
+type TemplateModel struct {
+	ID            string         `gorm:"primaryKey;type:text;not null"`
+	OperatorID    string         `gorm:"type:text;not null;index:idx_templates_operator_id;uniqueIndex:idx_templates_operator_name,priority:1"`
+	Operator      *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Name          string         `gorm:"type:text;not null;uniqueIndex:idx_templates_operator_name,priority:2"`
+	Description   string         `gorm:"type:text"`
+	LatestVersion int            `gorm:"type:integer;not null;default:0"`
+	CreatedAt     time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt     time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (TemplateModel) TableName() string { return "templates" }
+
+func (m *TemplateModel) ToEntity() *entities.Template {
+	return &entities.Template{
+		ID:            uuid.MustParse(m.ID),
+		OperatorID:    uuid.MustParse(m.OperatorID),
+		Name:          m.Name,
+		Description:   m.Description,
+		LatestVersion: m.LatestVersion,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+	}
+}
+
+func TemplateModelFromEntity(e *entities.Template) *TemplateModel {
+	return &TemplateModel{
+		ID:            e.ID.String(),
+		OperatorID:    e.OperatorID.String(),
+		Name:          e.Name,
+		Description:   e.Description,
+		LatestVersion: e.LatestVersion,
+		CreatedAt:     e.CreatedAt,
+		UpdatedAt:     e.UpdatedAt,
+	}
+}
+
+// TemplateVersionModel — template_versions table. Immutable snapshots; one
+// row per (template, version_number). created_by_user_id is SET NULL on
+// the parent api_user delete so offboarding a human doesn't erase audit
+// history.
+type TemplateVersionModel struct {
+	ID              string         `gorm:"primaryKey;type:text;not null"`
+	TemplateID      string         `gorm:"type:text;not null;index:idx_template_versions_template_id;uniqueIndex:idx_template_versions_template_number,priority:1"`
+	Template        *TemplateModel `gorm:"foreignKey:TemplateID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	VersionNumber   int            `gorm:"type:integer;not null;uniqueIndex:idx_template_versions_template_number,priority:2"`
+	PubAllow        []string       `gorm:"type:text;serializer:json"`
+	PubDeny         []string       `gorm:"type:text;serializer:json"`
+	SubAllow        []string       `gorm:"type:text;serializer:json"`
+	SubDeny         []string       `gorm:"type:text;serializer:json"`
+	ResponseMaxMsgs int            `gorm:"type:integer;not null;default:0"`
+	ResponseTTLSecs int64          `gorm:"column:response_ttl_seconds;type:bigint;not null;default:0"`
+	ChangeNote      string         `gorm:"type:text;not null;default:''"`
+	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	CreatedByUserID *string        `gorm:"type:text;index:idx_template_versions_created_by_user_id"`
+	CreatedByUser   *APIUserModel  `gorm:"foreignKey:CreatedByUserID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+}
+
+func (TemplateVersionModel) TableName() string { return "template_versions" }
+
+func (m *TemplateVersionModel) ToEntity() *entities.TemplateVersion {
+	out := &entities.TemplateVersion{
+		ID:              uuid.MustParse(m.ID),
+		TemplateID:      uuid.MustParse(m.TemplateID),
+		VersionNumber:   m.VersionNumber,
+		PubAllow:        m.PubAllow,
+		PubDeny:         m.PubDeny,
+		SubAllow:        m.SubAllow,
+		SubDeny:         m.SubDeny,
+		ResponseMaxMsgs: m.ResponseMaxMsgs,
+		ResponseTTL:     time.Duration(m.ResponseTTLSecs) * time.Second,
+		ChangeNote:      m.ChangeNote,
+		CreatedAt:       m.CreatedAt,
+	}
+	if m.CreatedByUserID != nil && *m.CreatedByUserID != "" {
+		id := uuid.MustParse(*m.CreatedByUserID)
+		out.CreatedByUserID = &id
+	}
+	return out
+}
+
+func TemplateVersionModelFromEntity(e *entities.TemplateVersion) *TemplateVersionModel {
+	m := &TemplateVersionModel{
+		ID:              e.ID.String(),
+		TemplateID:      e.TemplateID.String(),
+		VersionNumber:   e.VersionNumber,
+		PubAllow:        e.PubAllow,
+		PubDeny:         e.PubDeny,
+		SubAllow:        e.SubAllow,
+		SubDeny:         e.SubDeny,
+		ResponseMaxMsgs: e.ResponseMaxMsgs,
+		ResponseTTLSecs: int64(e.ResponseTTL.Seconds()),
+		ChangeNote:      e.ChangeNote,
+		CreatedAt:       e.CreatedAt,
+	}
+	if e.CreatedByUserID != nil {
+		s := e.CreatedByUserID.String()
+		m.CreatedByUserID = &s
+	}
+	return m
 }
 
 // UserModel — users table.

@@ -46,10 +46,52 @@ var signingKeyDeleteCmd = &cobra.Command{
 }
 
 var (
-	signingKeyOperatorID string
-	signingKeyAccountID  string
-	signingKeyForce      bool
+	signingKeyOperatorID      string
+	signingKeyAccountID       string
+	signingKeyForce           bool
+	signingKeyFromTemplate    string
+	signingKeyTemplateVersion int
+	signingKeyTrackLatest     bool
 )
+
+var signingKeyDetachTemplateCmd = &cobra.Command{
+	Use:   "detach-template ID",
+	Short: "Detach a scoped signing key from its template",
+	Long: `Clear the SKK's template_id and template_version, leaving its
+current permission columns untouched. After detach, the SKK becomes
+standalone — future template updates have no effect on it, and the UI
+stops rendering "From template X@vN" / outdated badges.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSigningKeyDetachTemplate,
+}
+
+var signingKeyBumpTemplateCmd = &cobra.Command{
+	Use:   "bump-template ID",
+	Short: "Apply a template version to a scoped signing key",
+	Long: `Snapshot a target template version's permissions into the SKK,
+regenerate the parent account JWT, and push to every attached cluster.
+When --to-version is unset, applies the template's current latest_version.
+This is the explicit roll-out path — template updates never auto-cascade
+to dependent SKKs.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSigningKeyBumpTemplate,
+}
+
+var signingKeyBumpTargetVersion int
+var signingKeyTrackLatestEnabled bool
+
+var signingKeyTrackLatestCmd = &cobra.Command{
+	Use:   "track-latest ID",
+	Short: "Enable or disable auto-tracking of the bound template's latest version",
+	Long: `Toggle the SKK's track_latest flag. When enabled, every UpdateTemplate
+on the bound template auto-applies the new version to this SKK (re-signs
+the parent account JWT, pushes to clusters). Enabling requires the SKK
+to be templated AND clean (no drift); direct permission edits are
+rejected while tracking is on so an auto-apply can't silently overwrite
+operator changes.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSigningKeyTrackLatest,
+}
 
 func init() {
 	rootCmd.AddCommand(signingKeyCmd)
@@ -58,9 +100,16 @@ func init() {
 	signingKeyCmd.AddCommand(signingKeyListCmd)
 	signingKeyCmd.AddCommand(signingKeyGetCmd)
 	signingKeyCmd.AddCommand(signingKeyDeleteCmd)
+	signingKeyCmd.AddCommand(signingKeyDetachTemplateCmd)
+	signingKeyCmd.AddCommand(signingKeyBumpTemplateCmd)
+	signingKeyCmd.AddCommand(signingKeyTrackLatestCmd)
+	signingKeyTrackLatestCmd.Flags().BoolVar(&signingKeyTrackLatestEnabled, "enabled", true, "true to enable tracking, false to disable")
 
 	signingKeyCreateCmd.Flags().StringVar(&signingKeyOperatorID, "operator", "", "operator ID or name (required)")
 	signingKeyCreateCmd.Flags().StringVar(&signingKeyAccountID, "account", "", "account name (required)")
+	signingKeyCreateCmd.Flags().StringVar(&signingKeyFromTemplate, "from-template", "", "create the SKK from this operator-scoped template (snapshots its permissions)")
+	signingKeyCreateCmd.Flags().IntVar(&signingKeyTemplateVersion, "template-version", 0, "pin to a specific template version (0 = current latest)")
+	signingKeyCreateCmd.Flags().BoolVar(&signingKeyTrackLatest, "track-latest", false, "auto-apply every new template version to this SKK (requires --from-template; ignores --template-version)")
 	_ = signingKeyCreateCmd.MarkFlagRequired("operator")
 	_ = signingKeyCreateCmd.MarkFlagRequired("account")
 
@@ -68,6 +117,8 @@ func init() {
 	_ = signingKeyListCmd.MarkFlagRequired("operator")
 
 	signingKeyDeleteCmd.Flags().BoolVarP(&signingKeyForce, "force", "f", false, "skip confirmation prompt")
+
+	signingKeyBumpTemplateCmd.Flags().IntVar(&signingKeyBumpTargetVersion, "to-version", 0, "target template version (0 = current latest)")
 }
 
 func runSigningKeyCreate(cmd *cobra.Command, args []string) error {
@@ -91,10 +142,22 @@ func runSigningKeyCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("account not found: %w", err)
 	}
 
-	req := connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
-		AccountId: accountResp.Msg.Account.Id,
-		Name:      name,
-	})
+	if signingKeyTrackLatest && signingKeyFromTemplate == "" {
+		return fmt.Errorf("--track-latest requires --from-template")
+	}
+	createReq := &nisv1.CreateScopedSigningKeyRequest{
+		AccountId:   accountResp.Msg.Account.Id,
+		Name:        name,
+		TrackLatest: signingKeyTrackLatest,
+	}
+	if signingKeyFromTemplate != "" {
+		createReq.Template = &nisv1.TemplateRef{
+			OperatorId:    operatorID,
+			TemplateName:  signingKeyFromTemplate,
+			VersionNumber: int32(signingKeyTemplateVersion),
+		}
+	}
+	req := connect.NewRequest(createReq)
 
 	resp, err := GetClient().ScopedSigningKey.CreateScopedSigningKey(context.Background(), req)
 	if err != nil {
@@ -226,4 +289,66 @@ func runSigningKeyDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runSigningKeyDetachTemplate(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	resp, err := GetClient().ScopedSigningKey.DetachFromTemplate(context.Background(),
+		connect.NewRequest(&nisv1.DetachFromTemplateRequest{Id: id}))
+	if err != nil {
+		return fmt.Errorf("failed to detach scoped signing key from template: %w", err)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		printer.PrintID(resp.Msg.Key.Id)
+		return nil
+	}
+	printer.PrintSuccess("Scoped signing key '%s' detached from template", resp.Msg.Key.Name)
+	return printer.PrintObject(resp.Msg.Key)
+}
+
+func runSigningKeyBumpTemplate(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	resp, err := GetClient().Template.ApplyTemplateToScopedKey(context.Background(),
+		connect.NewRequest(&nisv1.ApplyTemplateToScopedKeyRequest{
+			ScopedSigningKeyId: id,
+			VersionNumber:      int32(signingKeyBumpTargetVersion),
+		}))
+	if err != nil {
+		return fmt.Errorf("failed to bump scoped signing key template: %w", err)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		printer.PrintID(resp.Msg.Key.Id)
+		return nil
+	}
+	printer.PrintSuccess("Scoped signing key '%s' bumped to template version %d", resp.Msg.Key.Name, resp.Msg.Key.TemplateVersion)
+	return printer.PrintObject(resp.Msg.Key)
+}
+
+func runSigningKeyTrackLatest(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+	resp, err := GetClient().ScopedSigningKey.SetTrackLatest(context.Background(),
+		connect.NewRequest(&nisv1.SetTrackLatestRequest{
+			Id:      id,
+			Enabled: signingKeyTrackLatestEnabled,
+		}))
+	if err != nil {
+		return fmt.Errorf("failed to set track_latest: %w", err)
+	}
+	if GetOutputFormat() == "quiet" {
+		printer.PrintID(resp.Msg.Key.Id)
+		return nil
+	}
+	state := "disabled"
+	if resp.Msg.Key.TrackLatest {
+		state = "enabled"
+	}
+	printer.PrintSuccess("Scoped signing key '%s' track_latest %s", resp.Msg.Key.Name, state)
+	return printer.PrintObject(resp.Msg.Key)
 }

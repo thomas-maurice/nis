@@ -693,6 +693,7 @@ func TestManifest_Dump_RoundTrip(t *testing.T) {
 		accListResp.Msg.GetAccounts(),
 		allSKKs,
 		allUsers,
+		nil, // no templates in this test fixture
 		allKinds,
 	)
 

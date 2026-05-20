@@ -114,13 +114,15 @@ func NewExportService(
 // produce the same field names (yaml.v3 defaults to lowercased Go field names
 // otherwise, which would diverge from JSON).
 type ExportedOperator struct {
-	Version    string                   `json:"version" yaml:"version"`
-	ExportedAt time.Time                `json:"exported_at" yaml:"exported_at"`
-	Operator   *ExportedOperatorData    `json:"operator" yaml:"operator"`
-	Accounts   []*ExportedAccountData   `json:"accounts" yaml:"accounts"`
-	ScopedKeys []*ExportedScopedKeyData `json:"scoped_keys" yaml:"scoped_keys"`
-	Users      []*ExportedUserData      `json:"users" yaml:"users"`
-	Clusters   []*ExportedClusterData   `json:"clusters,omitempty" yaml:"clusters,omitempty"`
+	Version          string                          `json:"version" yaml:"version"`
+	ExportedAt       time.Time                       `json:"exported_at" yaml:"exported_at"`
+	Operator         *ExportedOperatorData           `json:"operator" yaml:"operator"`
+	Accounts         []*ExportedAccountData          `json:"accounts" yaml:"accounts"`
+	ScopedKeys       []*ExportedScopedKeyData        `json:"scoped_keys" yaml:"scoped_keys"`
+	Users            []*ExportedUserData             `json:"users" yaml:"users"`
+	Clusters         []*ExportedClusterData          `json:"clusters,omitempty" yaml:"clusters,omitempty"`
+	Templates        []*ExportedTemplateData         `json:"templates,omitempty" yaml:"templates,omitempty"`
+	TemplateVersions []*ExportedTemplateVersionData  `json:"template_versions,omitempty" yaml:"template_versions,omitempty"`
 }
 
 // Secret material is carried in mutually-exclusive sibling fields across every
@@ -185,8 +187,49 @@ type ExportedScopedKeyData struct {
 	SubDeny         []string      `json:"sub_deny" yaml:"sub_deny"`
 	ResponseMaxMsgs int           `json:"response_max_msgs" yaml:"response_max_msgs"`
 	ResponseTTL     time.Duration `json:"response_ttl" yaml:"response_ttl"`
+	// P6 template binding. Both omitempty: a non-templated SKK carries
+	// neither; a templated SKK carries both (CHECK constraint enforces
+	// this at the DB layer). Drift flag is preserved across round-trip
+	// so an operator restoring a backup sees the same "edited" badge.
+	TemplateID      *uuid.UUID    `json:"template_id,omitempty" yaml:"template_id,omitempty"`
+	TemplateVersion *int          `json:"template_version,omitempty" yaml:"template_version,omitempty"`
+	TemplateDrifted bool          `json:"template_drifted,omitempty" yaml:"template_drifted,omitempty"`
 	CreatedAt       time.Time     `json:"created_at" yaml:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at" yaml:"updated_at"`
+}
+
+// ExportedTemplateData carries a Template's identity + latest_version
+// pointer. Permission snapshots live in ExportedTemplateVersionData
+// (one row per template_versions row). Operator-scoped, no secret
+// material.
+type ExportedTemplateData struct {
+	ID            uuid.UUID `json:"id" yaml:"id"`
+	OperatorID    uuid.UUID `json:"operator_id" yaml:"operator_id"`
+	Name          string    `json:"name" yaml:"name"`
+	Description   string    `json:"description" yaml:"description"`
+	LatestVersion int       `json:"latest_version" yaml:"latest_version"`
+	CreatedAt     time.Time `json:"created_at" yaml:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" yaml:"updated_at"`
+}
+
+// ExportedTemplateVersionData carries one immutable permission snapshot
+// of a template. Multiple rows per template are normal; the importer
+// inserts them all so the version-pin history survives restore.
+// CreatedByUserID is nullable — when the original creator is gone, the
+// column is SET NULL, and the export passes that through.
+type ExportedTemplateVersionData struct {
+	ID              uuid.UUID     `json:"id" yaml:"id"`
+	TemplateID      uuid.UUID     `json:"template_id" yaml:"template_id"`
+	VersionNumber   int           `json:"version_number" yaml:"version_number"`
+	PubAllow        []string      `json:"pub_allow" yaml:"pub_allow"`
+	PubDeny         []string      `json:"pub_deny" yaml:"pub_deny"`
+	SubAllow        []string      `json:"sub_allow" yaml:"sub_allow"`
+	SubDeny         []string      `json:"sub_deny" yaml:"sub_deny"`
+	ResponseMaxMsgs int           `json:"response_max_msgs" yaml:"response_max_msgs"`
+	ResponseTTL     time.Duration `json:"response_ttl" yaml:"response_ttl"`
+	ChangeNote      string        `json:"change_note" yaml:"change_note"`
+	CreatedAt       time.Time     `json:"created_at" yaml:"created_at"`
+	CreatedByUserID *uuid.UUID    `json:"created_by_user_id,omitempty" yaml:"created_by_user_id,omitempty"`
 }
 
 // ExportedUserData contains user data
@@ -256,10 +299,12 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 			CreatedAt:           operator.CreatedAt,
 			UpdatedAt:           operator.UpdatedAt,
 		},
-		Accounts:   make([]*ExportedAccountData, 0),
-		ScopedKeys: make([]*ExportedScopedKeyData, 0),
-		Users:      make([]*ExportedUserData, 0),
-		Clusters:   make([]*ExportedClusterData, 0),
+		Accounts:         make([]*ExportedAccountData, 0),
+		ScopedKeys:       make([]*ExportedScopedKeyData, 0),
+		Users:            make([]*ExportedUserData, 0),
+		Clusters:         make([]*ExportedClusterData, 0),
+		Templates:        make([]*ExportedTemplateData, 0),
+		TemplateVersions: make([]*ExportedTemplateVersionData, 0),
 	}
 
 	if err := s.fillSeed(ctx, mode, operator.EncryptedSeed, &exported.Operator.EncryptedSeed, &exported.Operator.Seed, "operator "+operator.Name); err != nil {
@@ -314,6 +359,9 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 				SubDeny:         key.SubDeny,
 				ResponseMaxMsgs: key.ResponseMaxMsgs,
 				ResponseTTL:     key.ResponseTTL,
+				TemplateID:      key.TemplateID,
+				TemplateVersion: key.TemplateVersion,
+				TemplateDrifted: key.TemplateDrifted,
 				CreatedAt:       key.CreatedAt,
 				UpdatedAt:       key.UpdatedAt,
 			}
@@ -349,6 +397,45 @@ func (s *ExportService) ExportOperator(ctx context.Context, operatorID uuid.UUID
 			}
 
 			exported.Users = append(exported.Users, exportedUser)
+		}
+	}
+
+	// Get templates + their versions for this operator. Templates are
+	// operator-scoped; versions are immutable so the full history
+	// round-trips. Empty list is normal for operators that never used P6.
+	templates, err := s.factory.TemplateRepository().ListByOperator(ctx, operatorID, repositories.ListOptions{Limit: 100000})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list templates: %w", err)
+	}
+	for _, t := range templates {
+		exported.Templates = append(exported.Templates, &ExportedTemplateData{
+			ID:            t.ID,
+			OperatorID:    t.OperatorID,
+			Name:          t.Name,
+			Description:   t.Description,
+			LatestVersion: t.LatestVersion,
+			CreatedAt:     t.CreatedAt,
+			UpdatedAt:     t.UpdatedAt,
+		})
+		versions, err := s.factory.TemplateVersionRepository().ListByTemplate(ctx, t.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list versions for template %s: %w", t.Name, err)
+		}
+		for _, v := range versions {
+			exported.TemplateVersions = append(exported.TemplateVersions, &ExportedTemplateVersionData{
+				ID:              v.ID,
+				TemplateID:      v.TemplateID,
+				VersionNumber:   v.VersionNumber,
+				PubAllow:        v.PubAllow,
+				PubDeny:         v.PubDeny,
+				SubAllow:        v.SubAllow,
+				SubDeny:         v.SubDeny,
+				ResponseMaxMsgs: v.ResponseMaxMsgs,
+				ResponseTTL:     v.ResponseTTL,
+				ChangeNote:      v.ChangeNote,
+				CreatedAt:       v.CreatedAt,
+				CreatedByUserID: v.CreatedByUserID,
+			})
 		}
 	}
 
@@ -462,6 +549,8 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 		userRepo := tx.UserRepository()
 		scopedKeyRepo := tx.ScopedSigningKeyRepository()
 		clusterRepo := tx.ClusterRepository()
+		templateRepo := tx.TemplateRepository()
+		templateVersionRepo := tx.TemplateVersionRepository()
 
 		existing, err := operatorRepo.GetByID(ctx, exported.Operator.ID)
 		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
@@ -524,9 +613,62 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 					return fmt.Errorf("failed to delete existing account %s: %w", acc.ID, err)
 				}
 			}
+			// Wipe existing templates too. FK templates.operator_id is
+			// CASCADE, so on a delete-operator this would happen for
+			// free; the in-place-update path above means we have to do
+			// it explicitly. template_versions are CASCADE on
+			// template_id, so deleting the parent rows is sufficient.
+			existingTemplates, err := templateRepo.ListByOperator(ctx, exported.Operator.ID, repositories.ListOptions{Limit: 100000})
+			if err != nil {
+				return fmt.Errorf("failed to list existing templates for overwrite: %w", err)
+			}
+			for _, t := range existingTemplates {
+				if err := templateRepo.Delete(ctx, t.ID); err != nil {
+					return fmt.Errorf("failed to delete existing template %s: %w", t.ID, err)
+				}
+			}
 		} else {
 			if err := operatorRepo.Create(ctx, operator); err != nil {
 				return fmt.Errorf("failed to create operator: %w", err)
+			}
+		}
+
+		// Restore templates BEFORE accounts/SKKs — scoped_signing_keys
+		// has FK template_id → templates(id) ON DELETE SET NULL. With
+		// SET NULL the FK doesn't strictly block ordering, but inserting
+		// templates first keeps the round-trip honest (no orphan windows
+		// during the tx) and matches how nisctl/UI users see the data.
+		for _, exportedTemplate := range exported.Templates {
+			tpl := &entities.Template{
+				ID:            exportedTemplate.ID,
+				OperatorID:    exported.Operator.ID,
+				Name:          exportedTemplate.Name,
+				Description:   exportedTemplate.Description,
+				LatestVersion: exportedTemplate.LatestVersion,
+				CreatedAt:     exportedTemplate.CreatedAt,
+				UpdatedAt:     clock.Now(),
+			}
+			if err := templateRepo.Create(ctx, tpl); err != nil {
+				return fmt.Errorf("failed to create template %s: %w", exportedTemplate.Name, err)
+			}
+		}
+		for _, exportedVer := range exported.TemplateVersions {
+			ver := &entities.TemplateVersion{
+				ID:              exportedVer.ID,
+				TemplateID:      exportedVer.TemplateID,
+				VersionNumber:   exportedVer.VersionNumber,
+				PubAllow:        exportedVer.PubAllow,
+				PubDeny:         exportedVer.PubDeny,
+				SubAllow:        exportedVer.SubAllow,
+				SubDeny:         exportedVer.SubDeny,
+				ResponseMaxMsgs: exportedVer.ResponseMaxMsgs,
+				ResponseTTL:     exportedVer.ResponseTTL,
+				ChangeNote:      exportedVer.ChangeNote,
+				CreatedAt:       exportedVer.CreatedAt,
+				CreatedByUserID: exportedVer.CreatedByUserID,
+			}
+			if err := templateVersionRepo.Create(ctx, ver); err != nil {
+				return fmt.Errorf("failed to create template version v%d for template %s: %w", exportedVer.VersionNumber, exportedVer.TemplateID, err)
 			}
 		}
 
@@ -574,6 +716,9 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 				SubDeny:         exportedKey.SubDeny,
 				ResponseMaxMsgs: exportedKey.ResponseMaxMsgs,
 				ResponseTTL:     exportedKey.ResponseTTL,
+				TemplateID:      exportedKey.TemplateID,
+				TemplateVersion: exportedKey.TemplateVersion,
+				TemplateDrifted: exportedKey.TemplateDrifted,
 				CreatedAt:       exportedKey.CreatedAt,
 				UpdatedAt:       clock.Now(),
 			}

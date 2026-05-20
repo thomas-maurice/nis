@@ -41,29 +41,59 @@ func TestE2E_ClusterDrift_AllInSyncAfterSync(t *testing.T) {
 	}
 }
 
-// TestE2E_ClusterDrift_MutateWithoutSyncReportsDBAhead covers the standard
-// "I regenerated an account JWT but didn't push" state. The drift scan must
-// classify the modified account as DB_AHEAD so the UI can offer a one-click
-// reconcile.
-func TestE2E_ClusterDrift_MutateWithoutSyncReportsDBAhead(t *testing.T) {
+// TestE2E_ClusterDrift_MutateWithFailedPushReportsDBAhead covers the
+// DB_AHEAD state under the new A13-lite world: P6 wired auto-sync so a
+// plain UpdateAccount now pushes the regenerated JWT to NATS as part
+// of the API call. To induce DB_AHEAD we need an auto-sync attempt
+// that fails. Approach: stop NATS, mutate (auto-sync silently fails per
+// best-effort semantics), restart NATS, scan — the DB JWT's iat is
+// later than the resolver's, so drift classifies as DB_AHEAD.
+//
+// This replaces a pre-A13 test that mutated without calling sync and
+// expected DB_AHEAD by default. That assumption no longer holds; the
+// new shape of the test pins the same classification path through the
+// new path-to-failure (push attempted, push failed).
+func TestE2E_ClusterDrift_MutateWithFailedPushReportsDBAhead(t *testing.T) {
 	h := startStack(t)
 	st := h.bootStandardStack(t, "drift-dbahead")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// jwt v2's IssuedAt resolution is 1 second. If we mutate within the same
-	// second as the initial sync, the resulting JWT can land with iat ==
-	// resolver-iat, which compareJWTs reports as OUT_OF_BAND rather than
-	// DB_AHEAD. Sleep 1.1s to guarantee a later iat.
+	// jwt v2's IssuedAt resolution is 1 second; sleep 1.1s so the
+	// mutation's iat is strictly later than the resolver's stored iat
+	// (otherwise compareJWTs classifies as OUT_OF_BAND not DB_AHEAD).
 	time.Sleep(1100 * time.Millisecond)
 
-	newDesc := "drift bait"
+	if err := exec.Command("docker", "stop", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker stop %s: %v", h.natsContainer, err)
+	}
+
+	newDesc := "drift bait (push will fail with NATS stopped)"
 	if _, err := h.accountCli.UpdateAccount(ctx, connect.NewRequest(&nisv1.UpdateAccountRequest{
 		Id:          st.accountID,
 		Description: &newDesc,
 	})); err != nil {
 		t.Fatalf("UpdateAccount: %v", err)
+	}
+
+	if err := exec.Command("docker", "start", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker start %s: %v", h.natsContainer, err)
+	}
+	// Wait for NATS to come back so the drift scan can reach it.
+	waitDeadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+			ClusterId:     st.clusterID,
+			IncludeInSync: true,
+		}))
+		if err == nil && hasReachableRow(resp.Msg.Rows) {
+			break
+		}
+		if time.Now().After(waitDeadline) {
+			t.Fatalf("resolver did not come back up within deadline")
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
@@ -79,7 +109,7 @@ func TestE2E_ClusterDrift_MutateWithoutSyncReportsDBAhead(t *testing.T) {
 		if r.AccountName == st.accountName {
 			found = true
 			if r.Status != nisv1.DriftStatus_DRIFT_STATUS_DB_AHEAD {
-				t.Fatalf("expected DB_AHEAD for %q, got %v (msg=%q)", r.AccountName, r.Status, r.ErrorMessage)
+				t.Fatalf("expected DB_AHEAD for %q after failed push, got %v (msg=%q)", r.AccountName, r.Status, r.ErrorMessage)
 			}
 		}
 	}
@@ -89,23 +119,47 @@ func TestE2E_ClusterDrift_MutateWithoutSyncReportsDBAhead(t *testing.T) {
 }
 
 // TestE2E_ClusterDrift_ReconcileClearsDrift completes the loop: after
-// detecting DB_AHEAD via a mutation, calling ReconcileAccountOnCluster pushes
-// the new JWT and the next scan reports IN_SYNC. Pins the contract that the
-// reconcile RPC actually does what the UI says it does.
+// inducing DB_AHEAD via a failed auto-sync push, calling
+// ReconcileAccountOnCluster pushes the new JWT and the next scan
+// reports IN_SYNC. Pins the contract that the reconcile RPC actually
+// does what the UI says it does. Stop-then-restart-NATS is required
+// to manufacture the drifted state — with A13-lite a plain mutation
+// would otherwise auto-sync and skip the drifted intermediate state.
 func TestE2E_ClusterDrift_ReconcileClearsDrift(t *testing.T) {
 	h := startStack(t)
 	st := h.bootStandardStack(t, "drift-fix")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	time.Sleep(1100 * time.Millisecond)
-	newDesc := "drift bait pre-reconcile"
+
+	if err := exec.Command("docker", "stop", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker stop %s: %v", h.natsContainer, err)
+	}
+	newDesc := "drift bait pre-reconcile (push will fail)"
 	if _, err := h.accountCli.UpdateAccount(ctx, connect.NewRequest(&nisv1.UpdateAccountRequest{
 		Id:          st.accountID,
 		Description: &newDesc,
 	})); err != nil {
 		t.Fatalf("UpdateAccount: %v", err)
+	}
+	if err := exec.Command("docker", "start", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker start %s: %v", h.natsContainer, err)
+	}
+	waitDeadline := time.Now().Add(15 * time.Second)
+	for {
+		_, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+			ClusterId:     st.clusterID,
+			IncludeInSync: true,
+		}))
+		if err == nil {
+			break
+		}
+		if time.Now().After(waitDeadline) {
+			t.Fatalf("resolver did not come back up within deadline")
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	if _, err := h.clusterCli.ReconcileAccountOnCluster(ctx, connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
@@ -129,18 +183,43 @@ func TestE2E_ClusterDrift_ReconcileClearsDrift(t *testing.T) {
 	}
 }
 
-// TestE2E_ClusterDrift_NewAccountReportsMissingOnResolver: a brand-new account
-// that hasn't been synced should show as MISSING_ON_RESOLVER, not DB_AHEAD —
-// the resolver has literally no JWT to compare against.
+// TestE2E_ClusterDrift_NewAccountReportsMissingOnResolver: a brand-new
+// account whose initial auto-sync push failed (NATS unreachable at
+// create time) should show as MISSING_ON_RESOLVER on the next scan —
+// the resolver has literally no JWT to compare against. Under A13-lite
+// a plain createAccount would auto-sync; we stop NATS first to force
+// the push failure.
 func TestE2E_ClusterDrift_NewAccountReportsMissingOnResolver(t *testing.T) {
 	h := startStack(t)
 	st := h.bootStandardStack(t, "drift-missing")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Create a new account WITHOUT syncing.
+	if err := exec.Command("docker", "stop", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker stop %s: %v", h.natsContainer, err)
+	}
+	// Create a new account while NATS is down — auto-sync push will
+	// fail silently (best-effort), and the DB row lands without a
+	// matching resolver entry.
 	freshAccountID := h.createAccount(t, st.operatorID, "drift-missing-fresh")
+	if err := exec.Command("docker", "start", h.natsContainer).Run(); err != nil {
+		t.Fatalf("docker start %s: %v", h.natsContainer, err)
+	}
+	waitDeadline := time.Now().Add(15 * time.Second)
+	for {
+		_, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+			ClusterId:     st.clusterID,
+			IncludeInSync: true,
+		}))
+		if err == nil {
+			break
+		}
+		if time.Now().After(waitDeadline) {
+			t.Fatalf("resolver did not come back up within deadline")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
 		ClusterId:     st.clusterID,

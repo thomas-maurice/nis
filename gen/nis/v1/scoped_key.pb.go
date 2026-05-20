@@ -34,8 +34,31 @@ type ScopedSigningKey struct {
 	ResponsePermission *ResponsePermission    `protobuf:"bytes,7,opt,name=response_permission,json=responsePermission,proto3" json:"response_permission,omitempty"`
 	CreatedAt          *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt          *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Template ref (both empty/zero or both set; enforced by a CHECK on the
+	// underlying table). When set, the SKK was created or bumped from
+	// templates[template_id]@template_version. The pub/sub fields above are
+	// a snapshot of that version at bump time.
+	TemplateId      string `protobuf:"bytes,10,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
+	TemplateVersion int32  `protobuf:"varint,11,opt,name=template_version,json=templateVersion,proto3" json:"template_version,omitempty"`
+	// Set true when the SKK's pub/sub fields were edited directly since the
+	// last bump. Surfaced in the UI as an "edited" badge.
+	TemplateDrifted bool `protobuf:"varint,12,opt,name=template_drifted,json=templateDrifted,proto3" json:"template_drifted,omitempty"`
+	// When true, TemplateService.UpdateTemplate auto-applies new versions of
+	// the bound template to this SKK (regen account JWT + push to clusters)
+	// without operator action. Only valid when template_id is set AND
+	// template_drifted is false. Direct edits via UpdatePermissions are
+	// rejected while this is true so an auto-apply can't silently
+	// overwrite operator changes.
+	TrackLatest bool `protobuf:"varint,13,opt,name=track_latest,json=trackLatest,proto3" json:"track_latest,omitempty"`
+	// Marks SKKs whose parent account JWT lists the key as a raw string
+	// in signing_keys (not a UserScope). NSC imports populate this from
+	// the source account JWT shape. On regen NIS emits these as plain
+	// strings; on user-mint NIS skips SetScoped so NATS uses the user
+	// JWT's own perms (matching the operator's pre-NIS expectations).
+	// Read-only — flipped by the importer, not by an RPC.
+	IsPlainSigner bool `protobuf:"varint,14,opt,name=is_plain_signer,json=isPlainSigner,proto3" json:"is_plain_signer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ScopedSigningKey) Reset() {
@@ -131,6 +154,41 @@ func (x *ScopedSigningKey) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ScopedSigningKey) GetTemplateId() string {
+	if x != nil {
+		return x.TemplateId
+	}
+	return ""
+}
+
+func (x *ScopedSigningKey) GetTemplateVersion() int32 {
+	if x != nil {
+		return x.TemplateVersion
+	}
+	return 0
+}
+
+func (x *ScopedSigningKey) GetTemplateDrifted() bool {
+	if x != nil {
+		return x.TemplateDrifted
+	}
+	return false
+}
+
+func (x *ScopedSigningKey) GetTrackLatest() bool {
+	if x != nil {
+		return x.TrackLatest
+	}
+	return false
+}
+
+func (x *ScopedSigningKey) GetIsPlainSigner() bool {
+	if x != nil {
+		return x.IsPlainSigner
+	}
+	return false
+}
+
 // CreateScopedSigningKeyRequest is the request to create a new scoped signing key
 type CreateScopedSigningKeyRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -139,8 +197,19 @@ type CreateScopedSigningKeyRequest struct {
 	Description        string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	Permissions        *UserPermissions       `protobuf:"bytes,4,opt,name=permissions,proto3" json:"permissions,omitempty"`
 	ResponsePermission *ResponsePermission    `protobuf:"bytes,5,opt,name=response_permission,json=responsePermission,proto3" json:"response_permission,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Optional template ref. When set, the SKK is created from the named
+	// template's permissions (snapshotted into the pub/sub fields) and the
+	// permissions+response_permission fields above are ignored. When
+	// template_version is 0 with template_name set, applies the template's
+	// current latest_version.
+	Template *TemplateRef `protobuf:"bytes,6,opt,name=template,proto3" json:"template,omitempty"`
+	// Opt the new SKK into TemplateService.UpdateTemplate's auto-apply.
+	// Only honoured when `template` is also set; ignored otherwise. The
+	// SKK starts at the template's latest version regardless of any
+	// version_number pin, because pinning + tracking-latest contradict.
+	TrackLatest   bool `protobuf:"varint,7,opt,name=track_latest,json=trackLatest,proto3" json:"track_latest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateScopedSigningKeyRequest) Reset() {
@@ -208,6 +277,84 @@ func (x *CreateScopedSigningKeyRequest) GetResponsePermission() *ResponsePermiss
 	return nil
 }
 
+func (x *CreateScopedSigningKeyRequest) GetTemplate() *TemplateRef {
+	if x != nil {
+		return x.Template
+	}
+	return nil
+}
+
+func (x *CreateScopedSigningKeyRequest) GetTrackLatest() bool {
+	if x != nil {
+		return x.TrackLatest
+	}
+	return false
+}
+
+// TemplateRef names a template by (operator_id, name) plus optional
+// version pin. operator_id is derivable from account_id at the service
+// layer but required here so the service can short-circuit without a
+// double lookup.
+type TemplateRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	TemplateName  string                 `protobuf:"bytes,2,opt,name=template_name,json=templateName,proto3" json:"template_name,omitempty"`
+	VersionNumber int32                  `protobuf:"varint,3,opt,name=version_number,json=versionNumber,proto3" json:"version_number,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TemplateRef) Reset() {
+	*x = TemplateRef{}
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TemplateRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TemplateRef) ProtoMessage() {}
+
+func (x *TemplateRef) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TemplateRef.ProtoReflect.Descriptor instead.
+func (*TemplateRef) Descriptor() ([]byte, []int) {
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TemplateRef) GetOperatorId() string {
+	if x != nil {
+		return x.OperatorId
+	}
+	return ""
+}
+
+func (x *TemplateRef) GetTemplateName() string {
+	if x != nil {
+		return x.TemplateName
+	}
+	return ""
+}
+
+func (x *TemplateRef) GetVersionNumber() int32 {
+	if x != nil {
+		return x.VersionNumber
+	}
+	return 0
+}
+
 // CreateScopedSigningKeyResponse is the response from creating a scoped signing key
 type CreateScopedSigningKeyResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -218,7 +365,7 @@ type CreateScopedSigningKeyResponse struct {
 
 func (x *CreateScopedSigningKeyResponse) Reset() {
 	*x = CreateScopedSigningKeyResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[2]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -230,7 +377,7 @@ func (x *CreateScopedSigningKeyResponse) String() string {
 func (*CreateScopedSigningKeyResponse) ProtoMessage() {}
 
 func (x *CreateScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[2]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -243,7 +390,7 @@ func (x *CreateScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateScopedSigningKeyResponse.ProtoReflect.Descriptor instead.
 func (*CreateScopedSigningKeyResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{2}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateScopedSigningKeyResponse) GetKey() *ScopedSigningKey {
@@ -263,7 +410,7 @@ type GetScopedSigningKeyRequest struct {
 
 func (x *GetScopedSigningKeyRequest) Reset() {
 	*x = GetScopedSigningKeyRequest{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[3]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -275,7 +422,7 @@ func (x *GetScopedSigningKeyRequest) String() string {
 func (*GetScopedSigningKeyRequest) ProtoMessage() {}
 
 func (x *GetScopedSigningKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[3]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -288,7 +435,7 @@ func (x *GetScopedSigningKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScopedSigningKeyRequest.ProtoReflect.Descriptor instead.
 func (*GetScopedSigningKeyRequest) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{3}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetScopedSigningKeyRequest) GetId() string {
@@ -308,7 +455,7 @@ type GetScopedSigningKeyResponse struct {
 
 func (x *GetScopedSigningKeyResponse) Reset() {
 	*x = GetScopedSigningKeyResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[4]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -320,7 +467,7 @@ func (x *GetScopedSigningKeyResponse) String() string {
 func (*GetScopedSigningKeyResponse) ProtoMessage() {}
 
 func (x *GetScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[4]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -333,7 +480,7 @@ func (x *GetScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScopedSigningKeyResponse.ProtoReflect.Descriptor instead.
 func (*GetScopedSigningKeyResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{4}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetScopedSigningKeyResponse) GetKey() *ScopedSigningKey {
@@ -354,7 +501,7 @@ type GetScopedSigningKeyByNameRequest struct {
 
 func (x *GetScopedSigningKeyByNameRequest) Reset() {
 	*x = GetScopedSigningKeyByNameRequest{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[5]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +513,7 @@ func (x *GetScopedSigningKeyByNameRequest) String() string {
 func (*GetScopedSigningKeyByNameRequest) ProtoMessage() {}
 
 func (x *GetScopedSigningKeyByNameRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[5]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +526,7 @@ func (x *GetScopedSigningKeyByNameRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetScopedSigningKeyByNameRequest.ProtoReflect.Descriptor instead.
 func (*GetScopedSigningKeyByNameRequest) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{5}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetScopedSigningKeyByNameRequest) GetAccountId() string {
@@ -406,7 +553,7 @@ type GetScopedSigningKeyByNameResponse struct {
 
 func (x *GetScopedSigningKeyByNameResponse) Reset() {
 	*x = GetScopedSigningKeyByNameResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[6]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -418,7 +565,7 @@ func (x *GetScopedSigningKeyByNameResponse) String() string {
 func (*GetScopedSigningKeyByNameResponse) ProtoMessage() {}
 
 func (x *GetScopedSigningKeyByNameResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[6]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -431,7 +578,7 @@ func (x *GetScopedSigningKeyByNameResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetScopedSigningKeyByNameResponse.ProtoReflect.Descriptor instead.
 func (*GetScopedSigningKeyByNameResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{6}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetScopedSigningKeyByNameResponse) GetKey() *ScopedSigningKey {
@@ -452,7 +599,7 @@ type ListScopedSigningKeysRequest struct {
 
 func (x *ListScopedSigningKeysRequest) Reset() {
 	*x = ListScopedSigningKeysRequest{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[7]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -464,7 +611,7 @@ func (x *ListScopedSigningKeysRequest) String() string {
 func (*ListScopedSigningKeysRequest) ProtoMessage() {}
 
 func (x *ListScopedSigningKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[7]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -477,7 +624,7 @@ func (x *ListScopedSigningKeysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListScopedSigningKeysRequest.ProtoReflect.Descriptor instead.
 func (*ListScopedSigningKeysRequest) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{7}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListScopedSigningKeysRequest) GetAccountId() string {
@@ -504,7 +651,7 @@ type ListScopedSigningKeysResponse struct {
 
 func (x *ListScopedSigningKeysResponse) Reset() {
 	*x = ListScopedSigningKeysResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[8]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -516,7 +663,7 @@ func (x *ListScopedSigningKeysResponse) String() string {
 func (*ListScopedSigningKeysResponse) ProtoMessage() {}
 
 func (x *ListScopedSigningKeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[8]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -529,7 +676,7 @@ func (x *ListScopedSigningKeysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListScopedSigningKeysResponse.ProtoReflect.Descriptor instead.
 func (*ListScopedSigningKeysResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{8}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListScopedSigningKeysResponse) GetKeys() []*ScopedSigningKey {
@@ -551,7 +698,7 @@ type UpdateScopedSigningKeyRequest struct {
 
 func (x *UpdateScopedSigningKeyRequest) Reset() {
 	*x = UpdateScopedSigningKeyRequest{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[9]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +710,7 @@ func (x *UpdateScopedSigningKeyRequest) String() string {
 func (*UpdateScopedSigningKeyRequest) ProtoMessage() {}
 
 func (x *UpdateScopedSigningKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[9]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +723,7 @@ func (x *UpdateScopedSigningKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateScopedSigningKeyRequest.ProtoReflect.Descriptor instead.
 func (*UpdateScopedSigningKeyRequest) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{9}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UpdateScopedSigningKeyRequest) GetId() string {
@@ -610,7 +757,7 @@ type UpdateScopedSigningKeyResponse struct {
 
 func (x *UpdateScopedSigningKeyResponse) Reset() {
 	*x = UpdateScopedSigningKeyResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[10]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -622,7 +769,7 @@ func (x *UpdateScopedSigningKeyResponse) String() string {
 func (*UpdateScopedSigningKeyResponse) ProtoMessage() {}
 
 func (x *UpdateScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[10]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -635,7 +782,7 @@ func (x *UpdateScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateScopedSigningKeyResponse.ProtoReflect.Descriptor instead.
 func (*UpdateScopedSigningKeyResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{10}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateScopedSigningKeyResponse) GetKey() *ScopedSigningKey {
@@ -657,7 +804,7 @@ type UpdatePermissionsRequest struct {
 
 func (x *UpdatePermissionsRequest) Reset() {
 	*x = UpdatePermissionsRequest{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[11]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -669,7 +816,7 @@ func (x *UpdatePermissionsRequest) String() string {
 func (*UpdatePermissionsRequest) ProtoMessage() {}
 
 func (x *UpdatePermissionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[11]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -682,7 +829,7 @@ func (x *UpdatePermissionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePermissionsRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePermissionsRequest) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{11}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UpdatePermissionsRequest) GetId() string {
@@ -716,7 +863,7 @@ type UpdatePermissionsResponse struct {
 
 func (x *UpdatePermissionsResponse) Reset() {
 	*x = UpdatePermissionsResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[12]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -728,7 +875,7 @@ func (x *UpdatePermissionsResponse) String() string {
 func (*UpdatePermissionsResponse) ProtoMessage() {}
 
 func (x *UpdatePermissionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[12]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -741,7 +888,7 @@ func (x *UpdatePermissionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePermissionsResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePermissionsResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{12}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UpdatePermissionsResponse) GetKey() *ScopedSigningKey {
@@ -761,7 +908,7 @@ type DeleteScopedSigningKeyRequest struct {
 
 func (x *DeleteScopedSigningKeyRequest) Reset() {
 	*x = DeleteScopedSigningKeyRequest{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[13]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -773,7 +920,7 @@ func (x *DeleteScopedSigningKeyRequest) String() string {
 func (*DeleteScopedSigningKeyRequest) ProtoMessage() {}
 
 func (x *DeleteScopedSigningKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[13]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -786,7 +933,7 @@ func (x *DeleteScopedSigningKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteScopedSigningKeyRequest.ProtoReflect.Descriptor instead.
 func (*DeleteScopedSigningKeyRequest) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{13}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteScopedSigningKeyRequest) GetId() string {
@@ -805,7 +952,7 @@ type DeleteScopedSigningKeyResponse struct {
 
 func (x *DeleteScopedSigningKeyResponse) Reset() {
 	*x = DeleteScopedSigningKeyResponse{}
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[14]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -817,7 +964,7 @@ func (x *DeleteScopedSigningKeyResponse) String() string {
 func (*DeleteScopedSigningKeyResponse) ProtoMessage() {}
 
 func (x *DeleteScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nis_v1_scoped_key_proto_msgTypes[14]
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -830,14 +977,208 @@ func (x *DeleteScopedSigningKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteScopedSigningKeyResponse.ProtoReflect.Descriptor instead.
 func (*DeleteScopedSigningKeyResponse) Descriptor() ([]byte, []int) {
-	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{14}
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{15}
+}
+
+// DetachFromTemplateRequest clears the template_id / template_version /
+// template_drifted fields on the SKK without changing its permission
+// columns. After detach, the SKK becomes a standalone key — future
+// template updates do not affect it and the UI stops showing it as
+// templated. Permission columns retain whatever values they had at
+// detach time.
+type DetachFromTemplateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DetachFromTemplateRequest) Reset() {
+	*x = DetachFromTemplateRequest{}
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DetachFromTemplateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DetachFromTemplateRequest) ProtoMessage() {}
+
+func (x *DetachFromTemplateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DetachFromTemplateRequest.ProtoReflect.Descriptor instead.
+func (*DetachFromTemplateRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *DetachFromTemplateRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DetachFromTemplateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           *ScopedSigningKey      `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DetachFromTemplateResponse) Reset() {
+	*x = DetachFromTemplateResponse{}
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DetachFromTemplateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DetachFromTemplateResponse) ProtoMessage() {}
+
+func (x *DetachFromTemplateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DetachFromTemplateResponse.ProtoReflect.Descriptor instead.
+func (*DetachFromTemplateResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *DetachFromTemplateResponse) GetKey() *ScopedSigningKey {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+// SetTrackLatestRequest toggles the track_latest flag on a templated SKK.
+// Enabling requires template_id != "" AND template_drifted == false.
+// Disabling has no preconditions. Disabling does not detach — operator
+// must call DetachFromTemplate separately.
+type SetTrackLatestRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Enabled       bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetTrackLatestRequest) Reset() {
+	*x = SetTrackLatestRequest{}
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetTrackLatestRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetTrackLatestRequest) ProtoMessage() {}
+
+func (x *SetTrackLatestRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetTrackLatestRequest.ProtoReflect.Descriptor instead.
+func (*SetTrackLatestRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SetTrackLatestRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SetTrackLatestRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+type SetTrackLatestResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           *ScopedSigningKey      `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetTrackLatestResponse) Reset() {
+	*x = SetTrackLatestResponse{}
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetTrackLatestResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetTrackLatestResponse) ProtoMessage() {}
+
+func (x *SetTrackLatestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_scoped_key_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetTrackLatestResponse.ProtoReflect.Descriptor instead.
+func (*SetTrackLatestResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_scoped_key_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SetTrackLatestResponse) GetKey() *ScopedSigningKey {
+	if x != nil {
+		return x.Key
+	}
+	return nil
 }
 
 var File_nis_v1_scoped_key_proto protoreflect.FileDescriptor
 
 const file_nis_v1_scoped_key_proto_rawDesc = "" +
 	"\n" +
-	"\x17nis/v1/scoped_key.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x94\x03\n" +
+	"\x17nis/v1/scoped_key.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd6\x04\n" +
 	"\x10ScopedSigningKey\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -851,14 +1192,28 @@ const file_nis_v1_scoped_key_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xfc\x01\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1f\n" +
+	"\vtemplate_id\x18\n" +
+	" \x01(\tR\n" +
+	"templateId\x12)\n" +
+	"\x10template_version\x18\v \x01(\x05R\x0ftemplateVersion\x12)\n" +
+	"\x10template_drifted\x18\f \x01(\bR\x0ftemplateDrifted\x12!\n" +
+	"\ftrack_latest\x18\r \x01(\bR\vtrackLatest\x12&\n" +
+	"\x0fis_plain_signer\x18\x0e \x01(\bR\risPlainSigner\"\xd0\x02\n" +
 	"\x1dCreateScopedSigningKeyRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x129\n" +
 	"\vpermissions\x18\x04 \x01(\v2\x17.nis.v1.UserPermissionsR\vpermissions\x12K\n" +
-	"\x13response_permission\x18\x05 \x01(\v2\x1a.nis.v1.ResponsePermissionR\x12responsePermission\"L\n" +
+	"\x13response_permission\x18\x05 \x01(\v2\x1a.nis.v1.ResponsePermissionR\x12responsePermission\x12/\n" +
+	"\btemplate\x18\x06 \x01(\v2\x13.nis.v1.TemplateRefR\btemplate\x12!\n" +
+	"\ftrack_latest\x18\a \x01(\bR\vtrackLatest\"z\n" +
+	"\vTemplateRef\x12\x1f\n" +
+	"\voperator_id\x18\x01 \x01(\tR\n" +
+	"operatorId\x12#\n" +
+	"\rtemplate_name\x18\x02 \x01(\tR\ftemplateName\x12%\n" +
+	"\x0eversion_number\x18\x03 \x01(\x05R\rversionNumber\"L\n" +
 	"\x1eCreateScopedSigningKeyResponse\x12*\n" +
 	"\x03key\x18\x01 \x01(\v2\x18.nis.v1.ScopedSigningKeyR\x03key\",\n" +
 	"\x1aGetScopedSigningKeyRequest\x12\x0e\n" +
@@ -893,7 +1248,16 @@ const file_nis_v1_scoped_key_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\v2\x18.nis.v1.ScopedSigningKeyR\x03key\"/\n" +
 	"\x1dDeleteScopedSigningKeyRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\" \n" +
-	"\x1eDeleteScopedSigningKeyResponse2\xe6\x05\n" +
+	"\x1eDeleteScopedSigningKeyResponse\"+\n" +
+	"\x19DetachFromTemplateRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"H\n" +
+	"\x1aDetachFromTemplateResponse\x12*\n" +
+	"\x03key\x18\x01 \x01(\v2\x18.nis.v1.ScopedSigningKeyR\x03key\"A\n" +
+	"\x15SetTrackLatestRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"D\n" +
+	"\x16SetTrackLatestResponse\x12*\n" +
+	"\x03key\x18\x01 \x01(\v2\x18.nis.v1.ScopedSigningKeyR\x03key2\x94\a\n" +
 	"\x17ScopedSigningKeyService\x12g\n" +
 	"\x16CreateScopedSigningKey\x12%.nis.v1.CreateScopedSigningKeyRequest\x1a&.nis.v1.CreateScopedSigningKeyResponse\x12^\n" +
 	"\x13GetScopedSigningKey\x12\".nis.v1.GetScopedSigningKeyRequest\x1a#.nis.v1.GetScopedSigningKeyResponse\x12p\n" +
@@ -901,7 +1265,9 @@ const file_nis_v1_scoped_key_proto_rawDesc = "" +
 	"\x15ListScopedSigningKeys\x12$.nis.v1.ListScopedSigningKeysRequest\x1a%.nis.v1.ListScopedSigningKeysResponse\x12g\n" +
 	"\x16UpdateScopedSigningKey\x12%.nis.v1.UpdateScopedSigningKeyRequest\x1a&.nis.v1.UpdateScopedSigningKeyResponse\x12X\n" +
 	"\x11UpdatePermissions\x12 .nis.v1.UpdatePermissionsRequest\x1a!.nis.v1.UpdatePermissionsResponse\x12g\n" +
-	"\x16DeleteScopedSigningKey\x12%.nis.v1.DeleteScopedSigningKeyRequest\x1a&.nis.v1.DeleteScopedSigningKeyResponseB\x85\x01\n" +
+	"\x16DeleteScopedSigningKey\x12%.nis.v1.DeleteScopedSigningKeyRequest\x1a&.nis.v1.DeleteScopedSigningKeyResponse\x12[\n" +
+	"\x12DetachFromTemplate\x12!.nis.v1.DetachFromTemplateRequest\x1a\".nis.v1.DetachFromTemplateResponse\x12O\n" +
+	"\x0eSetTrackLatest\x12\x1d.nis.v1.SetTrackLatestRequest\x1a\x1e.nis.v1.SetTrackLatestResponseB\x85\x01\n" +
 	"\n" +
 	"com.nis.v1B\x0eScopedKeyProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -917,63 +1283,75 @@ func file_nis_v1_scoped_key_proto_rawDescGZIP() []byte {
 	return file_nis_v1_scoped_key_proto_rawDescData
 }
 
-var file_nis_v1_scoped_key_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_nis_v1_scoped_key_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_nis_v1_scoped_key_proto_goTypes = []any{
 	(*ScopedSigningKey)(nil),                  // 0: nis.v1.ScopedSigningKey
 	(*CreateScopedSigningKeyRequest)(nil),     // 1: nis.v1.CreateScopedSigningKeyRequest
-	(*CreateScopedSigningKeyResponse)(nil),    // 2: nis.v1.CreateScopedSigningKeyResponse
-	(*GetScopedSigningKeyRequest)(nil),        // 3: nis.v1.GetScopedSigningKeyRequest
-	(*GetScopedSigningKeyResponse)(nil),       // 4: nis.v1.GetScopedSigningKeyResponse
-	(*GetScopedSigningKeyByNameRequest)(nil),  // 5: nis.v1.GetScopedSigningKeyByNameRequest
-	(*GetScopedSigningKeyByNameResponse)(nil), // 6: nis.v1.GetScopedSigningKeyByNameResponse
-	(*ListScopedSigningKeysRequest)(nil),      // 7: nis.v1.ListScopedSigningKeysRequest
-	(*ListScopedSigningKeysResponse)(nil),     // 8: nis.v1.ListScopedSigningKeysResponse
-	(*UpdateScopedSigningKeyRequest)(nil),     // 9: nis.v1.UpdateScopedSigningKeyRequest
-	(*UpdateScopedSigningKeyResponse)(nil),    // 10: nis.v1.UpdateScopedSigningKeyResponse
-	(*UpdatePermissionsRequest)(nil),          // 11: nis.v1.UpdatePermissionsRequest
-	(*UpdatePermissionsResponse)(nil),         // 12: nis.v1.UpdatePermissionsResponse
-	(*DeleteScopedSigningKeyRequest)(nil),     // 13: nis.v1.DeleteScopedSigningKeyRequest
-	(*DeleteScopedSigningKeyResponse)(nil),    // 14: nis.v1.DeleteScopedSigningKeyResponse
-	(*UserPermissions)(nil),                   // 15: nis.v1.UserPermissions
-	(*ResponsePermission)(nil),                // 16: nis.v1.ResponsePermission
-	(*timestamppb.Timestamp)(nil),             // 17: google.protobuf.Timestamp
-	(*ListOptions)(nil),                       // 18: nis.v1.ListOptions
+	(*TemplateRef)(nil),                       // 2: nis.v1.TemplateRef
+	(*CreateScopedSigningKeyResponse)(nil),    // 3: nis.v1.CreateScopedSigningKeyResponse
+	(*GetScopedSigningKeyRequest)(nil),        // 4: nis.v1.GetScopedSigningKeyRequest
+	(*GetScopedSigningKeyResponse)(nil),       // 5: nis.v1.GetScopedSigningKeyResponse
+	(*GetScopedSigningKeyByNameRequest)(nil),  // 6: nis.v1.GetScopedSigningKeyByNameRequest
+	(*GetScopedSigningKeyByNameResponse)(nil), // 7: nis.v1.GetScopedSigningKeyByNameResponse
+	(*ListScopedSigningKeysRequest)(nil),      // 8: nis.v1.ListScopedSigningKeysRequest
+	(*ListScopedSigningKeysResponse)(nil),     // 9: nis.v1.ListScopedSigningKeysResponse
+	(*UpdateScopedSigningKeyRequest)(nil),     // 10: nis.v1.UpdateScopedSigningKeyRequest
+	(*UpdateScopedSigningKeyResponse)(nil),    // 11: nis.v1.UpdateScopedSigningKeyResponse
+	(*UpdatePermissionsRequest)(nil),          // 12: nis.v1.UpdatePermissionsRequest
+	(*UpdatePermissionsResponse)(nil),         // 13: nis.v1.UpdatePermissionsResponse
+	(*DeleteScopedSigningKeyRequest)(nil),     // 14: nis.v1.DeleteScopedSigningKeyRequest
+	(*DeleteScopedSigningKeyResponse)(nil),    // 15: nis.v1.DeleteScopedSigningKeyResponse
+	(*DetachFromTemplateRequest)(nil),         // 16: nis.v1.DetachFromTemplateRequest
+	(*DetachFromTemplateResponse)(nil),        // 17: nis.v1.DetachFromTemplateResponse
+	(*SetTrackLatestRequest)(nil),             // 18: nis.v1.SetTrackLatestRequest
+	(*SetTrackLatestResponse)(nil),            // 19: nis.v1.SetTrackLatestResponse
+	(*UserPermissions)(nil),                   // 20: nis.v1.UserPermissions
+	(*ResponsePermission)(nil),                // 21: nis.v1.ResponsePermission
+	(*timestamppb.Timestamp)(nil),             // 22: google.protobuf.Timestamp
+	(*ListOptions)(nil),                       // 23: nis.v1.ListOptions
 }
 var file_nis_v1_scoped_key_proto_depIdxs = []int32{
-	15, // 0: nis.v1.ScopedSigningKey.permissions:type_name -> nis.v1.UserPermissions
-	16, // 1: nis.v1.ScopedSigningKey.response_permission:type_name -> nis.v1.ResponsePermission
-	17, // 2: nis.v1.ScopedSigningKey.created_at:type_name -> google.protobuf.Timestamp
-	17, // 3: nis.v1.ScopedSigningKey.updated_at:type_name -> google.protobuf.Timestamp
-	15, // 4: nis.v1.CreateScopedSigningKeyRequest.permissions:type_name -> nis.v1.UserPermissions
-	16, // 5: nis.v1.CreateScopedSigningKeyRequest.response_permission:type_name -> nis.v1.ResponsePermission
-	0,  // 6: nis.v1.CreateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
-	0,  // 7: nis.v1.GetScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
-	0,  // 8: nis.v1.GetScopedSigningKeyByNameResponse.key:type_name -> nis.v1.ScopedSigningKey
-	18, // 9: nis.v1.ListScopedSigningKeysRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 10: nis.v1.ListScopedSigningKeysResponse.keys:type_name -> nis.v1.ScopedSigningKey
-	0,  // 11: nis.v1.UpdateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
-	15, // 12: nis.v1.UpdatePermissionsRequest.permissions:type_name -> nis.v1.UserPermissions
-	16, // 13: nis.v1.UpdatePermissionsRequest.response_permission:type_name -> nis.v1.ResponsePermission
-	0,  // 14: nis.v1.UpdatePermissionsResponse.key:type_name -> nis.v1.ScopedSigningKey
-	1,  // 15: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:input_type -> nis.v1.CreateScopedSigningKeyRequest
-	3,  // 16: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:input_type -> nis.v1.GetScopedSigningKeyRequest
-	5,  // 17: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:input_type -> nis.v1.GetScopedSigningKeyByNameRequest
-	7,  // 18: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:input_type -> nis.v1.ListScopedSigningKeysRequest
-	9,  // 19: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:input_type -> nis.v1.UpdateScopedSigningKeyRequest
-	11, // 20: nis.v1.ScopedSigningKeyService.UpdatePermissions:input_type -> nis.v1.UpdatePermissionsRequest
-	13, // 21: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:input_type -> nis.v1.DeleteScopedSigningKeyRequest
-	2,  // 22: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:output_type -> nis.v1.CreateScopedSigningKeyResponse
-	4,  // 23: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:output_type -> nis.v1.GetScopedSigningKeyResponse
-	6,  // 24: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:output_type -> nis.v1.GetScopedSigningKeyByNameResponse
-	8,  // 25: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:output_type -> nis.v1.ListScopedSigningKeysResponse
-	10, // 26: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:output_type -> nis.v1.UpdateScopedSigningKeyResponse
-	12, // 27: nis.v1.ScopedSigningKeyService.UpdatePermissions:output_type -> nis.v1.UpdatePermissionsResponse
-	14, // 28: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:output_type -> nis.v1.DeleteScopedSigningKeyResponse
-	22, // [22:29] is the sub-list for method output_type
-	15, // [15:22] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	20, // 0: nis.v1.ScopedSigningKey.permissions:type_name -> nis.v1.UserPermissions
+	21, // 1: nis.v1.ScopedSigningKey.response_permission:type_name -> nis.v1.ResponsePermission
+	22, // 2: nis.v1.ScopedSigningKey.created_at:type_name -> google.protobuf.Timestamp
+	22, // 3: nis.v1.ScopedSigningKey.updated_at:type_name -> google.protobuf.Timestamp
+	20, // 4: nis.v1.CreateScopedSigningKeyRequest.permissions:type_name -> nis.v1.UserPermissions
+	21, // 5: nis.v1.CreateScopedSigningKeyRequest.response_permission:type_name -> nis.v1.ResponsePermission
+	2,  // 6: nis.v1.CreateScopedSigningKeyRequest.template:type_name -> nis.v1.TemplateRef
+	0,  // 7: nis.v1.CreateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 8: nis.v1.GetScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 9: nis.v1.GetScopedSigningKeyByNameResponse.key:type_name -> nis.v1.ScopedSigningKey
+	23, // 10: nis.v1.ListScopedSigningKeysRequest.options:type_name -> nis.v1.ListOptions
+	0,  // 11: nis.v1.ListScopedSigningKeysResponse.keys:type_name -> nis.v1.ScopedSigningKey
+	0,  // 12: nis.v1.UpdateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
+	20, // 13: nis.v1.UpdatePermissionsRequest.permissions:type_name -> nis.v1.UserPermissions
+	21, // 14: nis.v1.UpdatePermissionsRequest.response_permission:type_name -> nis.v1.ResponsePermission
+	0,  // 15: nis.v1.UpdatePermissionsResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 16: nis.v1.DetachFromTemplateResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 17: nis.v1.SetTrackLatestResponse.key:type_name -> nis.v1.ScopedSigningKey
+	1,  // 18: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:input_type -> nis.v1.CreateScopedSigningKeyRequest
+	4,  // 19: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:input_type -> nis.v1.GetScopedSigningKeyRequest
+	6,  // 20: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:input_type -> nis.v1.GetScopedSigningKeyByNameRequest
+	8,  // 21: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:input_type -> nis.v1.ListScopedSigningKeysRequest
+	10, // 22: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:input_type -> nis.v1.UpdateScopedSigningKeyRequest
+	12, // 23: nis.v1.ScopedSigningKeyService.UpdatePermissions:input_type -> nis.v1.UpdatePermissionsRequest
+	14, // 24: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:input_type -> nis.v1.DeleteScopedSigningKeyRequest
+	16, // 25: nis.v1.ScopedSigningKeyService.DetachFromTemplate:input_type -> nis.v1.DetachFromTemplateRequest
+	18, // 26: nis.v1.ScopedSigningKeyService.SetTrackLatest:input_type -> nis.v1.SetTrackLatestRequest
+	3,  // 27: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:output_type -> nis.v1.CreateScopedSigningKeyResponse
+	5,  // 28: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:output_type -> nis.v1.GetScopedSigningKeyResponse
+	7,  // 29: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:output_type -> nis.v1.GetScopedSigningKeyByNameResponse
+	9,  // 30: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:output_type -> nis.v1.ListScopedSigningKeysResponse
+	11, // 31: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:output_type -> nis.v1.UpdateScopedSigningKeyResponse
+	13, // 32: nis.v1.ScopedSigningKeyService.UpdatePermissions:output_type -> nis.v1.UpdatePermissionsResponse
+	15, // 33: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:output_type -> nis.v1.DeleteScopedSigningKeyResponse
+	17, // 34: nis.v1.ScopedSigningKeyService.DetachFromTemplate:output_type -> nis.v1.DetachFromTemplateResponse
+	19, // 35: nis.v1.ScopedSigningKeyService.SetTrackLatest:output_type -> nis.v1.SetTrackLatestResponse
+	27, // [27:36] is the sub-list for method output_type
+	18, // [18:27] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_scoped_key_proto_init() }
@@ -982,14 +1360,14 @@ func file_nis_v1_scoped_key_proto_init() {
 		return
 	}
 	file_nis_v1_common_proto_init()
-	file_nis_v1_scoped_key_proto_msgTypes[9].OneofWrappers = []any{}
+	file_nis_v1_scoped_key_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_scoped_key_proto_rawDesc), len(file_nis_v1_scoped_key_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

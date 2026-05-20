@@ -66,6 +66,12 @@
                   Signing Keys
                 </router-link>
               </li>
+              <li v-if="authStore.isAdmin || authStore.isOperatorAdmin">
+                <router-link class="dropdown-item" to="/templates">
+                  <font-awesome-icon :icon="['fas', 'layer-group']" class="me-2" />
+                  Templates
+                </router-link>
+              </li>
             </ul>
           </li>
 

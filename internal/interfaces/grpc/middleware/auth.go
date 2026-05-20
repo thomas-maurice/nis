@@ -241,6 +241,15 @@ func extractAction(method string) string {
 		// you cannot revoke a token without the ability to remove it.
 		return "delete"
 	}
+	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") {
+		// P6 template ops: applying a template version, bumping an SKK to
+		// a new version, detaching from a template, or toggling
+		// track_latest all mutate the SKK's binding/perm columns and
+		// (for bump/apply) the parent account JWT. Same authority as a
+		// plain "update". Without this, the default would fall through
+		// to "read" and silently bypass Casbin's mutation rows.
+		return "update"
+	}
 	if strings.HasPrefix(method, "get") || strings.HasPrefix(method, "list") {
 		return "read"
 	}

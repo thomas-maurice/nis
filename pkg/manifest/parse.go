@@ -177,6 +177,15 @@ func materialize(raw rawObject, source string, docIdx int) (Object, error) {
 		}
 		obj.User = &spec
 
+	case KindTemplate:
+		var spec TemplateSpec
+		if !empty {
+			if err := specNode.Decode(&spec); err != nil {
+				return Object{}, fmt.Errorf("spec: %w", err)
+			}
+		}
+		obj.Template = &spec
+
 	default:
 		// Unknown kinds are passed through with no spec set; Validate will reject them.
 	}

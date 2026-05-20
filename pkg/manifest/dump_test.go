@@ -109,7 +109,7 @@ func TestDumpObjects_SYSAccountFiltered(t *testing.T) {
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind == KindAccount && obj.Metadata.Name == "$SYS" {
@@ -124,7 +124,7 @@ func TestDumpObjects_SystemUserFiltered(t *testing.T) {
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind == KindUser && obj.Metadata.Name == "system" {
@@ -139,7 +139,7 @@ func TestDumpObjects_DefaultSKKIncluded(t *testing.T) {
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	found := false
 	for _, obj := range objs {
@@ -155,7 +155,7 @@ func TestDumpObjects_DefaultSKKIncluded(t *testing.T) {
 func TestDumpObjects_JWTPolicyEmittedWhenNonZero(t *testing.T) {
 	op, clusters, accounts, skks, users := buildDumpFixture()
 	kinds := map[string]bool{KindOperator: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	if len(objs) != 1 {
 		t.Fatalf("expected 1 object, got %d", len(objs))
@@ -173,7 +173,7 @@ func TestDumpObjects_JWTPolicyOmittedWhenZero(t *testing.T) {
 	op.JwtAutoRenew = false
 
 	kinds := map[string]bool{KindOperator: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	if len(objs) != 1 {
 		t.Fatalf("expected 1 object, got %d", len(objs))
@@ -197,7 +197,7 @@ func TestDumpObjects_JetStreamOmittedWhenAllZero(t *testing.T) {
 	}
 
 	kinds := map[string]bool{KindAccount: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind == KindAccount && obj.Account.JetStream != nil {
@@ -209,7 +209,7 @@ func TestDumpObjects_JetStreamOmittedWhenAllZero(t *testing.T) {
 func TestDumpObjects_UserScopedKeyResolved(t *testing.T) {
 	op, clusters, accounts, skks, users := buildDumpFixture()
 	kinds := map[string]bool{KindUser: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	found := false
 	for _, obj := range objs {
@@ -228,7 +228,7 @@ func TestDumpObjects_UserScopedKeyResolved(t *testing.T) {
 func TestDumpObjects_UserJWTTTLIncludedWhenSet(t *testing.T) {
 	op, clusters, accounts, skks, users := buildDumpFixture()
 	kinds := map[string]bool{KindUser: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	found := false
 	for _, obj := range objs {
@@ -249,7 +249,7 @@ func TestDumpObjects_UserJWTTTLIncludedWhenSet(t *testing.T) {
 func TestDumpObjects_KindsFilter(t *testing.T) {
 	op, clusters, accounts, skks, users := buildDumpFixture()
 	kinds := map[string]bool{KindOperator: true, KindCluster: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind != KindOperator && obj.Kind != KindCluster {
@@ -270,7 +270,7 @@ func TestDumpRoundTrip(t *testing.T) {
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, kinds)
+	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
 
 	data, err := EncodeYAML(objs)
 	if err != nil {

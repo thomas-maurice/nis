@@ -119,7 +119,30 @@ func runDumpOperator(cmd *cobra.Command, args []string) error {
 		allUsers = append(allUsers, userResp.Msg.GetUsers()...)
 	}
 
-	objs := manifest.DumpObjects(op, clResp.Msg.GetClusters(), accResp.Msg.GetAccounts(), allSKKs, allUsers, kindSet)
+	// Fetch templates + their current versions for dump. ListTemplates
+	// returns the parent rows only; we GetTemplate per row to pick up
+	// the latest version's permission snapshot.
+	var allTemplates []*manifest.TemplateWithCurrentVersion
+	tplResp, err := nisClient.Template.ListTemplates(ctx, connect.NewRequest(&nisv1.ListTemplatesRequest{
+		OperatorId: op.GetId(),
+	}))
+	if err != nil {
+		return fmt.Errorf("list templates: %w", err)
+	}
+	for _, t := range tplResp.Msg.GetTemplates() {
+		gtResp, err := nisClient.Template.GetTemplate(ctx, connect.NewRequest(&nisv1.GetTemplateRequest{
+			Id: t.GetId(),
+		}))
+		if err != nil {
+			return fmt.Errorf("get template %q latest version: %w", t.GetName(), err)
+		}
+		allTemplates = append(allTemplates, &manifest.TemplateWithCurrentVersion{
+			Template: gtResp.Msg.GetTemplate(),
+			Version:  gtResp.Msg.GetVersion(),
+		})
+	}
+
+	objs := manifest.DumpObjects(op, clResp.Msg.GetClusters(), accResp.Msg.GetAccounts(), allSKKs, allUsers, allTemplates, kindSet)
 
 	data, err := manifest.EncodeYAML(objs)
 	if err != nil {

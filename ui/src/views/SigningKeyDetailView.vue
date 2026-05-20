@@ -54,6 +54,80 @@
               </dl>
             </div>
           </div>
+
+          <!-- Template binding card (P6). Visible only when the SKK was
+               created/bumped from a template. "Edited" + "Outdated" badges
+               surface the two divergence states; the Detach button is the
+               escape hatch for a SKK the operator wants to make standalone. -->
+          <div v-if="signingKey.templateId" class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">
+                <font-awesome-icon :icon="['fas', 'link']" class="me-2" />
+                Template binding
+              </h5>
+              <span>
+                <span v-if="signingKey.trackLatest" class="badge bg-primary me-1" title="Auto-applies every new template version. Permission edits are rejected while on.">
+                  Tracking latest
+                </span>
+                <span v-if="signingKey.templateDrifted" class="badge bg-warning text-dark me-1" title="SKK permissions were edited directly since the last bump. The next bump will overwrite them.">
+                  Edited
+                </span>
+                <span v-if="templateOutdated" class="badge bg-info text-dark me-1" :title="`Template latest version is ${template.latestVersion}; this SKK is pinned to v${signingKey.templateVersion}`">
+                  Outdated
+                </span>
+                <span v-else-if="template && !signingKey.trackLatest" class="badge bg-success">
+                  Up to date
+                </span>
+              </span>
+            </div>
+            <div class="card-body">
+              <dl class="row mb-3">
+                <dt class="col-sm-4">Template:</dt>
+                <dd class="col-sm-8">
+                  <router-link v-if="template" :to="`/templates/${template.id}`">{{ template.name }}</router-link>
+                  <span v-else class="text-muted">(unknown)</span>
+                </dd>
+                <dt class="col-sm-4">Pinned version:</dt>
+                <dd class="col-sm-8">v{{ signingKey.templateVersion }}</dd>
+                <dt v-if="template" class="col-sm-4">Latest version:</dt>
+                <dd v-if="template" class="col-sm-8">v{{ template.latestVersion }}</dd>
+              </dl>
+              <div class="form-check form-switch mb-3">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="trackLatestToggle"
+                  :checked="signingKey.trackLatest"
+                  :disabled="trackToggling || signingKey.templateDrifted"
+                  @change="handleTrackLatestToggle($event.target.checked)"
+                />
+                <label class="form-check-label" for="trackLatestToggle">
+                  Auto-track template latest
+                </label>
+                <div class="form-text small">
+                  <span v-if="signingKey.templateDrifted">
+                    Disabled while drifted — bump to latest or detach first, then you can opt in.
+                  </span>
+                  <span v-else>
+                    When on, every new template version is applied automatically and the parent account JWT is re-signed + pushed. Direct permission edits are rejected until you turn this off.
+                  </span>
+                </div>
+              </div>
+              <button
+                class="btn btn-outline-danger btn-sm"
+                @click="handleDetach"
+                :disabled="detaching"
+              >
+                <font-awesome-icon :icon="['fas', 'link-slash']" class="me-1" />
+                {{ detaching ? 'Detaching...' : 'Detach from template' }}
+              </button>
+              <p class="text-muted small mt-2 mb-0">
+                Detach keeps the SKK's current permissions intact but stops
+                tracking the template. Future template updates won't affect
+                this SKK. Tracking is also cleared automatically.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div class="col-md-6">
@@ -120,8 +194,52 @@ const route = useRoute()
 const signingKey = ref(null)
 const account = ref(null)
 const operator = ref(null)
+const template = ref(null)
+const detaching = ref(false)
+const trackToggling = ref(false)
 const loading = ref(false)
 const error = ref('')
+
+const templateOutdated = computed(() => {
+  if (!template.value || !signingKey.value?.templateVersion) return false
+  return template.value.latestVersion > signingKey.value.templateVersion
+})
+
+const handleDetach = async () => {
+  if (!signingKey.value?.id) return
+  if (!confirm(`Detach "${signingKey.value.name}" from template "${template.value?.name ?? 'unknown'}"?\n\nThe SKK's current permissions will be preserved. Future template updates will not affect this SKK.`)) {
+    return
+  }
+  detaching.value = true
+  try {
+    const resp = await apiClient.post('/nis.v1.ScopedSigningKeyService/DetachFromTemplate', {
+      id: signingKey.value.id
+    })
+    signingKey.value = resp.data.key
+    template.value = null
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Failed to detach from template'
+  } finally {
+    detaching.value = false
+  }
+}
+
+const handleTrackLatestToggle = async (enabled) => {
+  if (!signingKey.value?.id) return
+  trackToggling.value = true
+  try {
+    const resp = await apiClient.post('/nis.v1.ScopedSigningKeyService/SetTrackLatest', {
+      id: signingKey.value.id,
+      enabled
+    })
+    signingKey.value = resp.data.key
+    error.value = ''
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Failed to toggle track_latest'
+  } finally {
+    trackToggling.value = false
+  }
+}
 
 const hasResponsePermission = computed(() => {
   const rp = signingKey.value?.responsePermission
@@ -137,6 +255,19 @@ const loadKey = async () => {
       id: route.params.id
     })
     signingKey.value = response.data.key
+
+    // Resolve template metadata when pinned, so the binding card can
+    // show the template name + latest version for the outdated badge.
+    if (signingKey.value?.templateId) {
+      try {
+        const tplResp = await apiClient.post('/nis.v1.TemplateService/GetTemplate', {
+          id: signingKey.value.templateId
+        })
+        template.value = tplResp.data.template
+      } catch (err) {
+        console.error('Failed to load template:', err)
+      }
+    }
 
     if (signingKey.value?.accountId) {
       try {

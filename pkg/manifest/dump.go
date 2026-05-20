@@ -10,14 +10,19 @@ import (
 )
 
 // DumpObjects converts proto server state into a slice of manifest Objects in
-// topological order (Operator → Cluster → Account → ScopedSigningKey → User).
+// topological order (Operator → Template → Cluster → Account →
+// ScopedSigningKey → User).
 //
 // Filtering rules:
 //   - Account "$SYS" is excluded.
 //   - User "system" is excluded.
 //   - ScopedSigningKey "default" is INCLUDED (needed for round-trip).
+//   - Templates dump their CURRENT version's permissions only — older
+//     versions are not round-trippable through the manifest schema, by
+//     design. Operators wanting to inspect history use `nisctl template
+//     versions NAME`.
 //
-// The kinds parameter restricts which kinds are emitted. Pass all five
+// The kinds parameter restricts which kinds are emitted. Pass all six
 // constants to get the full tree.
 func DumpObjects(
 	op *nisv1.Operator,
@@ -25,6 +30,7 @@ func DumpObjects(
 	accounts []*nisv1.Account,
 	skks []*nisv1.ScopedSigningKey,
 	users []*nisv1.User,
+	templates []*TemplateWithCurrentVersion,
 	kinds map[string]bool,
 ) []Object {
 	// Build a lookup from SKK ID → name for user ScopedKey resolution.
@@ -33,11 +39,25 @@ func DumpObjects(
 		skkIDToName[sk.GetId()] = sk.GetName()
 	}
 
+	// Build a lookup from template ID → name for SKK template-ref resolution.
+	tplIDToName := make(map[string]string, len(templates))
+	for _, t := range templates {
+		tplIDToName[t.Template.GetId()] = t.Template.GetName()
+	}
+
 	var out []Object
 
 	// Operator
 	if kinds[KindOperator] {
 		out = append(out, operatorToObject(op))
+	}
+
+	// Templates (operator-scoped). Emit before Clusters/Accounts so an SKK
+	// further down can reference one declared above.
+	if kinds[KindTemplate] {
+		for _, t := range templates {
+			out = append(out, templateToObject(t, op.GetName()))
+		}
 	}
 
 	// Clusters
@@ -59,7 +79,7 @@ func DumpObjects(
 			if kinds[KindScopedSigningKey] {
 				for _, sk := range skks {
 					if sk.GetAccountId() == acc.GetId() {
-						out = append(out, skkToObject(sk, op.GetName(), acc.GetName()))
+						out = append(out, skkToObject(sk, op.GetName(), acc.GetName(), tplIDToName))
 					}
 				}
 			}
@@ -138,7 +158,7 @@ func accountToObject(acc *nisv1.Account, opName string) Object {
 	}
 }
 
-func skkToObject(sk *nisv1.ScopedSigningKey, opName, accName string) Object {
+func skkToObject(sk *nisv1.ScopedSigningKey, opName, accName string, tplIDToName map[string]string) Object {
 	spec := &ScopedSigningKeySpec{
 		Description: sk.GetDescription(),
 	}
@@ -152,10 +172,57 @@ func skkToObject(sk *nisv1.ScopedSigningKey, opName, accName string) Object {
 		spec.ResponseMaxMsgs = int(r.GetMaxMsgs())
 		spec.ResponseTTL = time.Duration(r.GetExpires())
 	}
+	// Surface template binding when present. The version is always
+	// emitted explicitly (even if it's the current latest) so a
+	// round-tripped manifest preserves the pin and won't silently re-
+	// snap on the next apply if a new template version ships before
+	// the manifest is re-applied. TrackLatest is emitted alongside —
+	// otherwise a dump→apply round-trip would silently strip the flag,
+	// which is the exact silent-overwrite footgun we exist to prevent.
+	if tid := sk.GetTemplateId(); tid != "" {
+		if name, ok := tplIDToName[tid]; ok {
+			spec.Template = name
+			spec.TemplateVersion = int(sk.GetTemplateVersion())
+		}
+	}
+	spec.TrackLatest = sk.GetTrackLatest()
 	return Object{
 		TypeMeta:         TypeMeta{APIVersion: APIVersion, Kind: KindScopedSigningKey},
 		Metadata:         ObjectMeta{Name: sk.GetName(), Operator: opName, Account: accName},
 		ScopedSigningKey: spec,
+	}
+}
+
+// TemplateWithCurrentVersion pairs a template with its current latest
+// version's permission snapshot for dump purposes. Callers fetch both
+// via TemplateService.GetTemplate (without specifying a version_number).
+type TemplateWithCurrentVersion struct {
+	Template *nisv1.Template
+	Version  *nisv1.TemplateVersion
+}
+
+func templateToObject(t *TemplateWithCurrentVersion, opName string) Object {
+	spec := &TemplateSpec{
+		Description: t.Template.GetDescription(),
+	}
+	if v := t.Version; v != nil {
+		if p := v.GetPermissions(); p != nil {
+			spec.PubAllow = p.GetPubAllow()
+			spec.PubDeny = p.GetPubDeny()
+			spec.SubAllow = p.GetSubAllow()
+			spec.SubDeny = p.GetSubDeny()
+		}
+		if r := v.GetResponsePermission(); r != nil {
+			spec.ResponseMaxMsgs = int(r.GetMaxMsgs())
+			spec.ResponseTTL = time.Duration(r.GetExpires())
+		}
+		// ChangeNote intentionally NOT round-tripped: it describes a
+		// historical bump event and would lie on the next apply.
+	}
+	return Object{
+		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindTemplate},
+		Metadata: ObjectMeta{Name: t.Template.GetName(), Operator: opName},
+		Template: spec,
 	}
 }
 
@@ -206,6 +273,8 @@ func EncodeYAML(objs []Object) ([]byte, error) {
 			spec = obj.ScopedSigningKey
 		case KindUser:
 			spec = obj.User
+		case KindTemplate:
+			spec = obj.Template
 		default:
 			return nil, fmt.Errorf("manifest dump: unknown kind %q", obj.Kind)
 		}

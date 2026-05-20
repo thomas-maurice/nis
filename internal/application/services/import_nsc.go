@@ -419,10 +419,15 @@ func (s *ExportService) importNSCAccount(ctx context.Context, tx persistence.Rep
 		return "", fmt.Errorf("failed to get operator: %w", err)
 	}
 
-	// Import scoped signing keys from the account JWT
+	// Import signing keys from the account JWT. SigningKeys is a
+	// map[pubkey]Scope where the value is nil (plain signer — NATS uses
+	// the user JWT's own perms) or a *jwt.UserScope (scoped — NATS
+	// applies the embedded template, ignoring the user JWT's perms).
+	// Forward the scope so importNSCScopedSigningKey can preserve the
+	// template's pub/sub/Resp values and flip IsPlainSigner correctly.
 	if len(accountClaims.SigningKeys) > 0 {
-		for signingKeyPubKey := range accountClaims.SigningKeys {
-			if err := s.importNSCScopedSigningKey(ctx, tx, nscDir, accountID, signingKeyPubKey); err != nil {
+		for signingKeyPubKey, scope := range accountClaims.SigningKeys {
+			if err := s.importNSCScopedSigningKey(ctx, tx, nscDir, accountID, signingKeyPubKey, scope); err != nil {
 				return "", fmt.Errorf("failed to import scoped signing key %s: %w", signingKeyPubKey, err)
 			}
 		}
@@ -451,8 +456,17 @@ func (s *ExportService) importNSCAccount(ctx context.Context, tx persistence.Rep
 	return accountPubKey, nil
 }
 
-// importNSCScopedSigningKey imports a scoped signing key from NSC via the tx.
-func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persistence.RepositoryFactory, nscDir string, accountID uuid.UUID, signingKeyPubKey string) error {
+// importNSCScopedSigningKey imports a signing key from NSC via the tx.
+// `scope` is the value from accountClaims.SigningKeys[pubkey]:
+//   - nil  → plain signer; user JWTs we mint must NOT use SetScoped, and
+//     the SKK is emitted as a raw string on account-JWT regen.
+//   - *jwt.UserScope → scoped signer; copy the embedded Template's
+//     pub/sub/Resp into the SKK row so a future account-JWT regen
+//     reproduces the same template (preserving the operator's intent).
+//     Without this, NIS would later emit the SKK with empty perms and
+//     existing users that rely on the original template restrictions
+//     would silently lose those restrictions.
+func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persistence.RepositoryFactory, nscDir string, accountID uuid.UUID, signingKeyPubKey string, scope jwt.Scope) error {
 	// Find signing key seed in nkeys/keys/A/{prefix}/{fullkey}.nk
 	signingKeySeedData, err := s.findNKey(nscDir, signingKeyPubKey)
 	if err != nil {
@@ -480,15 +494,13 @@ func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persis
 		return fmt.Errorf("failed to encrypt scoped signing key seed: %w", err)
 	}
 
-	// Create scoped signing key entity.
-	// Note: NSC doesn't store permission templates for signing keys separately,
-	// they're only defined when used to sign user JWTs. We'll create the key
-	// with empty permissions - they'll be populated when users reference this key.
 	scopedKeyID := uuid.New()
+	// Defaults: assume plain signer with empty perms. Overridden below
+	// if the source NSC archive listed this key as a UserScope.
 	scopedKey := &entities.ScopedSigningKey{
 		ID:            scopedKeyID,
 		AccountID:     accountID,
-		Name:          fmt.Sprintf("imported-key-%s", signingKeyPubKey[1:5]), // Use first few chars for name
+		Name:          fmt.Sprintf("imported-key-%s", signingKeyPubKey[1:5]),
 		Description:   "Scoped signing key imported from NSC",
 		EncryptedSeed: encryptedSeed,
 		PublicKey:     signingKeyPubKey,
@@ -496,8 +508,36 @@ func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persis
 		PubDeny:       []string{},
 		SubAllow:      []string{},
 		SubDeny:       []string{},
+		IsPlainSigner: true,
 		CreatedAt:     clock.Now(),
 		UpdatedAt:     clock.Now(),
+	}
+	if us, ok := scope.(*jwt.UserScope); ok && us != nil {
+		// Preserve the template's permission surface so a future
+		// account-JWT regen reproduces the same scope. NatsLimits
+		// from the template are NOT mirrored onto the SKK row —
+		// jwt_service.NewUserScope re-defaults them to NoLimit on
+		// regen and our SKK schema doesn't have per-key NatsLimits
+		// columns. If an operator ever needs per-SKK NatsLimits
+		// after import, that's a separate schema extension.
+		scopedKey.IsPlainSigner = false
+		scopedKey.PubAllow = append([]string{}, us.Template.Pub.Allow...)
+		scopedKey.PubDeny = append([]string{}, us.Template.Pub.Deny...)
+		scopedKey.SubAllow = append([]string{}, us.Template.Sub.Allow...)
+		scopedKey.SubDeny = append([]string{}, us.Template.Sub.Deny...)
+		if us.Template.Resp != nil {
+			scopedKey.ResponseMaxMsgs = us.Template.Resp.MaxMsgs
+			scopedKey.ResponseTTL = us.Template.Resp.Expires
+		}
+		// Surface the role from the NSC scope so it's discoverable
+		// in the UI/CLI; fall back to the auto-name if NSC didn't
+		// set one (rare — `nsc edit signing-key` usually does).
+		if us.Role != "" {
+			scopedKey.Name = us.Role
+		}
+		if us.Description != "" {
+			scopedKey.Description = us.Description
+		}
 	}
 
 	// Save via tx-scoped repo

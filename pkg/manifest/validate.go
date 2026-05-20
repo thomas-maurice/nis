@@ -49,6 +49,10 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 	type skkKey struct{ operator, account, name string }
 	knownScopedKeys := make(map[skkKey]struct{})
 
+	// Track Templates by (operator, name) for SKK→template ref resolution.
+	type tmplKey struct{ operator, name string }
+	knownTemplates := make(map[tmplKey]struct{})
+
 	for _, obj := range objects {
 		loc := objectLocation(obj)
 
@@ -57,9 +61,9 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 			errs = append(errs, fmt.Errorf("manifest: %s: apiVersion must be %q, got %q", loc, APIVersion, obj.APIVersion))
 		}
 
-		// Rule 2: kind must be one of the five.
+		// Rule 2: kind must be one of the six.
 		switch obj.Kind {
-		case KindOperator, KindCluster, KindAccount, KindScopedSigningKey, KindUser:
+		case KindOperator, KindCluster, KindAccount, KindScopedSigningKey, KindUser, KindTemplate:
 			// valid
 		default:
 			errs = append(errs, fmt.Errorf("manifest: %s: unknown kind %q", loc, obj.Kind))
@@ -98,6 +102,14 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 			}] = struct{}{}
 		}
 
+		// Collect known Templates for SKK→template ref resolution.
+		if obj.Kind == KindTemplate {
+			knownTemplates[tmplKey{
+				operator: obj.Metadata.Operator,
+				name:     obj.Metadata.Name,
+			}] = struct{}{}
+		}
+
 		if obj.Kind == KindCluster {
 			if err := validateClusterSpec(obj); err != nil {
 				errs = append(errs, fmt.Errorf("manifest: %s: %w", loc, err))
@@ -121,6 +133,33 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 				Object: loc,
 				Field:  "spec.scopedKey",
 				Ref:    obj.User.ScopedKey,
+			}
+			if opts.StrictRefs {
+				errs = append(errs, fmt.Errorf("manifest: %s: %w", loc, errors.New(ref.String())))
+			} else {
+				result.UnresolvedRefs = append(result.UnresolvedRefs, ref)
+			}
+		}
+	}
+
+	// Rule 5: resolve ScopedSigningKey.spec.template references within the
+	// batch. Same StrictRefs semantic as Rule 4 — defer to runtime apply
+	// for non-strict batches where the template may already exist on the
+	// server.
+	for _, obj := range objects {
+		if obj.Kind != KindScopedSigningKey || obj.ScopedSigningKey == nil || obj.ScopedSigningKey.Template == "" {
+			continue
+		}
+		loc := objectLocation(obj)
+		key := tmplKey{
+			operator: obj.Metadata.Operator,
+			name:     obj.ScopedSigningKey.Template,
+		}
+		if _, ok := knownTemplates[key]; !ok {
+			ref := UnresolvedRef{
+				Object: loc,
+				Field:  "spec.template",
+				Ref:    obj.ScopedSigningKey.Template,
 			}
 			if opts.StrictRefs {
 				errs = append(errs, fmt.Errorf("manifest: %s: %w", loc, errors.New(ref.String())))
@@ -183,6 +222,13 @@ func validateMetadata(obj Object) error {
 		if obj.Metadata.Account == "" {
 			return fmt.Errorf("metadata.account is required for kind User")
 		}
+	case KindTemplate:
+		if obj.Metadata.Operator == "" {
+			return fmt.Errorf("metadata.operator is required for kind Template")
+		}
+		if obj.Metadata.Account != "" {
+			return fmt.Errorf("metadata.account must not be set on kind Template (templates are operator-scoped, not account-scoped)")
+		}
 	}
 	return nil
 }
@@ -199,6 +245,13 @@ func validateReservedNames(obj Object) error {
 		}
 		// ScopedSigningKey "default" is explicitly allowed — callers may declare
 		// it to customize permissions on the auto-created key.
+	case KindTemplate:
+		// Mirror the server-side TemplateService reserved-names guard.
+		// "default" / "system" would surface as confusing collisions with
+		// the per-account default SKK and the $SYS system user.
+		if obj.Metadata.Name == "default" || obj.Metadata.Name == "system" {
+			return fmt.Errorf("metadata.name %q is reserved for kind Template", obj.Metadata.Name)
+		}
 	}
 	return nil
 }

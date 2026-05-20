@@ -18,6 +18,29 @@ message ScopedSigningKey {
   ResponsePermission response_permission = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+  // Template ref (both empty/zero or both set; enforced by a CHECK on the
+  // underlying table). When set, the SKK was created or bumped from
+  // templates[template_id]@template_version. The pub/sub fields above are
+  // a snapshot of that version at bump time.
+  string template_id = 10;
+  int32 template_version = 11;
+  // Set true when the SKK's pub/sub fields were edited directly since the
+  // last bump. Surfaced in the UI as an "edited" badge.
+  bool template_drifted = 12;
+  // When true, TemplateService.UpdateTemplate auto-applies new versions of
+  // the bound template to this SKK (regen account JWT + push to clusters)
+  // without operator action. Only valid when template_id is set AND
+  // template_drifted is false. Direct edits via UpdatePermissions are
+  // rejected while this is true so an auto-apply can't silently
+  // overwrite operator changes.
+  bool track_latest = 13;
+  // Marks SKKs whose parent account JWT lists the key as a raw string
+  // in signing_keys (not a UserScope). NSC imports populate this from
+  // the source account JWT shape. On regen NIS emits these as plain
+  // strings; on user-mint NIS skips SetScoped so NATS uses the user
+  // JWT's own perms (matching the operator's pre-NIS expectations).
+  // Read-only — flipped by the importer, not by an RPC.
+  bool is_plain_signer = 14;
 }
 
 // CreateScopedSigningKeyRequest is the request to create a new scoped signing key
@@ -27,6 +50,27 @@ message CreateScopedSigningKeyRequest {
   string description = 3;
   UserPermissions permissions = 4;
   ResponsePermission response_permission = 5;
+  // Optional template ref. When set, the SKK is created from the named
+  // template's permissions (snapshotted into the pub/sub fields) and the
+  // permissions+response_permission fields above are ignored. When
+  // template_version is 0 with template_name set, applies the template's
+  // current latest_version.
+  TemplateRef template = 6;
+  // Opt the new SKK into TemplateService.UpdateTemplate's auto-apply.
+  // Only honoured when `template` is also set; ignored otherwise. The
+  // SKK starts at the template's latest version regardless of any
+  // version_number pin, because pinning + tracking-latest contradict.
+  bool track_latest = 7;
+}
+
+// TemplateRef names a template by (operator_id, name) plus optional
+// version pin. operator_id is derivable from account_id at the service
+// layer but required here so the service can short-circuit without a
+// double lookup.
+message TemplateRef {
+  string operator_id = 1;
+  string template_name = 2;
+  int32 version_number = 3;
 }
 
 // CreateScopedSigningKeyResponse is the response from creating a scoped signing key
@@ -98,6 +142,33 @@ message DeleteScopedSigningKeyRequest {
 // DeleteScopedSigningKeyResponse is the response from deleting a scoped signing key
 message DeleteScopedSigningKeyResponse {}
 
+// DetachFromTemplateRequest clears the template_id / template_version /
+// template_drifted fields on the SKK without changing its permission
+// columns. After detach, the SKK becomes a standalone key — future
+// template updates do not affect it and the UI stops showing it as
+// templated. Permission columns retain whatever values they had at
+// detach time.
+message DetachFromTemplateRequest {
+  string id = 1;
+}
+
+message DetachFromTemplateResponse {
+  ScopedSigningKey key = 1;
+}
+
+// SetTrackLatestRequest toggles the track_latest flag on a templated SKK.
+// Enabling requires template_id != "" AND template_drifted == false.
+// Disabling has no preconditions. Disabling does not detach — operator
+// must call DetachFromTemplate separately.
+message SetTrackLatestRequest {
+  string id = 1;
+  bool enabled = 2;
+}
+
+message SetTrackLatestResponse {
+  ScopedSigningKey key = 1;
+}
+
 // ScopedSigningKeyService manages scoped signing keys
 service ScopedSigningKeyService {
   rpc CreateScopedSigningKey(CreateScopedSigningKeyRequest) returns (CreateScopedSigningKeyResponse);
@@ -107,4 +178,6 @@ service ScopedSigningKeyService {
   rpc UpdateScopedSigningKey(UpdateScopedSigningKeyRequest) returns (UpdateScopedSigningKeyResponse);
   rpc UpdatePermissions(UpdatePermissionsRequest) returns (UpdatePermissionsResponse);
   rpc DeleteScopedSigningKey(DeleteScopedSigningKeyRequest) returns (DeleteScopedSigningKeyResponse);
+  rpc DetachFromTemplate(DetachFromTemplateRequest) returns (DetachFromTemplateResponse);
+  rpc SetTrackLatest(SetTrackLatestRequest) returns (SetTrackLatestResponse);
 }

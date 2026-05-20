@@ -16,6 +16,7 @@ type fakePlannerClient struct {
 	clusters   map[string][]*nisv1.Cluster          // by operatorID
 	scopedKeys map[string][]*nisv1.ScopedSigningKey // by accountID
 	users      map[string][]*nisv1.User             // by accountID
+	templates  map[string][]*nisv1.Template         // by operatorID
 
 	// callLog records each RPC name dispatched, for assertion in tests.
 	callLog []string
@@ -46,6 +47,7 @@ func newFakePlannerClient() *fakePlannerClient {
 		clusters:   make(map[string][]*nisv1.Cluster),
 		scopedKeys: make(map[string][]*nisv1.ScopedSigningKey),
 		users:      make(map[string][]*nisv1.User),
+		templates:  make(map[string][]*nisv1.Template),
 	}
 }
 
@@ -83,6 +85,9 @@ func (f *fakePlannerClient) ScopedSigningKeyClient() nisv1connect.ScopedSigningK
 }
 func (f *fakePlannerClient) ClusterClient() nisv1connect.ClusterServiceClient {
 	return &fakeClusterClient{f}
+}
+func (f *fakePlannerClient) TemplateClient() nisv1connect.TemplateServiceClient {
+	return &fakeTemplateClient{f}
 }
 
 // ---- operator client ----
@@ -431,6 +436,35 @@ func (c *fakeSKKClient) DeleteScopedSigningKey(_ context.Context, req *connect.R
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
 
+func (c *fakeSKKClient) DetachFromTemplate(_ context.Context, req *connect.Request[nisv1.DetachFromTemplateRequest]) (*connect.Response[nisv1.DetachFromTemplateResponse], error) {
+	c.f.recordCall("DetachFromTemplate")
+	for _, keys := range c.f.scopedKeys {
+		for _, sk := range keys {
+			if sk.GetId() == req.Msg.GetId() {
+				sk.TemplateId = ""
+				sk.TemplateVersion = 0
+				sk.TemplateDrifted = false
+				sk.TrackLatest = false
+				return connect.NewResponse(&nisv1.DetachFromTemplateResponse{Key: sk}), nil
+			}
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, nil)
+}
+
+func (c *fakeSKKClient) SetTrackLatest(_ context.Context, req *connect.Request[nisv1.SetTrackLatestRequest]) (*connect.Response[nisv1.SetTrackLatestResponse], error) {
+	c.f.recordCall("SetTrackLatest")
+	for _, keys := range c.f.scopedKeys {
+		for _, sk := range keys {
+			if sk.GetId() == req.Msg.GetId() {
+				sk.TrackLatest = req.Msg.GetEnabled()
+				return connect.NewResponse(&nisv1.SetTrackLatestResponse{Key: sk}), nil
+			}
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, nil)
+}
+
 // ---- cluster client ----
 
 type fakeClusterClient struct{ f *fakePlannerClient }
@@ -507,4 +541,103 @@ func (c *fakeClusterClient) GetClusterDriftStatus(_ context.Context, _ *connect.
 }
 func (c *fakeClusterClient) ReconcileAccountOnCluster(_ context.Context, _ *connect.Request[nisv1.ReconcileAccountOnClusterRequest]) (*connect.Response[nisv1.ReconcileAccountOnClusterResponse], error) {
 	panic("not used in apply/delete")
+}
+
+// ---- template client ----
+
+type fakeTemplateClient struct{ f *fakePlannerClient }
+
+func (c *fakeTemplateClient) findOperatorIDByName(name string) string {
+	if op := c.f.findOperatorByName(name); op != nil {
+		return op.GetId()
+	}
+	return ""
+}
+
+func (c *fakeTemplateClient) CreateTemplate(_ context.Context, req *connect.Request[nisv1.CreateTemplateRequest]) (*connect.Response[nisv1.CreateTemplateResponse], error) {
+	c.f.recordCall("CreateTemplate")
+	t := &nisv1.Template{
+		Id:            nextID(),
+		OperatorId:    req.Msg.GetOperatorId(),
+		Name:          req.Msg.GetName(),
+		Description:   req.Msg.GetDescription(),
+		LatestVersion: 1,
+	}
+	c.f.templates[req.Msg.GetOperatorId()] = append(c.f.templates[req.Msg.GetOperatorId()], t)
+	return connect.NewResponse(&nisv1.CreateTemplateResponse{
+		Template: t,
+		Version:  &nisv1.TemplateVersion{Id: nextID(), TemplateId: t.GetId(), VersionNumber: 1},
+	}), nil
+}
+
+func (c *fakeTemplateClient) GetTemplate(_ context.Context, req *connect.Request[nisv1.GetTemplateRequest]) (*connect.Response[nisv1.GetTemplateResponse], error) {
+	c.f.recordCall("GetTemplate")
+	for _, ts := range c.f.templates {
+		for _, t := range ts {
+			if t.GetId() == req.Msg.GetId() {
+				return connect.NewResponse(&nisv1.GetTemplateResponse{Template: t}), nil
+			}
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, nil)
+}
+
+func (c *fakeTemplateClient) GetTemplateByName(_ context.Context, req *connect.Request[nisv1.GetTemplateByNameRequest]) (*connect.Response[nisv1.GetTemplateByNameResponse], error) {
+	c.f.recordCall("GetTemplateByName")
+	for _, t := range c.f.templates[req.Msg.GetOperatorId()] {
+		if t.GetName() == req.Msg.GetName() {
+			return connect.NewResponse(&nisv1.GetTemplateByNameResponse{Template: t}), nil
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, nil)
+}
+
+func (c *fakeTemplateClient) ListTemplates(_ context.Context, req *connect.Request[nisv1.ListTemplatesRequest]) (*connect.Response[nisv1.ListTemplatesResponse], error) {
+	c.f.recordCall("ListTemplates")
+	return connect.NewResponse(&nisv1.ListTemplatesResponse{
+		Templates: c.f.templates[req.Msg.GetOperatorId()],
+	}), nil
+}
+
+func (c *fakeTemplateClient) UpdateTemplate(_ context.Context, req *connect.Request[nisv1.UpdateTemplateRequest]) (*connect.Response[nisv1.UpdateTemplateResponse], error) {
+	c.f.recordCall("UpdateTemplate")
+	for _, ts := range c.f.templates {
+		for _, t := range ts {
+			if t.GetId() == req.Msg.GetId() {
+				if req.Msg.Description != nil {
+					t.Description = *req.Msg.Description
+				}
+				return connect.NewResponse(&nisv1.UpdateTemplateResponse{Template: t}), nil
+			}
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, nil)
+}
+
+func (c *fakeTemplateClient) DeleteTemplate(_ context.Context, req *connect.Request[nisv1.DeleteTemplateRequest]) (*connect.Response[nisv1.DeleteTemplateResponse], error) {
+	c.f.recordCall("DeleteTemplate")
+	for opID, ts := range c.f.templates {
+		for i, t := range ts {
+			if t.GetId() == req.Msg.GetId() {
+				c.f.templates[opID] = append(ts[:i], ts[i+1:]...)
+				return connect.NewResponse(&nisv1.DeleteTemplateResponse{}), nil
+			}
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, nil)
+}
+
+func (c *fakeTemplateClient) ListTemplateVersions(_ context.Context, _ *connect.Request[nisv1.ListTemplateVersionsRequest]) (*connect.Response[nisv1.ListTemplateVersionsResponse], error) {
+	c.f.recordCall("ListTemplateVersions")
+	return connect.NewResponse(&nisv1.ListTemplateVersionsResponse{}), nil
+}
+
+func (c *fakeTemplateClient) ListTemplateDependents(_ context.Context, _ *connect.Request[nisv1.ListTemplateDependentsRequest]) (*connect.Response[nisv1.ListTemplateDependentsResponse], error) {
+	c.f.recordCall("ListTemplateDependents")
+	return connect.NewResponse(&nisv1.ListTemplateDependentsResponse{}), nil
+}
+
+func (c *fakeTemplateClient) ApplyTemplateToScopedKey(_ context.Context, _ *connect.Request[nisv1.ApplyTemplateToScopedKeyRequest]) (*connect.Response[nisv1.ApplyTemplateToScopedKeyResponse], error) {
+	c.f.recordCall("ApplyTemplateToScopedKey")
+	return connect.NewResponse(&nisv1.ApplyTemplateToScopedKeyResponse{}), nil
 }

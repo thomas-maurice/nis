@@ -44,6 +44,15 @@ const (
 	EventTypeWebhookTest          = "webhook.test"
 	EventTypeAPITokenCreated      = "api_token.created"
 	EventTypeAPITokenRevoked      = "api_token.revoked"
+	EventTypeTemplateCreated      = "template.created"
+	EventTypeTemplateUpdated      = "template.updated"
+	EventTypeTemplateDeleted      = "template.deleted"
+	// EventTypeTemplateApplied is emitted whenever an SKK's template
+	// version is set or changed — initial create-from-template, explicit
+	// bump, or detach (with payload.action="detach"). Distinct from
+	// template.updated (which is template-side) so consumers can filter to
+	// "permission rollouts that actually landed on an SKK".
+	EventTypeTemplateApplied = "template.applied_to_scoped_key"
 )
 
 // Event is a single audit-log entry. Stored append-only in the events table.

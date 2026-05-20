@@ -77,6 +77,18 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/templates',
+      name: 'templates',
+      component: () => import('@/views/TemplatesView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/templates/:id',
+      name: 'template-detail',
+      component: () => import('@/views/TemplateDetailView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/api-users',
       name: 'api-users',
       component: () => import('@/views/ApiUsersView.vue'),

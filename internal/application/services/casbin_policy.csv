@@ -179,3 +179,28 @@ p, account-admin,  apitoken, delete
 p, admin,          search, read
 p, operator-admin, search, read
 p, account-admin,  search, read
+
+
+# ============================================================
+# Templates (P6) — operator-scoped permission templates with
+# versioned snapshots that SKKs can pin to.
+# extractResourceAndAction maps TemplateService -> resource="template".
+# Apply (and the matching SKK Bump/Detach on ScopedSigningKeyService)
+# route through extractAction's "apply"/"bump"/"detach" -> "update"
+# mapping — see auth.go. Without that mapping they'd silently fall
+# through to "read" and bypass the mutation rows below.
+#
+# account-admin deliberately omitted (matches the "account-admin
+# cannot manage scoped keys" precedent — exposing templates with no
+# way to apply them adds no value). Fine-grained scope check
+# (operator-admin A cannot touch operator B's templates) lives in
+# PermissionService.CanManageTemplate / CanReadTemplate.
+# ============================================================
+p, admin,          template, create
+p, admin,          template, read
+p, admin,          template, update
+p, admin,          template, delete
+p, operator-admin, template, create
+p, operator-admin, template, read
+p, operator-admin, template, update
+p, operator-admin, template, delete

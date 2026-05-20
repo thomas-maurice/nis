@@ -19,6 +19,7 @@ const (
 	KindAccount          = "Account"
 	KindScopedSigningKey = "ScopedSigningKey"
 	KindUser             = "User"
+	KindTemplate         = "Template"
 )
 
 // TypeMeta holds the discriminator fields present on every document.
@@ -46,6 +47,7 @@ type Object struct {
 	Account          *AccountSpec          `yaml:"-"`
 	ScopedSigningKey *ScopedSigningKeySpec `yaml:"-"`
 	User             *UserSpec             `yaml:"-"`
+	Template         *TemplateSpec         `yaml:"-"`
 
 	SourceFile string `yaml:"-"`
 	DocIndex   int    `yaml:"-"`
@@ -240,6 +242,14 @@ func formatSize(b int64) string {
 }
 
 // ScopedSigningKeySpec is the spec block for kind: ScopedSigningKey.
+//
+// When Template is non-empty, the SKK is created from that named
+// template's snapshot and the permission fields above are IGNORED on
+// create. Manifest-side updates to template binding are intentionally
+// not supported in v1 — attaching, detaching, or bumping is an explicit
+// nisctl/UI action so operators don't roll out new permissions by
+// accident. The planner surfaces any pin/manifest mismatch as a note,
+// not an action, so the discrepancy is visible without being applied.
 type ScopedSigningKeySpec struct {
 	Description     string
 	PubAllow        []string
@@ -248,6 +258,18 @@ type ScopedSigningKeySpec struct {
 	SubDeny         []string
 	ResponseMaxMsgs int
 	ResponseTTL     time.Duration
+	// Template references a Template by name within the same operator.
+	// Optional; when set, the SKK is templated.
+	Template string
+	// TemplateVersion pins to a specific version. Zero means "current
+	// latest at apply time"; non-zero requires that exact version exist.
+	TemplateVersion int
+	// TrackLatest opts the SKK into TemplateService.UpdateTemplate's
+	// auto-propagation. Honoured only when Template != ""; otherwise
+	// the apply call rejects. Coexists with TemplateVersion in the
+	// schema but at apply time the SKK is created at the template's
+	// current latest regardless of the pin (track + pin contradict).
+	TrackLatest bool
 }
 
 func (s *ScopedSigningKeySpec) UnmarshalYAML(value *yaml.Node) error {
@@ -259,6 +281,9 @@ func (s *ScopedSigningKeySpec) UnmarshalYAML(value *yaml.Node) error {
 		SubDeny         []string `yaml:"subDeny"`
 		ResponseMaxMsgs int      `yaml:"responseMaxMsgs"`
 		ResponseTTL     string   `yaml:"responseTTL"`
+		Template        string   `yaml:"template"`
+		TemplateVersion int      `yaml:"templateVersion"`
+		TrackLatest     bool     `yaml:"trackLatest"`
 	}
 	var p plain
 	if err := value.Decode(&p); err != nil {
@@ -270,6 +295,9 @@ func (s *ScopedSigningKeySpec) UnmarshalYAML(value *yaml.Node) error {
 	s.SubAllow = p.SubAllow
 	s.SubDeny = p.SubDeny
 	s.ResponseMaxMsgs = p.ResponseMaxMsgs
+	s.Template = p.Template
+	s.TemplateVersion = p.TemplateVersion
+	s.TrackLatest = p.TrackLatest
 
 	if p.ResponseTTL != "" && p.ResponseTTL != "0s" && p.ResponseTTL != "0" {
 		d, err := parseDuration(p.ResponseTTL)
@@ -290,6 +318,9 @@ func (s ScopedSigningKeySpec) MarshalYAML() (any, error) {
 		SubDeny         []string `yaml:"subDeny"`
 		ResponseMaxMsgs int      `yaml:"responseMaxMsgs"`
 		ResponseTTL     string   `yaml:"responseTTL"`
+		Template        string   `yaml:"template,omitempty"`
+		TemplateVersion int      `yaml:"templateVersion,omitempty"`
+		TrackLatest     bool     `yaml:"trackLatest,omitempty"`
 	}
 	ttl := "0s"
 	if s.ResponseTTL != 0 {
@@ -303,6 +334,86 @@ func (s ScopedSigningKeySpec) MarshalYAML() (any, error) {
 		SubDeny:         s.SubDeny,
 		ResponseMaxMsgs: s.ResponseMaxMsgs,
 		ResponseTTL:     ttl,
+		Template:        s.Template,
+		TemplateVersion: s.TemplateVersion,
+		TrackLatest:     s.TrackLatest,
+	}, nil
+}
+
+// TemplateSpec is the spec block for kind: Template. Operator-scoped
+// versioned permission bundle. Permission fields define the v1 snapshot
+// on create; UpdateTemplate compares incoming permissions against
+// current latest and bumps the version when they differ.
+type TemplateSpec struct {
+	Description     string
+	PubAllow        []string
+	PubDeny         []string
+	SubAllow        []string
+	SubDeny         []string
+	ResponseMaxMsgs int
+	ResponseTTL     time.Duration
+	// ChangeNote is attached to the new version row when a permission
+	// edit bumps the version. Ignored when no bump happens.
+	ChangeNote string
+}
+
+func (t *TemplateSpec) UnmarshalYAML(value *yaml.Node) error {
+	type plain struct {
+		Description     string   `yaml:"description"`
+		PubAllow        []string `yaml:"pubAllow"`
+		PubDeny         []string `yaml:"pubDeny"`
+		SubAllow        []string `yaml:"subAllow"`
+		SubDeny         []string `yaml:"subDeny"`
+		ResponseMaxMsgs int      `yaml:"responseMaxMsgs"`
+		ResponseTTL     string   `yaml:"responseTTL"`
+		ChangeNote      string   `yaml:"changeNote"`
+	}
+	var p plain
+	if err := value.Decode(&p); err != nil {
+		return err
+	}
+	t.Description = p.Description
+	t.PubAllow = p.PubAllow
+	t.PubDeny = p.PubDeny
+	t.SubAllow = p.SubAllow
+	t.SubDeny = p.SubDeny
+	t.ResponseMaxMsgs = p.ResponseMaxMsgs
+	t.ChangeNote = p.ChangeNote
+
+	if p.ResponseTTL != "" && p.ResponseTTL != "0s" && p.ResponseTTL != "0" {
+		d, err := parseDuration(p.ResponseTTL)
+		if err != nil {
+			return fmt.Errorf("responseTTL: %w", err)
+		}
+		t.ResponseTTL = d
+	}
+	return nil
+}
+
+func (t TemplateSpec) MarshalYAML() (any, error) {
+	type out struct {
+		Description     string   `yaml:"description,omitempty"`
+		PubAllow        []string `yaml:"pubAllow"`
+		PubDeny         []string `yaml:"pubDeny"`
+		SubAllow        []string `yaml:"subAllow"`
+		SubDeny         []string `yaml:"subDeny"`
+		ResponseMaxMsgs int      `yaml:"responseMaxMsgs"`
+		ResponseTTL     string   `yaml:"responseTTL"`
+		ChangeNote      string   `yaml:"changeNote,omitempty"`
+	}
+	ttl := "0s"
+	if t.ResponseTTL != 0 {
+		ttl = t.ResponseTTL.String()
+	}
+	return out{
+		Description:     t.Description,
+		PubAllow:        t.PubAllow,
+		PubDeny:         t.PubDeny,
+		SubAllow:        t.SubAllow,
+		SubDeny:         t.SubDeny,
+		ResponseMaxMsgs: t.ResponseMaxMsgs,
+		ResponseTTL:     ttl,
+		ChangeNote:      t.ChangeNote,
 	}, nil
 }
 

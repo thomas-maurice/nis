@@ -450,6 +450,54 @@ func (s *PermissionService) CanManageAPIUsers(apiUser *entities.APIUser) error {
 	return s.requireRole(apiUser, entities.RoleAdmin)
 }
 
+// ---------------------------------------------------------------------------
+// Templates (P6)
+// ---------------------------------------------------------------------------
+//
+// Templates are operator-scoped. Account-admin gets nothing (mirrors the
+// "account-admin cannot manage scoped keys" precedent — if they can't
+// see SKKs, exposing the templates that feed them buys nothing). Bump
+// and detach actions on SKKs reuse CanManageScopedKeys; this section
+// covers only template-side authority.
+
+// CanManageTemplate: admin or operator-admin owning the operator (account-admin not allowed).
+// Used for Create / Update / Delete / ApplyToScopedKey.
+func (s *PermissionService) CanManageTemplate(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	if apiUser.Role == entities.RoleAccountAdmin {
+		return denyf("account admins cannot manage templates")
+	}
+	ok, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return denyf("cannot manage templates in operator %s", operatorID)
+	}
+	return nil
+}
+
+// CanReadTemplate: admin or operator-admin owning the operator. Same
+// reasoning as CanManageTemplate — account-admin gets nothing.
+func (s *PermissionService) CanReadTemplate(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	if apiUser.Role == entities.RoleAccountAdmin {
+		return denyf("account admins cannot read templates")
+	}
+	ok, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return denyf("cannot read templates in operator %s", operatorID)
+	}
+	return nil
+}
+
 // CanManageScopedKeys: admin or operator-admin owning the account (account-admin not allowed).
 func (s *PermissionService) CanManageScopedKeys(ctx context.Context, apiUser *entities.APIUser, accountID uuid.UUID) error {
 	if apiUser == nil {

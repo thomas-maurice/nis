@@ -27,7 +27,14 @@ func repoErrToConnect(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, services.ErrOperatorHasClusters),
 		errors.Is(err, services.ErrOperatorImportExists),
-		errors.Is(err, services.ErrOperatorImportNameConflict):
+		errors.Is(err, services.ErrOperatorImportNameConflict),
+		errors.Is(err, services.ErrTemplateHasDependents),
+		errors.Is(err, services.ErrScopedKeyNotTemplated),
+		errors.Is(err, services.ErrTemplateRefForeignOperator),
+		errors.Is(err, services.ErrTemplateVersionNotFound),
+		errors.Is(err, services.ErrSKKTrackLatestRequiresTemplate),
+		errors.Is(err, services.ErrSKKTrackingLatest),
+		errors.Is(err, services.ErrSKKTrackLatestDrifted):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return err

@@ -77,12 +77,12 @@
       @submit="handleSubmit"
       @close="closeModal"
     >
-      <template #fields="{ formData }">
+      <template #fields="{ formData: localFormData }">
         <div class="mb-3">
           <label for="operatorId" class="form-label">Operator <span class="text-danger">*</span></label>
           <select
             id="operatorId"
-            v-model="formData.operatorId"
+            v-model="localFormData.operatorId"
             class="form-select"
             required
             :disabled="editingCluster"
@@ -98,7 +98,7 @@
           <label for="name" class="form-label">Name <span class="text-danger">*</span></label>
           <input
             id="name"
-            v-model="formData.name"
+            v-model="localFormData.name"
             type="text"
             class="form-control"
             placeholder="prod-cluster"
@@ -111,7 +111,7 @@
           <label for="description" class="form-label">Description</label>
           <textarea
             id="description"
-            v-model="formData.description"
+            v-model="localFormData.description"
             class="form-control"
             rows="2"
           ></textarea>
@@ -121,7 +121,8 @@
           <label for="serverUrls" class="form-label">Server URLs <span class="text-danger">*</span></label>
           <input
             id="serverUrls"
-            v-model="serverUrlsText"
+            :value="(localFormData.serverUrls || []).join(';')"
+            @input="localFormData.serverUrls = $event.target.value.split(';')"
             type="text"
             class="form-control"
             placeholder="nats://localhost:4222;nats://localhost:4223"
@@ -134,7 +135,7 @@
           <div class="form-check">
             <input
               id="skipVerifyTls"
-              v-model="formData.skipVerifyTls"
+              v-model="localFormData.skipVerifyTls"
               type="checkbox"
               class="form-check-input"
             />
@@ -150,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import apiClient from '@/utils/api'
 import EntityList from '@/components/EntityList.vue'
@@ -178,15 +179,6 @@ const columns = [
   { key: 'healthy', label: 'Status' },
   { key: 'createdAt', label: 'Created' }
 ]
-
-const serverUrlsText = computed({
-  get() {
-    return formData.value.serverUrls?.join(';') || ''
-  },
-  set(value) {
-    formData.value.serverUrls = value.split(';').map(url => url.trim()).filter(url => url !== '')
-  }
-})
 
 const loadClusters = async () => {
   loading.value = true
@@ -240,14 +232,18 @@ const closeModal = () => {
 const handleSubmit = async (data) => {
   saving.value = true
   formError.value = ''
+  const payload = {
+    ...data,
+    serverUrls: (data.serverUrls || []).map(u => u.trim()).filter(u => u !== '')
+  }
   try {
     if (editingCluster.value) {
       await apiClient.post('/nis.v1.ClusterService/UpdateCluster', {
         id: editingCluster.value.id,
-        ...data
+        ...payload
       })
     } else {
-      await apiClient.post('/nis.v1.ClusterService/CreateCluster', data)
+      await apiClient.post('/nis.v1.ClusterService/CreateCluster', payload)
     }
     closeModal()
     await loadClusters()

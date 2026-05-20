@@ -58,6 +58,7 @@ type PlannerClient interface {
 	UserClient() nisv1connect.UserServiceClient
 	ScopedSigningKeyClient() nisv1connect.ScopedSigningKeyServiceClient
 	ClusterClient() nisv1connect.ClusterServiceClient
+	TemplateClient() nisv1connect.TemplateServiceClient
 }
 
 // clientAdapter wraps *client.Client to satisfy PlannerClient.
@@ -78,6 +79,9 @@ func (a clientAdapter) ScopedSigningKeyClient() nisv1connect.ScopedSigningKeySer
 func (a clientAdapter) ClusterClient() nisv1connect.ClusterServiceClient {
 	return a.c.Cluster
 }
+func (a clientAdapter) TemplateClient() nisv1connect.TemplateServiceClient {
+	return a.c.Template
+}
 
 // NewClientAdapter wraps a *client.Client so it satisfies PlannerClient.
 func NewClientAdapter(c *client.Client) PlannerClient { return clientAdapter{c} }
@@ -89,6 +93,7 @@ type serverState struct {
 	clusters   map[string]map[string]*nisv1.Cluster                     // [opName][clusterName]
 	scopedKeys map[string]map[string]map[string]*nisv1.ScopedSigningKey // [opName][accName][keyName]
 	users      map[string]map[string]map[string]*nisv1.User             // [opName][accName][userName]
+	templates  map[string]map[string]*nisv1.Template                    // [opName][tmplName]
 }
 
 func newServerState() *serverState {
@@ -98,6 +103,7 @@ func newServerState() *serverState {
 		clusters:   make(map[string]map[string]*nisv1.Cluster),
 		scopedKeys: make(map[string]map[string]map[string]*nisv1.ScopedSigningKey),
 		users:      make(map[string]map[string]map[string]*nisv1.User),
+		templates:  make(map[string]map[string]*nisv1.Template),
 	}
 }
 
@@ -110,8 +116,10 @@ func Plan(ctx context.Context, c PlannerClient, batch []Object) (*PlanResult, er
 		return nil, fmt.Errorf("manifest plan: fetch state: %w", err)
 	}
 
-	// Walk in topo order: Operator → Cluster → Account → ScopedSigningKey → User.
-	order := []string{KindOperator, KindCluster, KindAccount, KindScopedSigningKey, KindUser}
+	// Walk in topo order: Operator → Template → Cluster → Account →
+	// ScopedSigningKey → User. Templates land after Operator so an SKK
+	// in the same batch can reference one declared above it.
+	order := []string{KindOperator, KindTemplate, KindCluster, KindAccount, KindScopedSigningKey, KindUser}
 	byKind := make(map[string][]Object)
 	for _, obj := range batch {
 		byKind[obj.Kind] = append(byKind[obj.Kind], obj)
@@ -232,6 +240,20 @@ func fetchState(ctx context.Context, c PlannerClient, batch []Object) (*serverSt
 		for _, cl := range clusterResp.Msg.GetClusters() {
 			state.clusters[opName][cl.GetName()] = cl
 		}
+
+		// Fetch templates for this operator. ListTemplates is operator-
+		// scoped so we know any template referenced by an SKK in this
+		// operator must show up here (or in the batch).
+		tmplResp, err := c.TemplateClient().ListTemplates(ctx, connect.NewRequest(&nisv1.ListTemplatesRequest{
+			OperatorId: op.GetId(),
+		}))
+		if err != nil {
+			return nil, fmt.Errorf("ListTemplates(operator=%q): %w", opName, err)
+		}
+		state.templates[opName] = make(map[string]*nisv1.Template)
+		for _, t := range tmplResp.Msg.GetTemplates() {
+			state.templates[opName][t.GetName()] = t
+		}
 	}
 
 	return state, nil
@@ -252,9 +274,63 @@ func classifyObject(obj Object, state *serverState, newAccounts map[string]map[s
 		return classifyScopedSigningKey(obj, state, newAccounts)
 	case KindUser:
 		return classifyUser(obj, state)
+	case KindTemplate:
+		return classifyTemplate(obj, state)
 	}
 	// Validate already blocks unknown kinds; this is unreachable.
 	return PlanItem{}, fmt.Errorf("manifest plan: unknown kind %q", obj.Kind)
+}
+
+// classifyTemplate compares the manifest template + its v1 permission
+// snapshot against server state. Diff types:
+//   - Create: template doesn't exist.
+//   - Update (description-only): description drifted, permissions match
+//     latest version.
+//   - Update (bump): permissions diverge from latest version → new
+//     version will be created on apply.
+//   - Noop: everything matches.
+func classifyTemplate(obj Object, state *serverState) (PlanItem, error) {
+	templates := state.templates[obj.Metadata.Operator]
+	existing := templates[obj.Metadata.Name]
+	if existing == nil {
+		return PlanItem{Object: obj, Action: ActionCreate}, nil
+	}
+	id, err := uuid.Parse(existing.GetId())
+	if err != nil {
+		return PlanItem{}, fmt.Errorf("manifest plan: template %q: bad server ID: %w", obj.Metadata.Name, err)
+	}
+
+	spec := obj.Template
+	if spec == nil {
+		spec = &TemplateSpec{}
+	}
+
+	// Description drift always plans an UpdateTemplate (no bump).
+	var ops []UpdateOp
+	if existing.GetDescription() != spec.Description {
+		ops = append(ops, UpdateOp{RPC: "UpdateTemplate", Fields: []string{"description"}})
+	}
+
+	// Permission drift: we don't have the latest version's permissions
+	// in serverState (ListTemplates returns just the parent rows). The
+	// planner conservatively assumes any non-empty spec permissions
+	// indicate the operator wants the latest version to reflect them.
+	// The actual diff happens server-side at UpdateTemplate time —
+	// when the candidate set equals the latest, no bump occurs. Plan
+	// here just records the intent. Note in PlanItem so the user knows.
+	hasPerms := len(spec.PubAllow) > 0 || len(spec.PubDeny) > 0 || len(spec.SubAllow) > 0 || len(spec.SubDeny) > 0 ||
+		spec.ResponseMaxMsgs != 0 || spec.ResponseTTL != 0
+	if hasPerms {
+		ops = append(ops, UpdateOp{
+			RPC:    "UpdateTemplate",
+			Fields: []string{"permissions (may bump version)"},
+		})
+	}
+
+	if len(ops) == 0 {
+		return PlanItem{Object: obj, Action: ActionNoop, ExistingID: id}, nil
+	}
+	return PlanItem{Object: obj, Action: ActionUpdate, ExistingID: id, Updates: ops}, nil
 }
 
 func classifyOperator(obj Object, state *serverState) (PlanItem, error) {
@@ -555,6 +631,13 @@ func diffScopedSigningKey(spec ScopedSigningKeySpec, existing *nisv1.ScopedSigni
 	}
 	if len(permFields) > 0 {
 		ops = append(ops, UpdateOp{RPC: "UpdatePermissions", Fields: permFields})
+	}
+
+	// TrackLatest is a binding-shape flag, not a permission. It has its
+	// own RPC (SetTrackLatest) and authority bucket — keep it separate
+	// from UpdatePermissions so the planner's surface stays readable.
+	if existing.GetTrackLatest() != spec.TrackLatest {
+		ops = append(ops, UpdateOp{RPC: "SetTrackLatest", Fields: []string{"trackLatest"}})
 	}
 
 	return ops

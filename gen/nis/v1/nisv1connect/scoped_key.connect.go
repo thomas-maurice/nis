@@ -54,6 +54,12 @@ const (
 	// ScopedSigningKeyServiceDeleteScopedSigningKeyProcedure is the fully-qualified name of the
 	// ScopedSigningKeyService's DeleteScopedSigningKey RPC.
 	ScopedSigningKeyServiceDeleteScopedSigningKeyProcedure = "/nis.v1.ScopedSigningKeyService/DeleteScopedSigningKey"
+	// ScopedSigningKeyServiceDetachFromTemplateProcedure is the fully-qualified name of the
+	// ScopedSigningKeyService's DetachFromTemplate RPC.
+	ScopedSigningKeyServiceDetachFromTemplateProcedure = "/nis.v1.ScopedSigningKeyService/DetachFromTemplate"
+	// ScopedSigningKeyServiceSetTrackLatestProcedure is the fully-qualified name of the
+	// ScopedSigningKeyService's SetTrackLatest RPC.
+	ScopedSigningKeyServiceSetTrackLatestProcedure = "/nis.v1.ScopedSigningKeyService/SetTrackLatest"
 )
 
 // ScopedSigningKeyServiceClient is a client for the nis.v1.ScopedSigningKeyService service.
@@ -65,6 +71,8 @@ type ScopedSigningKeyServiceClient interface {
 	UpdateScopedSigningKey(context.Context, *connect.Request[v1.UpdateScopedSigningKeyRequest]) (*connect.Response[v1.UpdateScopedSigningKeyResponse], error)
 	UpdatePermissions(context.Context, *connect.Request[v1.UpdatePermissionsRequest]) (*connect.Response[v1.UpdatePermissionsResponse], error)
 	DeleteScopedSigningKey(context.Context, *connect.Request[v1.DeleteScopedSigningKeyRequest]) (*connect.Response[v1.DeleteScopedSigningKeyResponse], error)
+	DetachFromTemplate(context.Context, *connect.Request[v1.DetachFromTemplateRequest]) (*connect.Response[v1.DetachFromTemplateResponse], error)
+	SetTrackLatest(context.Context, *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error)
 }
 
 // NewScopedSigningKeyServiceClient constructs a client for the nis.v1.ScopedSigningKeyService
@@ -120,6 +128,18 @@ func NewScopedSigningKeyServiceClient(httpClient connect.HTTPClient, baseURL str
 			connect.WithSchema(scopedSigningKeyServiceMethods.ByName("DeleteScopedSigningKey")),
 			connect.WithClientOptions(opts...),
 		),
+		detachFromTemplate: connect.NewClient[v1.DetachFromTemplateRequest, v1.DetachFromTemplateResponse](
+			httpClient,
+			baseURL+ScopedSigningKeyServiceDetachFromTemplateProcedure,
+			connect.WithSchema(scopedSigningKeyServiceMethods.ByName("DetachFromTemplate")),
+			connect.WithClientOptions(opts...),
+		),
+		setTrackLatest: connect.NewClient[v1.SetTrackLatestRequest, v1.SetTrackLatestResponse](
+			httpClient,
+			baseURL+ScopedSigningKeyServiceSetTrackLatestProcedure,
+			connect.WithSchema(scopedSigningKeyServiceMethods.ByName("SetTrackLatest")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -132,6 +152,8 @@ type scopedSigningKeyServiceClient struct {
 	updateScopedSigningKey    *connect.Client[v1.UpdateScopedSigningKeyRequest, v1.UpdateScopedSigningKeyResponse]
 	updatePermissions         *connect.Client[v1.UpdatePermissionsRequest, v1.UpdatePermissionsResponse]
 	deleteScopedSigningKey    *connect.Client[v1.DeleteScopedSigningKeyRequest, v1.DeleteScopedSigningKeyResponse]
+	detachFromTemplate        *connect.Client[v1.DetachFromTemplateRequest, v1.DetachFromTemplateResponse]
+	setTrackLatest            *connect.Client[v1.SetTrackLatestRequest, v1.SetTrackLatestResponse]
 }
 
 // CreateScopedSigningKey calls nis.v1.ScopedSigningKeyService.CreateScopedSigningKey.
@@ -169,6 +191,16 @@ func (c *scopedSigningKeyServiceClient) DeleteScopedSigningKey(ctx context.Conte
 	return c.deleteScopedSigningKey.CallUnary(ctx, req)
 }
 
+// DetachFromTemplate calls nis.v1.ScopedSigningKeyService.DetachFromTemplate.
+func (c *scopedSigningKeyServiceClient) DetachFromTemplate(ctx context.Context, req *connect.Request[v1.DetachFromTemplateRequest]) (*connect.Response[v1.DetachFromTemplateResponse], error) {
+	return c.detachFromTemplate.CallUnary(ctx, req)
+}
+
+// SetTrackLatest calls nis.v1.ScopedSigningKeyService.SetTrackLatest.
+func (c *scopedSigningKeyServiceClient) SetTrackLatest(ctx context.Context, req *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error) {
+	return c.setTrackLatest.CallUnary(ctx, req)
+}
+
 // ScopedSigningKeyServiceHandler is an implementation of the nis.v1.ScopedSigningKeyService
 // service.
 type ScopedSigningKeyServiceHandler interface {
@@ -179,6 +211,8 @@ type ScopedSigningKeyServiceHandler interface {
 	UpdateScopedSigningKey(context.Context, *connect.Request[v1.UpdateScopedSigningKeyRequest]) (*connect.Response[v1.UpdateScopedSigningKeyResponse], error)
 	UpdatePermissions(context.Context, *connect.Request[v1.UpdatePermissionsRequest]) (*connect.Response[v1.UpdatePermissionsResponse], error)
 	DeleteScopedSigningKey(context.Context, *connect.Request[v1.DeleteScopedSigningKeyRequest]) (*connect.Response[v1.DeleteScopedSigningKeyResponse], error)
+	DetachFromTemplate(context.Context, *connect.Request[v1.DetachFromTemplateRequest]) (*connect.Response[v1.DetachFromTemplateResponse], error)
+	SetTrackLatest(context.Context, *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error)
 }
 
 // NewScopedSigningKeyServiceHandler builds an HTTP handler from the service implementation. It
@@ -230,6 +264,18 @@ func NewScopedSigningKeyServiceHandler(svc ScopedSigningKeyServiceHandler, opts 
 		connect.WithSchema(scopedSigningKeyServiceMethods.ByName("DeleteScopedSigningKey")),
 		connect.WithHandlerOptions(opts...),
 	)
+	scopedSigningKeyServiceDetachFromTemplateHandler := connect.NewUnaryHandler(
+		ScopedSigningKeyServiceDetachFromTemplateProcedure,
+		svc.DetachFromTemplate,
+		connect.WithSchema(scopedSigningKeyServiceMethods.ByName("DetachFromTemplate")),
+		connect.WithHandlerOptions(opts...),
+	)
+	scopedSigningKeyServiceSetTrackLatestHandler := connect.NewUnaryHandler(
+		ScopedSigningKeyServiceSetTrackLatestProcedure,
+		svc.SetTrackLatest,
+		connect.WithSchema(scopedSigningKeyServiceMethods.ByName("SetTrackLatest")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.ScopedSigningKeyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ScopedSigningKeyServiceCreateScopedSigningKeyProcedure:
@@ -246,6 +292,10 @@ func NewScopedSigningKeyServiceHandler(svc ScopedSigningKeyServiceHandler, opts 
 			scopedSigningKeyServiceUpdatePermissionsHandler.ServeHTTP(w, r)
 		case ScopedSigningKeyServiceDeleteScopedSigningKeyProcedure:
 			scopedSigningKeyServiceDeleteScopedSigningKeyHandler.ServeHTTP(w, r)
+		case ScopedSigningKeyServiceDetachFromTemplateProcedure:
+			scopedSigningKeyServiceDetachFromTemplateHandler.ServeHTTP(w, r)
+		case ScopedSigningKeyServiceSetTrackLatestProcedure:
+			scopedSigningKeyServiceSetTrackLatestHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -281,4 +331,12 @@ func (UnimplementedScopedSigningKeyServiceHandler) UpdatePermissions(context.Con
 
 func (UnimplementedScopedSigningKeyServiceHandler) DeleteScopedSigningKey(context.Context, *connect.Request[v1.DeleteScopedSigningKeyRequest]) (*connect.Response[v1.DeleteScopedSigningKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey is not implemented"))
+}
+
+func (UnimplementedScopedSigningKeyServiceHandler) DetachFromTemplate(context.Context, *connect.Request[v1.DetachFromTemplateRequest]) (*connect.Response[v1.DetachFromTemplateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ScopedSigningKeyService.DetachFromTemplate is not implemented"))
+}
+
+func (UnimplementedScopedSigningKeyServiceHandler) SetTrackLatest(context.Context, *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ScopedSigningKeyService.SetTrackLatest is not implemented"))
 }

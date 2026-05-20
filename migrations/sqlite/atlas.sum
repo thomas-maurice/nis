@@ -1,2 +1,5 @@
-h1:yN02syCsTcRl7ICqHiBqo26elbxRM67LYMXYQwnzHiQ=
+h1:aoU/3MHp8sK1mf5qKg9jHS26NRka82QYT5rEqLBrTZg=
 00001_initial.sql h1:oEowdNrNkVUMujktQSNl4ypzqwDcWI5+z30lWinsnlg=
+00002_add_templates.sql h1:0yilWTyiG8SF+l2qpG7T1UaUq01VgQrDGoJFIvBnu3I=
+00003_skk_track_latest.sql h1:4M8gXP0FMz6o5FNt2/rxR7wq3OKKu2OnI13nPQ6BG3E=
+00004_skk_is_plain_signer.sql h1:BNGbhOoifOsfvXwXoMBmMDtXJ7nt2Ug6OYpETZGV2KA=

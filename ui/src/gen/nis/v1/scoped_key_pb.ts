@@ -58,6 +58,53 @@ export class ScopedSigningKey extends Message<ScopedSigningKey> {
    */
   updatedAt?: Timestamp;
 
+  /**
+   * Template ref (both empty/zero or both set; enforced by a CHECK on the
+   * underlying table). When set, the SKK was created or bumped from
+   * templates[template_id]@template_version. The pub/sub fields above are
+   * a snapshot of that version at bump time.
+   *
+   * @generated from field: string template_id = 10;
+   */
+  templateId = "";
+
+  /**
+   * @generated from field: int32 template_version = 11;
+   */
+  templateVersion = 0;
+
+  /**
+   * Set true when the SKK's pub/sub fields were edited directly since the
+   * last bump. Surfaced in the UI as an "edited" badge.
+   *
+   * @generated from field: bool template_drifted = 12;
+   */
+  templateDrifted = false;
+
+  /**
+   * When true, TemplateService.UpdateTemplate auto-applies new versions of
+   * the bound template to this SKK (regen account JWT + push to clusters)
+   * without operator action. Only valid when template_id is set AND
+   * template_drifted is false. Direct edits via UpdatePermissions are
+   * rejected while this is true so an auto-apply can't silently
+   * overwrite operator changes.
+   *
+   * @generated from field: bool track_latest = 13;
+   */
+  trackLatest = false;
+
+  /**
+   * Marks SKKs whose parent account JWT lists the key as a raw string
+   * in signing_keys (not a UserScope). NSC imports populate this from
+   * the source account JWT shape. On regen NIS emits these as plain
+   * strings; on user-mint NIS skips SetScoped so NATS uses the user
+   * JWT's own perms (matching the operator's pre-NIS expectations).
+   * Read-only — flipped by the importer, not by an RPC.
+   *
+   * @generated from field: bool is_plain_signer = 14;
+   */
+  isPlainSigner = false;
+
   constructor(data?: PartialMessage<ScopedSigningKey>) {
     super();
     proto3.util.initPartial(data, this);
@@ -75,6 +122,11 @@ export class ScopedSigningKey extends Message<ScopedSigningKey> {
     { no: 7, name: "response_permission", kind: "message", T: ResponsePermission },
     { no: 8, name: "created_at", kind: "message", T: Timestamp },
     { no: 9, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 10, name: "template_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "template_version", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 12, name: "template_drifted", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 13, name: "track_latest", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 14, name: "is_plain_signer", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ScopedSigningKey {
@@ -125,6 +177,27 @@ export class CreateScopedSigningKeyRequest extends Message<CreateScopedSigningKe
    */
   responsePermission?: ResponsePermission;
 
+  /**
+   * Optional template ref. When set, the SKK is created from the named
+   * template's permissions (snapshotted into the pub/sub fields) and the
+   * permissions+response_permission fields above are ignored. When
+   * template_version is 0 with template_name set, applies the template's
+   * current latest_version.
+   *
+   * @generated from field: nis.v1.TemplateRef template = 6;
+   */
+  template?: TemplateRef;
+
+  /**
+   * Opt the new SKK into TemplateService.UpdateTemplate's auto-apply.
+   * Only honoured when `template` is also set; ignored otherwise. The
+   * SKK starts at the template's latest version regardless of any
+   * version_number pin, because pinning + tracking-latest contradict.
+   *
+   * @generated from field: bool track_latest = 7;
+   */
+  trackLatest = false;
+
   constructor(data?: PartialMessage<CreateScopedSigningKeyRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -138,6 +211,8 @@ export class CreateScopedSigningKeyRequest extends Message<CreateScopedSigningKe
     { no: 3, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "permissions", kind: "message", T: UserPermissions },
     { no: 5, name: "response_permission", kind: "message", T: ResponsePermission },
+    { no: 6, name: "template", kind: "message", T: TemplateRef },
+    { no: 7, name: "track_latest", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateScopedSigningKeyRequest {
@@ -154,6 +229,60 @@ export class CreateScopedSigningKeyRequest extends Message<CreateScopedSigningKe
 
   static equals(a: CreateScopedSigningKeyRequest | PlainMessage<CreateScopedSigningKeyRequest> | undefined, b: CreateScopedSigningKeyRequest | PlainMessage<CreateScopedSigningKeyRequest> | undefined): boolean {
     return proto3.util.equals(CreateScopedSigningKeyRequest, a, b);
+  }
+}
+
+/**
+ * TemplateRef names a template by (operator_id, name) plus optional
+ * version pin. operator_id is derivable from account_id at the service
+ * layer but required here so the service can short-circuit without a
+ * double lookup.
+ *
+ * @generated from message nis.v1.TemplateRef
+ */
+export class TemplateRef extends Message<TemplateRef> {
+  /**
+   * @generated from field: string operator_id = 1;
+   */
+  operatorId = "";
+
+  /**
+   * @generated from field: string template_name = 2;
+   */
+  templateName = "";
+
+  /**
+   * @generated from field: int32 version_number = 3;
+   */
+  versionNumber = 0;
+
+  constructor(data?: PartialMessage<TemplateRef>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.TemplateRef";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "template_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "version_number", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TemplateRef {
+    return new TemplateRef().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TemplateRef {
+    return new TemplateRef().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TemplateRef {
+    return new TemplateRef().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TemplateRef | PlainMessage<TemplateRef> | undefined, b: TemplateRef | PlainMessage<TemplateRef> | undefined): boolean {
+    return proto3.util.equals(TemplateRef, a, b);
   }
 }
 
@@ -691,6 +820,172 @@ export class DeleteScopedSigningKeyResponse extends Message<DeleteScopedSigningK
 
   static equals(a: DeleteScopedSigningKeyResponse | PlainMessage<DeleteScopedSigningKeyResponse> | undefined, b: DeleteScopedSigningKeyResponse | PlainMessage<DeleteScopedSigningKeyResponse> | undefined): boolean {
     return proto3.util.equals(DeleteScopedSigningKeyResponse, a, b);
+  }
+}
+
+/**
+ * DetachFromTemplateRequest clears the template_id / template_version /
+ * template_drifted fields on the SKK without changing its permission
+ * columns. After detach, the SKK becomes a standalone key — future
+ * template updates do not affect it and the UI stops showing it as
+ * templated. Permission columns retain whatever values they had at
+ * detach time.
+ *
+ * @generated from message nis.v1.DetachFromTemplateRequest
+ */
+export class DetachFromTemplateRequest extends Message<DetachFromTemplateRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  constructor(data?: PartialMessage<DetachFromTemplateRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.DetachFromTemplateRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DetachFromTemplateRequest {
+    return new DetachFromTemplateRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DetachFromTemplateRequest {
+    return new DetachFromTemplateRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DetachFromTemplateRequest {
+    return new DetachFromTemplateRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DetachFromTemplateRequest | PlainMessage<DetachFromTemplateRequest> | undefined, b: DetachFromTemplateRequest | PlainMessage<DetachFromTemplateRequest> | undefined): boolean {
+    return proto3.util.equals(DetachFromTemplateRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.DetachFromTemplateResponse
+ */
+export class DetachFromTemplateResponse extends Message<DetachFromTemplateResponse> {
+  /**
+   * @generated from field: nis.v1.ScopedSigningKey key = 1;
+   */
+  key?: ScopedSigningKey;
+
+  constructor(data?: PartialMessage<DetachFromTemplateResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.DetachFromTemplateResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "key", kind: "message", T: ScopedSigningKey },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DetachFromTemplateResponse {
+    return new DetachFromTemplateResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DetachFromTemplateResponse {
+    return new DetachFromTemplateResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DetachFromTemplateResponse {
+    return new DetachFromTemplateResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DetachFromTemplateResponse | PlainMessage<DetachFromTemplateResponse> | undefined, b: DetachFromTemplateResponse | PlainMessage<DetachFromTemplateResponse> | undefined): boolean {
+    return proto3.util.equals(DetachFromTemplateResponse, a, b);
+  }
+}
+
+/**
+ * SetTrackLatestRequest toggles the track_latest flag on a templated SKK.
+ * Enabling requires template_id != "" AND template_drifted == false.
+ * Disabling has no preconditions. Disabling does not detach — operator
+ * must call DetachFromTemplate separately.
+ *
+ * @generated from message nis.v1.SetTrackLatestRequest
+ */
+export class SetTrackLatestRequest extends Message<SetTrackLatestRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: bool enabled = 2;
+   */
+  enabled = false;
+
+  constructor(data?: PartialMessage<SetTrackLatestRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.SetTrackLatestRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetTrackLatestRequest {
+    return new SetTrackLatestRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetTrackLatestRequest {
+    return new SetTrackLatestRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetTrackLatestRequest {
+    return new SetTrackLatestRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetTrackLatestRequest | PlainMessage<SetTrackLatestRequest> | undefined, b: SetTrackLatestRequest | PlainMessage<SetTrackLatestRequest> | undefined): boolean {
+    return proto3.util.equals(SetTrackLatestRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.SetTrackLatestResponse
+ */
+export class SetTrackLatestResponse extends Message<SetTrackLatestResponse> {
+  /**
+   * @generated from field: nis.v1.ScopedSigningKey key = 1;
+   */
+  key?: ScopedSigningKey;
+
+  constructor(data?: PartialMessage<SetTrackLatestResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.SetTrackLatestResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "key", kind: "message", T: ScopedSigningKey },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetTrackLatestResponse {
+    return new SetTrackLatestResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetTrackLatestResponse {
+    return new SetTrackLatestResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetTrackLatestResponse {
+    return new SetTrackLatestResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetTrackLatestResponse | PlainMessage<SetTrackLatestResponse> | undefined, b: SetTrackLatestResponse | PlainMessage<SetTrackLatestResponse> | undefined): boolean {
+    return proto3.util.equals(SetTrackLatestResponse, a, b);
   }
 }
 

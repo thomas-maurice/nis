@@ -452,8 +452,9 @@ const formatDate = (dateStr) => {
 
 const formatLimit = (value) => {
   if (value === -1 || value === '-1') return 'Unlimited'
-  if (value === 0) return 'None'
-  return value.toLocaleString()
+  if (value === undefined || value === null) return 'None'
+  if (value === 0 || value === '0') return 'None'
+  return Number(value).toLocaleString()
 }
 
 // --- Live JetStream usage helpers (P10) ---

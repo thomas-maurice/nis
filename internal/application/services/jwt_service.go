@@ -120,8 +120,21 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 	// Register each scoped signing key as a NATS scoped signer. `AddScopedSigner`
 	// embeds the template (pub/sub permissions + response limits) into the account
 	// JWT so NATS can apply them to any user JWT signed by that key.
+	//
+	// IsPlainSigner SKKs are the exception — they get added as plain
+	// strings via SigningKeys.Add. Those are the ones we imported from
+	// an NSC store where the original account JWT carried the key as a
+	// raw string in signing_keys. NATS then treats the user JWT's own
+	// perms as authoritative (matches what the operator's pre-NIS
+	// tooling expected), and avoids the "SetScoped zeroes user limits +
+	// account JWT carries plain signer = user locked out" trap that
+	// hits the system user on imported operators.
 	for _, sk := range scopedKeys {
 		if sk == nil {
+			continue
+		}
+		if sk.IsPlainSigner {
+			claims.SigningKeys.Add(sk.PublicKey)
 			continue
 		}
 		scope := jwt.NewUserScope()
@@ -132,7 +145,19 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 		scope.Template.Pub.Deny = sk.PubDeny
 		scope.Template.Sub.Allow = sk.SubAllow
 		scope.Template.Sub.Deny = sk.SubDeny
-		if sk.ResponseMaxMsgs > 0 || sk.ResponseTTL > 0 {
+		// Emit Resp when the SKK either declares an explicit response
+		// limit OR has a restricted pub_allow. The second case is the
+		// load-bearing one: NATS's validateResponsePermissions
+		// (server/auth.go) flips publish from "allow anything not
+		// denied" to "allow only what's in pub_allow + auto-granted
+		// reply inboxes" the moment Resp is present. Emitting it
+		// unconditionally would silently break every "permissive" SKK
+		// (nil/empty pub_allow). Emitting it only when pub_allow is
+		// restrictive gives services the NATS-side default auto-grant
+		// (1 msg / 2 min from server/const.go:DEFAULT_ALLOW_RESPONSE_*)
+		// without forcing them to list _INBOX.> manually, while
+		// leaving permissive keys alone.
+		if sk.ResponseMaxMsgs > 0 || sk.ResponseTTL > 0 || len(sk.PubAllow) > 0 {
 			scope.Template.Resp = &jwt.ResponsePermission{
 				MaxMsgs: sk.ResponseMaxMsgs,
 				Expires: sk.ResponseTTL,
@@ -215,7 +240,19 @@ func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, a
 		// reflect.DeepEqual against the zero value). `NewUserClaims` pre-fills
 		// NatsLimits with NoLimit sentinels, so we have to clear them explicitly.
 		// `SetScoped(true)` zeroes the embedded UserPermissionLimits in one shot.
-		claims.SetScoped(true)
+		//
+		// Skip SetScoped when the SKK is an IsPlainSigner: the parent
+		// account JWT lists it as a plain signing_keys string (not a
+		// UserScope), so NATS does NOT apply any template — it uses the
+		// user JWT's own perms. A SetScoped-zeroed user under a plain
+		// signer ends up with subs:0/payload:0 and cannot do anything
+		// (this was the symptom on NSC-imported operators where NIS
+		// signed the auto-created "system" user with the imported
+		// plain signing key and the cluster healthcheck silently timed
+		// out, with the JWT push hitting "maximum payload exceeded").
+		if !scopedKey.IsPlainSigner {
+			claims.SetScoped(true)
+		}
 	} else {
 		// Sign with account key directly
 		accountSeedBytes, err := s.encryptor.Decrypt(ctx, account.EncryptedSeed)

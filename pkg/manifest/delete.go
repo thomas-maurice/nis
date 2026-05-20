@@ -21,12 +21,16 @@ type DeleteItem struct {
 }
 
 // topoOrder maps each Kind to a sort rank for deletion (lower = deleted first).
+// Templates sort BEFORE Operator (5) but AFTER ScopedSigningKey (1): a
+// template can only be deleted once no SKK pins it, and the server
+// enforces that via TemplateService.DeleteTemplate's dependents check.
 var deleteOrder = map[string]int{
 	KindUser:             0,
 	KindScopedSigningKey: 1,
 	KindAccount:          2,
 	KindCluster:          3,
-	KindOperator:         4,
+	KindTemplate:         4,
+	KindOperator:         5,
 }
 
 // DeleteAll deletes every Object in batch in reverse topo order:
@@ -79,6 +83,11 @@ func deleteOne(ctx context.Context, c PlannerClient, obj Object, cache *applyCac
 			return DeleteItem{Object: obj, Outcome: OutcomeFailed, Note: "refusing to delete reserved entity"},
 				fmt.Errorf("manifest delete: ScopedSigningKey default: refusing to delete reserved entity")
 		}
+	case KindTemplate:
+		if obj.Metadata.Name == "default" || obj.Metadata.Name == "system" {
+			return DeleteItem{Object: obj, Outcome: OutcomeFailed, Note: "refusing to delete reserved entity"},
+				fmt.Errorf("manifest delete: Template %s: refusing to delete reserved entity", obj.Metadata.Name)
+		}
 	}
 
 	switch obj.Kind {
@@ -92,9 +101,46 @@ func deleteOne(ctx context.Context, c PlannerClient, obj Object, cache *applyCac
 		return deleteScopedSigningKey(ctx, c, obj, cache)
 	case KindUser:
 		return deleteUser(ctx, c, obj, cache)
+	case KindTemplate:
+		return deleteTemplate(ctx, c, obj, cache)
 	}
 	return DeleteItem{Object: obj, Outcome: OutcomeFailed},
 		fmt.Errorf("manifest delete: unknown kind %q", obj.Kind)
+}
+
+func deleteTemplate(ctx context.Context, c PlannerClient, obj Object, cache *applyCache) (DeleteItem, error) {
+	opID, err := resolveDeleteOperatorID(ctx, c, obj.Metadata.Operator, cache)
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return DeleteItem{Object: obj, Outcome: OutcomeNoop, Note: "already gone (operator not found)"}, nil
+		}
+		return DeleteItem{Object: obj, Outcome: OutcomeFailed},
+			fmt.Errorf("manifest delete: Template %s/%s: %w", obj.Metadata.Operator, obj.Metadata.Name, err)
+	}
+	lookupResp, err := c.TemplateClient().GetTemplateByName(ctx, connect.NewRequest(&nisv1.GetTemplateByNameRequest{
+		OperatorId: opID,
+		Name:       obj.Metadata.Name,
+	}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return DeleteItem{Object: obj, Outcome: OutcomeNoop, Note: "already gone"}, nil
+		}
+		return DeleteItem{Object: obj, Outcome: OutcomeFailed},
+			fmt.Errorf("manifest delete: Template %s/%s: GetTemplateByName: %w", obj.Metadata.Operator, obj.Metadata.Name, err)
+	}
+	tplID := lookupResp.Msg.GetTemplate().GetId()
+	if _, err := c.TemplateClient().DeleteTemplate(ctx, connect.NewRequest(&nisv1.DeleteTemplateRequest{
+		Id: tplID,
+	})); err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return DeleteItem{Object: obj, Outcome: OutcomeNoop, Note: "already gone"}, nil
+		}
+		// FailedPrecondition (template has dependents) surfaces here as
+		// the apply RPC error; let the caller see the message verbatim.
+		return DeleteItem{Object: obj, Outcome: OutcomeFailed},
+			fmt.Errorf("manifest delete: Template %s/%s: DeleteTemplate: %w", obj.Metadata.Operator, obj.Metadata.Name, err)
+	}
+	return DeleteItem{Object: obj, Outcome: OutcomeApplied}, nil
 }
 
 func deleteOperator(ctx context.Context, c PlannerClient, obj Object, cache *applyCache) (DeleteItem, error) {

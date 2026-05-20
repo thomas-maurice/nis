@@ -22,6 +22,8 @@ type RepositoryFactory interface {
 	WebhookSubscriptionRepository() repositories.WebhookSubscriptionRepository
 	WebhookDeliveryRepository() repositories.WebhookDeliveryRepository
 	UserJWTRevocationRepository() repositories.UserJWTRevocationRepository
+	TemplateRepository() repositories.TemplateRepository
+	TemplateVersionRepository() repositories.TemplateVersionRepository
 
 	// Database lifecycle methods
 	Connect(ctx context.Context) error

@@ -51,6 +51,10 @@ import {
   faMagnifyingGlass,
   faXmark,
   faSpinner,
+  faLayerGroup,
+  faLink,
+  faLinkSlash,
+  faCircleExclamation,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -89,7 +93,11 @@ library.add(
   faTerminal,
   faMagnifyingGlass,
   faXmark,
-  faSpinner
+  faSpinner,
+  faLayerGroup,
+  faLink,
+  faLinkSlash,
+  faCircleExclamation
 )
 
 const app = createApp(App)

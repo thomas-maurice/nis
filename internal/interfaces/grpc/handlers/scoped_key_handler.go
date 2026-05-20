@@ -50,7 +50,7 @@ func (h *ScopedSigningKeyHandler) CreateScopedSigningKey(
 	pubAllow, pubDeny, subAllow, subDeny := mappers.ProtoToUserPermissions(req.Msg.Permissions)
 	respMaxMsgs, respExpires := mappers.ProtoToResponsePermission(req.Msg.ResponsePermission)
 
-	key, err := h.service.CreateScopedSigningKey(ctx, services.CreateScopedSigningKeyRequest{
+	serviceReq := services.CreateScopedSigningKeyRequest{
 		AccountID:       accountID,
 		Name:            req.Msg.Name,
 		Description:     req.Msg.Description,
@@ -60,9 +60,23 @@ func (h *ScopedSigningKeyHandler) CreateScopedSigningKey(
 		SubDeny:         subDeny,
 		ResponseMaxMsgs: respMaxMsgs,
 		ResponseTTL:     time.Duration(respExpires),
-	})
+		TrackLatest:     req.Msg.TrackLatest,
+	}
+	if tref := req.Msg.Template; tref != nil && tref.TemplateName != "" {
+		opID, err := mappers.ParseUUID(tref.OperatorId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		serviceReq.TemplateRef = &services.TemplateRef{
+			OperatorID:    opID,
+			TemplateName:  tref.TemplateName,
+			VersionNumber: int(tref.VersionNumber),
+		}
+	}
+
+	key, err := h.service.CreateScopedSigningKey(ctx, serviceReq)
 	if err != nil {
-		return nil, err
+		return nil, repoErrToConnect(err)
 	}
 
 	return connect.NewResponse(&pb.CreateScopedSigningKeyResponse{
@@ -320,4 +334,71 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 	}
 
 	return connect.NewResponse(&pb.DeleteScopedSigningKeyResponse{}), nil
+}
+
+// DetachFromTemplate clears template_id / template_version /
+// template_drifted on the SKK without changing its permission columns.
+// Auth: CanManageScopedKeys (admin or operator-admin owning the parent
+// account; account-admin denied — matches the existing Create/Update
+// authority for SKKs).
+func (h *ScopedSigningKeyHandler) DetachFromTemplate(
+	ctx context.Context,
+	req *connect.Request[pb.DetachFromTemplateRequest],
+) (*connect.Response[pb.DetachFromTemplateResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// Resolve account ownership first so the permission check is scoped
+	// to the SKK's actual parent, not whatever the caller claims.
+	existing, err := h.service.GetScopedSigningKey(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	if err := h.permService.CanManageScopedKeys(ctx, requestingUser, existing.AccountID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	updated, err := h.service.DetachScopedKeyTemplate(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&pb.DetachFromTemplateResponse{
+		Key: mappers.ScopedSigningKeyToProto(updated),
+	}), nil
+}
+
+// SetTrackLatest toggles the SKK's track_latest flag. Same authority
+// as Detach (CanManageScopedKeys) — it's a binding-shape change, not a
+// permission edit. Enabling on a drifted or untemplated SKK is
+// rejected by the service layer.
+func (h *ScopedSigningKeyHandler) SetTrackLatest(
+	ctx context.Context,
+	req *connect.Request[pb.SetTrackLatestRequest],
+) (*connect.Response[pb.SetTrackLatestResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	existing, err := h.service.GetScopedSigningKey(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	if err := h.permService.CanManageScopedKeys(ctx, requestingUser, existing.AccountID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	updated, err := h.service.SetScopedKeyTrackLatest(ctx, id, req.Msg.Enabled)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&pb.SetTrackLatestResponse{
+		Key: mappers.ScopedSigningKeyToProto(updated),
+	}), nil
 }

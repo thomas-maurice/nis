@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateScopedSigningKeyRequest, CreateScopedSigningKeyResponse, DeleteScopedSigningKeyRequest, DeleteScopedSigningKeyResponse, GetScopedSigningKeyByNameRequest, GetScopedSigningKeyByNameResponse, GetScopedSigningKeyRequest, GetScopedSigningKeyResponse, ListScopedSigningKeysRequest, ListScopedSigningKeysResponse, UpdatePermissionsRequest, UpdatePermissionsResponse, UpdateScopedSigningKeyRequest, UpdateScopedSigningKeyResponse } from "./scoped_key_pb.js";
+import { CreateScopedSigningKeyRequest, CreateScopedSigningKeyResponse, DeleteScopedSigningKeyRequest, DeleteScopedSigningKeyResponse, DetachFromTemplateRequest, DetachFromTemplateResponse, GetScopedSigningKeyByNameRequest, GetScopedSigningKeyByNameResponse, GetScopedSigningKeyRequest, GetScopedSigningKeyResponse, ListScopedSigningKeysRequest, ListScopedSigningKeysResponse, SetTrackLatestRequest, SetTrackLatestResponse, UpdatePermissionsRequest, UpdatePermissionsResponse, UpdateScopedSigningKeyRequest, UpdateScopedSigningKeyResponse } from "./scoped_key_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -75,6 +75,24 @@ export const ScopedSigningKeyService = {
       name: "DeleteScopedSigningKey",
       I: DeleteScopedSigningKeyRequest,
       O: DeleteScopedSigningKeyResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc nis.v1.ScopedSigningKeyService.DetachFromTemplate
+     */
+    detachFromTemplate: {
+      name: "DetachFromTemplate",
+      I: DetachFromTemplateRequest,
+      O: DetachFromTemplateResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc nis.v1.ScopedSigningKeyService.SetTrackLatest
+     */
+    setTrackLatest: {
+      name: "SetTrackLatest",
+      I: SetTrackLatestRequest,
+      O: SetTrackLatestResponse,
       kind: MethodKind.Unary,
     },
   }

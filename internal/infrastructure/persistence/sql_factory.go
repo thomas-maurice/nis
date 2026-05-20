@@ -42,6 +42,8 @@ type sqlRepositoryFactory struct {
 	webhookSubscriptionRepo     repositories.WebhookSubscriptionRepository
 	webhookDeliveryRepo         repositories.WebhookDeliveryRepository
 	userJWTRevocationRepo       repositories.UserJWTRevocationRepository
+	templateRepo                repositories.TemplateRepository
+	templateVersionRepo         repositories.TemplateVersionRepository
 }
 
 func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
@@ -355,6 +357,20 @@ func (f *sqlRepositoryFactory) UserJWTRevocationRepository() repositories.UserJW
 		f.userJWTRevocationRepo = sqlRepo.NewUserJWTRevocationRepo(f.gormDB)
 	}
 	return f.userJWTRevocationRepo
+}
+
+func (f *sqlRepositoryFactory) TemplateRepository() repositories.TemplateRepository {
+	if f.templateRepo == nil {
+		f.templateRepo = sqlRepo.NewTemplateRepo(f.gormDB)
+	}
+	return f.templateRepo
+}
+
+func (f *sqlRepositoryFactory) TemplateVersionRepository() repositories.TemplateVersionRepository {
+	if f.templateVersionRepo == nil {
+		f.templateVersionRepo = sqlRepo.NewTemplateVersionRepo(f.gormDB)
+	}
+	return f.templateVersionRepo
 }
 
 // WithTx runs fn inside a GORM transaction. The factory passed to fn hands out

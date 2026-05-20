@@ -44,13 +44,43 @@ func NewAccountService(
 }
 
 // WithClusterService attaches a ClusterService used to propagate account
-// deletions to the NATS resolver(s) attached to the operator. Call this from
-// serve.go AFTER both services exist (the two are mutually independent at
-// construction, so no init-order surprise). Tests that don't wire this skip
-// the NATS-side push — the DB-side delete and audit event still happen.
+// JWT changes (create / update / delete / jetstream-limit) to the NATS
+// resolver(s) attached to the operator. Call this from serve.go AFTER
+// both services exist (the two are mutually independent at construction,
+// so no init-order surprise). Tests that don't wire this skip the
+// NATS-side push — the DB-side mutation and audit event still happen,
+// and `nisctl cluster sync` reconciles when the operator is ready.
 func (s *AccountService) WithClusterService(cs *ClusterService) *AccountService {
 	s.clusterService = cs
 	return s
+}
+
+// pushAccountAfterCommit pushes the (already-committed) account JWT to
+// every cluster attached to its operator. Best-effort: per-cluster
+// failures are logged and the call returns nil. The DB is the source of
+// truth; the drift dashboard (P9) surfaces any cluster that fell behind.
+//
+// This is the auto-sync side of P6: before P6, mutating an account or
+// SKK left the DB ahead of NATS until an operator ran `nisctl cluster
+// sync`. Now every mutation that changes the account JWT triggers a
+// push as part of the same operation, with the same best-effort
+// semantics DeleteAccount uses.
+func (s *AccountService) pushAccountAfterCommit(ctx context.Context, account *entities.Account) {
+	if s.clusterService == nil || account == nil || account.JWT == "" {
+		return
+	}
+	errs := s.clusterService.PushAccountToAllClusters(ctx, account.OperatorID, account)
+	if len(errs) == 0 {
+		return
+	}
+	log := logging.LogFromContext(ctx)
+	for _, e := range errs {
+		log.Warn("account JWT push failed; run 'nisctl cluster sync' to reconcile",
+			"account", account.Name,
+			"account_public_key", account.PublicKey,
+			"error", e.Error,
+		)
+	}
 }
 
 // CreateAccountRequest contains the data needed to create an account
@@ -78,6 +108,7 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 	if err != nil {
 		return nil, err
 	}
+	s.pushAccountAfterCommit(ctx, account)
 	return account, nil
 }
 
@@ -351,6 +382,7 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 	if err != nil {
 		return nil, err
 	}
+	s.pushAccountAfterCommit(ctx, account)
 	return account, nil
 }
 
@@ -432,6 +464,7 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 	if err != nil {
 		return nil, err
 	}
+	s.pushAccountAfterCommit(ctx, account)
 	return account, nil
 }
 

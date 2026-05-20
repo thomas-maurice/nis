@@ -65,6 +65,7 @@ func NewServer(
 	userRevocationService *services.UserRevocationService,
 	jwtExpirySweeper *services.JWTExpirySweeper,
 	searchService *services.SearchService,
+	templateService *services.TemplateService,
 	permService *services.PermissionService,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
@@ -118,6 +119,9 @@ func NewServer(
 
 	searchHandler := handlers.NewSearchHandler(searchService)
 	mux.Handle(nisv1connect.NewSearchServiceHandler(searchHandler, interceptorOption))
+
+	templateHandler := handlers.NewTemplateHandler(templateService, scopedKeyService, permService, config.RepoFactory)
+	mux.Handle(nisv1connect.NewTemplateServiceHandler(templateHandler, interceptorOption))
 
 	// /livez — process is alive. Always 200. Use this for k8s liveness probes.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
@@ -218,6 +222,7 @@ func NewServer(
 		nisv1connect.WebhookServiceName,
 		nisv1connect.APITokenServiceName,
 		nisv1connect.SearchServiceName,
+		nisv1connect.TemplateServiceName,
 	)
 	reflectV1Path, reflectV1Handler := grpcreflect.NewHandlerV1(reflector)
 	reflectV1AlphaPath, reflectV1AlphaHandler := grpcreflect.NewHandlerV1Alpha(reflector)

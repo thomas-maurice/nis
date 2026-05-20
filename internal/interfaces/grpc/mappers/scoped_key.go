@@ -20,7 +20,7 @@ func ScopedSigningKeyToProto(key *entities.ScopedSigningKey) *pb.ScopedSigningKe
 		}
 	}
 
-	return &pb.ScopedSigningKey{
+	out := &pb.ScopedSigningKey{
 		Id:          UUIDToString(key.ID),
 		AccountId:   UUIDToString(key.AccountID),
 		Name:        key.Name,
@@ -35,7 +35,17 @@ func ScopedSigningKeyToProto(key *entities.ScopedSigningKey) *pb.ScopedSigningKe
 		ResponsePermission: respPerm,
 		CreatedAt:          timestamppb.New(key.CreatedAt),
 		UpdatedAt:          timestamppb.New(key.UpdatedAt),
+		TemplateDrifted:    key.TemplateDrifted,
+		TrackLatest:        key.TrackLatest,
+		IsPlainSigner:      key.IsPlainSigner,
 	}
+	if key.TemplateID != nil {
+		out.TemplateId = UUIDToString(*key.TemplateID)
+	}
+	if key.TemplateVersion != nil {
+		out.TemplateVersion = int32(*key.TemplateVersion)
+	}
+	return out
 }
 
 // ScopedSigningKeysToProto converts slice of domain ScopedSigningKeys to protobuf ScopedSigningKeys
