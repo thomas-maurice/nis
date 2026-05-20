@@ -204,3 +204,19 @@ p, operator-admin, template, create
 p, operator-admin, template, read
 p, operator-admin, template, update
 p, operator-admin, template, delete
+
+
+# ============================================================
+# Jobs substrate (A2) — admin-only operational surface for the
+# background job queue. extractResourceAndAction maps JobService
+# -> resource="job"; Retry/Cancel map to "update" via
+# extractAction's "retry"/"cancel" -> "update" rules (without
+# them they'd silently fall through to "read" and bypass the
+# update row below). No per-row narrowing — jobs are
+# infrastructure, not tenant data. operator-admin/account-admin
+# get no access; if a future job type carries operator_id in its
+# payload and needs operator-scoping, add it then.
+# ============================================================
+p, admin, job, read
+p, admin, job, update
+p, admin, job, delete

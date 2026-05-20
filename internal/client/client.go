@@ -29,6 +29,7 @@ type Client struct {
 	APIToken          nisv1connect.APITokenServiceClient
 	Search            nisv1connect.SearchServiceClient
 	Template          nisv1connect.TemplateServiceClient
+	Job               nisv1connect.JobServiceClient
 }
 
 // NewClient creates a new NIS client with authentication
@@ -64,6 +65,7 @@ func NewClient(serverURL, token string) (*Client, error) {
 	client.APIToken = nisv1connect.NewAPITokenServiceClient(httpClient, serverURL)
 	client.Search = nisv1connect.NewSearchServiceClient(httpClient, serverURL)
 	client.Template = nisv1connect.NewTemplateServiceClient(httpClient, serverURL)
+	client.Job = nisv1connect.NewJobServiceClient(httpClient, serverURL)
 
 	return client, nil
 }

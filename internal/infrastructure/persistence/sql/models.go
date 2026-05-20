@@ -878,3 +878,97 @@ func WebhookDeliveryModelFromEntity(e *entities.WebhookDelivery) *WebhookDeliver
 		CompletedAt:      e.CompletedAt,
 	}
 }
+
+// JobModel — jobs table (A2 jobs substrate).
+//
+// Atlas/atlas-provider-gorm carve-out: the partial unique index
+// `(type, dedup_key) WHERE status IN ('pending','running')` cannot be
+// expressed as a GORM struct tag (atlas-provider-gorm only emits full
+// unique constraints, not partial ones). It is hand-added to the
+// migration files for both dialects AND emitted by tools/atlas/loader.go's
+// `manualExtras` so the desired-schema dump matches reality — without
+// that, every `make atlas-diff` would helpfully emit a DROP for the
+// partial index in the next migration and silently break dedup. If you
+// hand-edit a migration to add another not-GORM-expressible feature
+// (partial index, deferred constraint, expression index, etc.), MUST
+// also add it to `manualExtras` keyed by dialect.
+type JobModel struct {
+	ID           string `gorm:"primaryKey;type:text;not null"`
+	Type         string `gorm:"type:text;not null;index:idx_jobs_type_status,priority:1"`
+	// Payload is opaque (handler-specific JSON in practice). NOT NULL
+	// + default '{}' so empty payloads round-trip without nil-vs-empty
+	// confusion at the entity boundary.
+	Payload string `gorm:"type:text;not null;default:'{}'"`
+	Status  string `gorm:"type:text;not null;index:idx_jobs_status_scheduled,priority:1;index:idx_jobs_type_status,priority:2"`
+	// No `default:` on ScheduledFor — entity layer always provides it
+	// (zero time would be claimed immediately, surprising for delayed jobs).
+	ScheduledFor time.Time  `gorm:"type:timestamp;not null;index:idx_jobs_status_scheduled,priority:2"`
+	LockedBy     string     `gorm:"type:text;not null;default:''"`
+	LockedUntil  *time.Time `gorm:"type:timestamp"`
+	Attempts     int        `gorm:"type:integer;not null;default:0"`
+	// No `default:` on MaxAttempts: per the SKILL non-zero-default
+	// footgun rule. GORM would substitute the DB default for the Go
+	// zero value (0), silently disabling retries. The entity layer
+	// always provides MaxAttempts.
+	MaxAttempts int    `gorm:"type:integer;not null"`
+	LastError   string `gorm:"type:text;not null;default:''"`
+	// DedupKey nullable: NULL means "no dedup". The partial unique
+	// index lives in the migration (see carve-out above).
+	DedupKey    *string    `gorm:"type:text"`
+	CreatedAt   time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt   time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	StartedAt   *time.Time `gorm:"type:timestamp"`
+	CompletedAt *time.Time `gorm:"type:timestamp"`
+}
+
+func (JobModel) TableName() string { return "jobs" }
+
+func (m *JobModel) ToEntity() *entities.Job {
+	j := &entities.Job{
+		ID:           uuid.MustParse(m.ID),
+		Type:         m.Type,
+		Payload:      []byte(m.Payload),
+		Status:       entities.JobStatus(m.Status),
+		ScheduledFor: m.ScheduledFor,
+		LockedBy:     m.LockedBy,
+		LockedUntil:  m.LockedUntil,
+		Attempts:     m.Attempts,
+		MaxAttempts:  m.MaxAttempts,
+		LastError:    m.LastError,
+		CreatedAt:    m.CreatedAt,
+		UpdatedAt:    m.UpdatedAt,
+		StartedAt:    m.StartedAt,
+		CompletedAt:  m.CompletedAt,
+	}
+	if m.DedupKey != nil {
+		j.DedupKey = *m.DedupKey
+	}
+	return j
+}
+
+func JobModelFromEntity(e *entities.Job) *JobModel {
+	m := &JobModel{
+		ID:           e.ID.String(),
+		Type:         e.Type,
+		Payload:      string(e.Payload),
+		Status:       string(e.Status),
+		ScheduledFor: e.ScheduledFor,
+		LockedBy:     e.LockedBy,
+		LockedUntil:  e.LockedUntil,
+		Attempts:     e.Attempts,
+		MaxAttempts:  e.MaxAttempts,
+		LastError:    e.LastError,
+		CreatedAt:    e.CreatedAt,
+		UpdatedAt:    e.UpdatedAt,
+		StartedAt:    e.StartedAt,
+		CompletedAt:  e.CompletedAt,
+	}
+	if e.DedupKey != "" {
+		s := e.DedupKey
+		m.DedupKey = &s
+	}
+	if len(e.Payload) == 0 {
+		m.Payload = "{}"
+	}
+	return m
+}

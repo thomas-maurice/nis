@@ -236,12 +236,13 @@ func extractAction(method string) string {
 	if strings.HasPrefix(method, "update") {
 		return "update"
 	}
-	if strings.HasPrefix(method, "delete") || strings.HasPrefix(method, "revoke") {
-		// Revoking and deleting are different DB writes but the same authority:
-		// you cannot revoke a token without the ability to remove it.
+	if strings.HasPrefix(method, "delete") || strings.HasPrefix(method, "revoke") || strings.HasPrefix(method, "cancel") {
+		// Revoking, deleting, and cancelling a pending job are different DB
+		// writes but the same authority: you cannot revoke a token / cancel
+		// a job without the ability to remove it.
 		return "delete"
 	}
-	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") {
+	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") {
 		// P6 template ops: applying a template version, bumping an SKK to
 		// a new version, detaching from a template, or toggling
 		// track_latest all mutate the SKK's binding/perm columns and

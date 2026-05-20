@@ -101,6 +101,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true }
     },
     {
+      path: '/jobs',
+      name: 'jobs',
+      component: () => import('@/views/JobsView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
       path: '/webhooks',
       name: 'webhooks',
       component: () => import('@/views/WebhooksView.vue'),

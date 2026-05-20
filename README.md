@@ -868,6 +868,73 @@ logged but don't fail the API call (`nisctl cluster sync` and the
 a cluster comes back). `nisctl cluster sync` becomes a recovery tool
 rather than the primary roll-out command.
 
+## Background jobs (A2)
+
+NIS runs scheduled and one-shot work on a single durable jobs substrate
+instead of a pile of in-process goroutines. The shipped v1 handlers are
+the two retention sweeps:
+
+| Handler | Cadence | What it does |
+|---|---|---|
+| `events.retention_sweep` | 24h | Deletes events older than `events.retention_days` (default 30d) and succeeded webhook deliveries older than `webhooks.succeeded_retention_days` (default 7d). Dead-letter deliveries are never auto-deleted. |
+| `jobs.retention_sweep`   | 24h | Deletes `succeeded` and `cancelled` job rows older than `jobs.retention_days` (default 30d). `failed` and `dead_lettered` rows survive forever — operator audit. |
+
+Future scheduled work — P12 (scheduled backup + restore-verify), A14
+(JWT expiry sweeper as a job), A15 (per-cluster health check as a job),
+A16 (webhook delivery on the generic substrate) — will plug onto this
+same runner. See [PROPOSALS.md](PROPOSALS.md) for the follow-up roadmap.
+
+### Admin surface
+
+The substrate is **admin-only**. operator-admin and account-admin get
+`PermissionDenied` on every JobService method.
+
+**UI:** *Background Jobs* under the user menu (admin only).
+Filter by type / status / since, default view "non-succeeded in last 24h",
+explicit *Show succeeded* toggle for auditing successful runs after the
+fact. Per-row Retry (for `failed`/`dead_lettered`/`cancelled`) and Cancel
+(for `pending` rows). JSON detail modal.
+
+**CLI:**
+
+```bash
+nisctl job list [--type ...] [--status ...] [--since 24h] [--limit N]
+nisctl job get   <id>
+nisctl job retry <id>     # resets attempts to 0, status to pending
+nisctl job cancel <id>    # only succeeds on pending rows
+```
+
+### Semantics worth knowing
+
+- **No dedup_key = no dedup.** SQL `UNIQUE` treats NULLs as distinct, so
+  rows without a dedup key can pile up — that's deliberate (one-shot
+  jobs). The partial unique index
+  `(type, dedup_key) WHERE status IN ('pending','running')` only
+  catches rows where the operator opted in via `WithDedupKey`.
+- **Recurring schedules use a per-tick watchdog.** Handlers register
+  with `HandlerSpec.RecurEvery > 0`; on every poll tick the runner
+  calls `EnsureScheduled` to insert a future row if one doesn't already
+  exist. That survives both handler crashes and process restarts —
+  there's no per-handler bootstrap code to forget.
+- **Retry resets attempts to 0.** Admin retry is "give this another
+  chance," not "continue from where the lease left off." If you want
+  the row to keep its attempt count, don't retry — let the runner's
+  built-in backoff path handle it.
+- **Cancel only works on pending rows.** A running row can't be
+  cancelled safely (the handler is mid-flight; cancelling the row
+  doesn't kill the goroutine). Wait for it to finish or for the lease
+  to expire, then retry/cancel the resulting state.
+
+### Tunables (server-side)
+
+| Config key | Default | Notes |
+|---|---|---|
+| `jobs.poll_interval_seconds` | `0` (auto) | 2s on Postgres, 10s on SQLite when 0. Override only if you need faster ticks for testing. |
+| `jobs.claim_batch` | `10` | Rows claimed per tick. |
+| `jobs.lease_duration_seconds` | `300` | Must exceed any handler's expected runtime; a row whose lease expires gets reclaimed by the next worker. |
+| `jobs.shutdown_timeout_seconds` | `30` | Graceful in-flight drain on SIGTERM. |
+| `jobs.retention_days` | `30` | For `jobs.retention_sweep` — drops succeeded/cancelled rows older than this. |
+
 ## Observability
 
 NIS exports Prometheus metrics, OpenTelemetry traces, and three HTTP probe
@@ -911,6 +978,9 @@ The interesting series:
 | `nis_events_emitted_total` | counter | `type` | Events appended to the audit log, by event type (e.g. `account.created`). |
 | `nis_webhook_deliveries_total` | counter | `status` | Webhook deliveries by terminal status (`succeeded`/`failed`/`dead_letter`). |
 | `nis_webhook_delivery_duration_seconds` | histogram | — | Per-attempt POST latency. |
+| `nis_jobs_enqueued_total` | counter | `type` | Background jobs enqueued, by type. EnsureScheduled inserts that lost the watchdog race do NOT count. |
+| `nis_jobs_completed_total` | counter | `type`, `outcome` | Background jobs reaching a terminal handler outcome. `outcome` ∈ `succeeded`, `failed`, `dead_lettered`. `failed` is a transient failure that will retry; `dead_lettered` is permanent. |
+| `nis_job_duration_seconds` | histogram | `type` | Per-handler-invocation runtime. No `worker_id` label — would explode cardinality in containers where pid varies. |
 
 Plus the standard `go_*` and `process_*` collectors (heap, goroutines, FDs, GC).
 

@@ -44,6 +44,7 @@ type sqlRepositoryFactory struct {
 	userJWTRevocationRepo       repositories.UserJWTRevocationRepository
 	templateRepo                repositories.TemplateRepository
 	templateVersionRepo         repositories.TemplateVersionRepository
+	jobRepo                     repositories.JobRepository
 }
 
 func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
@@ -57,10 +58,42 @@ func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
 // code calls NewRepositoryFactory(Config) and then Connect() instead.
 func NewSQLRepositoryFactoryFromDB(db *gorm.DB) RepositoryFactory {
 	sqlDB, _ := db.DB()
-	return &sqlRepositoryFactory{
+	f := &sqlRepositoryFactory{
 		gormDB: db,
 		sqlDB:  sqlDB,
 	}
+	f.initRepos()
+	return f
+}
+
+// initRepos eagerly constructs every repo so concurrent accessor calls from
+// multiple goroutines (e.g. the JobRunner's poll goroutine + spawned handler
+// goroutines) cannot race the lazy-init `if f.fooRepo == nil { ... }`
+// pattern. The lazy init was a micro-optimization that became a real
+// race once a worker started touching the factory from a goroutine fan-out;
+// the cost of eager construction is six pointer assignments per factory.
+//
+// Called from Connect() and NewSQLRepositoryFactoryFromDB, both of which run
+// before any concurrent access. Tx-scoped factories built inside WithTx
+// also call this so the same guarantee holds for nested service calls.
+func (f *sqlRepositoryFactory) initRepos() {
+	if f.gormDB == nil {
+		return
+	}
+	f.operatorRepo = sqlRepo.NewOperatorRepo(f.gormDB)
+	f.accountRepo = sqlRepo.NewAccountRepo(f.gormDB)
+	f.userRepo = sqlRepo.NewUserRepo(f.gormDB)
+	f.scopedSigningKeyRepo = sqlRepo.NewScopedSigningKeyRepo(f.gormDB)
+	f.clusterRepo = sqlRepo.NewClusterRepo(f.gormDB)
+	f.apiUserRepo = sqlRepo.NewAPIUserRepo(f.gormDB)
+	f.apiTokenRepo = sqlRepo.NewAPITokenRepo(f.gormDB)
+	f.eventRepo = sqlRepo.NewEventRepo(f.gormDB)
+	f.webhookSubscriptionRepo = sqlRepo.NewWebhookSubscriptionRepo(f.gormDB)
+	f.webhookDeliveryRepo = sqlRepo.NewWebhookDeliveryRepo(f.gormDB)
+	f.userJWTRevocationRepo = sqlRepo.NewUserJWTRevocationRepo(f.gormDB)
+	f.templateRepo = sqlRepo.NewTemplateRepo(f.gormDB)
+	f.templateVersionRepo = sqlRepo.NewTemplateVersionRepo(f.gormDB)
+	f.jobRepo = sqlRepo.NewJobRepo(f.gormDB)
 }
 
 func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
@@ -120,9 +153,21 @@ func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
 	// that not pinning here would be flaky.
 	if f.config.Driver == "sqlite" {
 		sqlDB.SetMaxOpenConns(1)
+		// Load-bearing invariant: JobRepository.ClaimDue on SQLite relies on
+		// the connection-pool serialisation that MaxOpenConns=1 provides.
+		// If a future change widens this, the claim path becomes racy and
+		// the partial-unique-index protection on the jobs table is the only
+		// thing left between two workers and the same job. Panic-loud so
+		// the failure is at boot, not the first time two ticks overlap.
+		if got := sqlDB.Stats().MaxOpenConnections; got != 1 {
+			return fmt.Errorf(
+				"sqlite factory: MaxOpenConns must be 1 (got %d) — see comment in sql_factory.go and SKILL §14 WAL gotcha",
+				got)
+		}
 	}
 
 	f.sqlDB = sqlDB
+	f.initRepos()
 
 	return nil
 }
@@ -373,6 +418,13 @@ func (f *sqlRepositoryFactory) TemplateVersionRepository() repositories.Template
 	return f.templateVersionRepo
 }
 
+func (f *sqlRepositoryFactory) JobRepository() repositories.JobRepository {
+	if f.jobRepo == nil {
+		f.jobRepo = sqlRepo.NewJobRepo(f.gormDB)
+	}
+	return f.jobRepo
+}
+
 // WithTx runs fn inside a GORM transaction. The factory passed to fn hands out
 // fresh repos bound to the tx's *gorm.DB, so any read or write goes through the
 // transaction. GORM commits when fn returns nil, rolls back on error or panic.
@@ -390,6 +442,9 @@ func (f *sqlRepositoryFactory) WithTx(ctx context.Context, fn func(tx Repository
 			gormDB: txDB,
 			sqlDB:  f.sqlDB, // shared; tx scope doesn't replace the connection pool
 		}
+		// Eagerly init so nested service calls inside fn that fan out to
+		// goroutines don't race on lazy-init. See initRepos comment.
+		txFactory.initRepos()
 		return fn(txFactory)
 	})
 }

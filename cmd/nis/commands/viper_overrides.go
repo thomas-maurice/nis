@@ -60,4 +60,12 @@ func registerConfigDefaults() {
 	// per-phase row cap; 500 is a safe upper bound for one tick.
 	viper.SetDefault("jwt_policy.sweep_interval_seconds", 3600)
 	viper.SetDefault("jwt_policy.sweep_batch_limit", 500)
+	// Jobs substrate (A2). poll_interval=0 means auto (2s Postgres, 10s
+	// SQLite); lease_duration must exceed any handler's expected runtime
+	// so a normal handler doesn't get its row reclaimed mid-execution.
+	viper.SetDefault("jobs.poll_interval_seconds", 0)
+	viper.SetDefault("jobs.claim_batch", 10)
+	viper.SetDefault("jobs.lease_duration_seconds", 300)
+	viper.SetDefault("jobs.shutdown_timeout_seconds", 30)
+	viper.SetDefault("jobs.retention_days", 30)
 }

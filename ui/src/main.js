@@ -55,6 +55,8 @@ import {
   faLink,
   faLinkSlash,
   faCircleExclamation,
+  faRotate,
+  faClock,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -97,7 +99,9 @@ library.add(
   faLayerGroup,
   faLink,
   faLinkSlash,
-  faCircleExclamation
+  faCircleExclamation,
+  faRotate,
+  faClock
 )
 
 const app = createApp(App)

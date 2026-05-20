@@ -148,6 +148,11 @@ type Recorder struct {
 	// P9 — cluster drift dashboard.
 	clusterDriftScans   metric.Int64Counter
 	clusterDriftResults metric.Int64Counter
+
+	// A2 — jobs substrate.
+	jobsEnqueued  metric.Int64Counter
+	jobsCompleted metric.Int64Counter
+	jobDuration   metric.Float64Histogram
 }
 
 func newRecorder(m metric.Meter) (*Recorder, error) {
@@ -251,6 +256,25 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 	if r.clusterDriftScans, err = m.Int64Counter(
 		"nis_cluster_drift_scans_total",
 		metric.WithDescription("Total cluster drift scans performed, labelled by outcome (ok/partial/error). 'partial' means the scan returned per-row results but at least one row was not in_sync."),
+	); err != nil {
+		return nil, err
+	}
+	if r.jobsEnqueued, err = m.Int64Counter(
+		"nis_jobs_enqueued_total",
+		metric.WithDescription("Total jobs enqueued, labelled by type. Includes EnsureScheduled inserts that won the watchdog race; does NOT count rows skipped because a pending/running row already existed."),
+	); err != nil {
+		return nil, err
+	}
+	if r.jobsCompleted, err = m.Int64Counter(
+		"nis_jobs_completed_total",
+		metric.WithDescription("Total jobs completed, labelled by type and outcome (succeeded/failed/dead_lettered). 'failed' is a transient failure followed by retry; 'dead_lettered' is terminal."),
+	); err != nil {
+		return nil, err
+	}
+	if r.jobDuration, err = m.Float64Histogram(
+		"nis_job_duration_seconds",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time spent executing a single job handler invocation, labelled by type. No worker_id label (cardinality footgun in containers)."),
 	); err != nil {
 		return nil, err
 	}
@@ -397,6 +421,36 @@ func (r *Recorder) RecordClusterDriftScan(ctx context.Context, outcome string) {
 		return
 	}
 	r.clusterDriftScans.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+}
+
+// RecordJobEnqueued increments the per-type enqueue counter. Called from
+// JobRunner.Enqueue and EnsureScheduled (only on actual insert, not skip).
+func (r *Recorder) RecordJobEnqueued(jobType string) {
+	if r == nil {
+		return
+	}
+	r.jobsEnqueued.Add(context.Background(), 1, metric.WithAttributes(attribute.String("type", jobType)))
+}
+
+// RecordJobCompleted increments the per-type, per-outcome completion
+// counter. outcome is one of "succeeded", "failed", "dead_lettered".
+func (r *Recorder) RecordJobCompleted(jobType, outcome string) {
+	if r == nil {
+		return
+	}
+	r.jobsCompleted.Add(context.Background(), 1, metric.WithAttributes(
+		attribute.String("type", jobType),
+		attribute.String("outcome", outcome),
+	))
+}
+
+// RecordJobDuration records the time taken by one handler invocation,
+// regardless of outcome (success or failure).
+func (r *Recorder) RecordJobDuration(jobType string, seconds float64) {
+	if r == nil {
+		return
+	}
+	r.jobDuration.Record(context.Background(), seconds, metric.WithAttributes(attribute.String("type", jobType)))
 }
 
 // RecordClusterDriftResult increments the per-row drift classification counter.

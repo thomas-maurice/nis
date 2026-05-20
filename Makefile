@@ -103,10 +103,10 @@ atlas-lint: atlas-dump-sqlite atlas-dump-postgres
 	@echo "==> Checking sqlite drift..."
 	@atlas migrate lint --env sqlite --latest=1 || true
 	@diff=$$(atlas schema diff --from "file://migrations/sqlite?format=goose" --to "file://.run/atlas-desired-sqlite.sql" --dev-url "sqlite://dev?mode=memory" 2>&1); \
-	if [ -n "$$diff" ]; then echo "sqlite drift detected:"; echo "$$diff"; exit 1; fi
+	if [ "$$diff" != "Schemas are synced, no changes to be made." ] && [ -n "$$diff" ]; then echo "sqlite drift detected:"; echo "$$diff"; exit 1; fi
 	@echo "==> Checking postgres drift..."
 	@diff=$$(atlas schema diff --from "file://migrations/postgres?format=goose" --to "file://.run/atlas-desired-postgres.sql" --dev-url "docker://postgres/16/dev?search_path=public" 2>&1); \
-	if [ -n "$$diff" ]; then echo "postgres drift detected:"; echo "$$diff"; exit 1; fi
+	if [ "$$diff" != "Schemas are synced, no changes to be made." ] && [ -n "$$diff" ]; then echo "postgres drift detected:"; echo "$$diff"; exit 1; fi
 	@echo "==> No drift detected."
 
 # Apply migrations directly via the binary (production path uses embedded

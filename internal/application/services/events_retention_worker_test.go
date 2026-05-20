@@ -105,8 +105,12 @@ func TestRetention_DeletesOldEvents_PreservesNew(t *testing.T) {
 	old := insertEvent(t, ctx, factory, op.ID, time.Now().UTC().AddDate(0, 0, -100))
 	recent := insertEvent(t, ctx, factory, op.ID, time.Now().UTC().AddDate(0, 0, -1))
 
-	worker := NewEventsRetentionWorker(factory, 30, 7, time.Hour)
-	worker.sweep(ctx)
+	h := &eventsRetentionHandler{
+		factory:                        factory,
+		eventRetentionDays:             30,
+		succeededDeliveryRetentionDays: 7,
+	}
+	require.NoError(t, h.Run(ctx, nil))
 
 	// Old event gone.
 	_, err := factory.EventRepository().GetByID(ctx, old.ID)
@@ -139,8 +143,12 @@ func TestRetention_DeletesSucceededDeliveries_PreservesDeadLetter(t *testing.T) 
 	deadLetterOld := insertDelivery(t, ctx, factory, sub.ID, evt3.ID, entities.DeliveryStatusDeadLetter, &old100d)
 
 	// Retention: events=0 (disabled), succeeded deliveries=7 days.
-	worker := NewEventsRetentionWorker(factory, 0, 7, time.Hour)
-	worker.sweep(ctx)
+	h := &eventsRetentionHandler{
+		factory:                        factory,
+		eventRetentionDays:             0,
+		succeededDeliveryRetentionDays: 7,
+	}
+	require.NoError(t, h.Run(ctx, nil))
 
 	// succeeded@30d removed.
 	_, err := factory.WebhookDeliveryRepository().GetByID(ctx, succeededOld.ID)

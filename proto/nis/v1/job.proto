@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "google/protobuf/timestamp.proto";
+
+// JobStatus mirrors entities.JobStatus.
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_SUCCEEDED = 3;
+  JOB_STATUS_FAILED = 4;
+  JOB_STATUS_DEAD_LETTERED = 5;
+  JOB_STATUS_CANCELLED = 6;
+}
+
+// Job is one row from the jobs table. Payload is rendered as a string so
+// the UI can display it verbatim; on the wire it's whatever the handler
+// stored (typically JSON).
+message Job {
+  string id = 1;
+  string type = 2;
+  string payload = 3;
+  JobStatus status = 4;
+  google.protobuf.Timestamp scheduled_for = 5;
+  string locked_by = 6;
+  google.protobuf.Timestamp locked_until = 7;
+  int32 attempts = 8;
+  int32 max_attempts = 9;
+  string last_error = 10;
+  string dedup_key = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  google.protobuf.Timestamp started_at = 14;
+  google.protobuf.Timestamp completed_at = 15;
+}
+
+// JobFilter narrows ListJobs results. types/statuses are inclusive
+// multi-value filters; since/until apply to created_at. cursor is opaque
+// (base64-encoded server state).
+message JobFilter {
+  repeated string types = 1;
+  repeated JobStatus statuses = 2;
+  google.protobuf.Timestamp since = 3;
+  google.protobuf.Timestamp until = 4;
+  int32 limit = 5;
+  string cursor = 6;
+}
+
+message ListJobsRequest {
+  JobFilter filter = 1;
+}
+
+message ListJobsResponse {
+  repeated Job jobs = 1;
+  string next_cursor = 2;
+}
+
+message GetJobRequest {
+  string id = 1;
+}
+
+message GetJobResponse {
+  Job job = 1;
+}
+
+message RetryJobRequest {
+  string id = 1;
+}
+
+message RetryJobResponse {
+  Job job = 1;
+}
+
+message CancelJobRequest {
+  string id = 1;
+}
+
+message CancelJobResponse {
+  Job job = 1;
+}
+
+// JobService is the admin-only surface for the A2 jobs substrate.
+// Admins see + retry + cancel any job; per-row narrowing is intentionally
+// not exposed because jobs are infrastructure, not tenant data.
+service JobService {
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse);
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+}

@@ -85,6 +85,7 @@ type harness struct {
 	apiTokenCli nisv1connect.APITokenServiceClient
 	searchCli   nisv1connect.SearchServiceClient
 	templateCli nisv1connect.TemplateServiceClient
+	jobCli      nisv1connect.JobServiceClient
 }
 
 // startStack is the canonical entry point for a test. It boots NIS, bootstraps
@@ -234,6 +235,7 @@ func (h *harness) start(t *testing.T) {
 	h.apiTokenCli = nisv1connect.NewAPITokenServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.searchCli = nisv1connect.NewSearchServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.templateCli = nisv1connect.NewTemplateServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.jobCli = nisv1connect.NewJobServiceClient(h.httpClient, h.serverURL, authOpt)
 }
 
 // startNATSForOperator pulls the NATS include config for operatorID from NIS,
@@ -446,6 +448,7 @@ type clientSet struct {
 	apiTokenCli nisv1connect.APITokenServiceClient
 	searchCli   nisv1connect.SearchServiceClient
 	templateCli nisv1connect.TemplateServiceClient
+	jobCli      nisv1connect.JobServiceClient
 }
 
 // loginAs authenticates as username/password and returns a clientSet whose
@@ -476,6 +479,7 @@ func (h *harness) loginAs(t *testing.T, username, password string) clientSet {
 		apiTokenCli: nisv1connect.NewAPITokenServiceClient(h.httpClient, h.serverURL, authOpt),
 		searchCli:   nisv1connect.NewSearchServiceClient(h.httpClient, h.serverURL, authOpt),
 		templateCli: nisv1connect.NewTemplateServiceClient(h.httpClient, h.serverURL, authOpt),
+		jobCli:      nisv1connect.NewJobServiceClient(h.httpClient, h.serverURL, authOpt),
 	}
 }
 

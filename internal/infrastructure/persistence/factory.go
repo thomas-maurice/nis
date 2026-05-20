@@ -24,6 +24,7 @@ type RepositoryFactory interface {
 	UserJWTRevocationRepository() repositories.UserJWTRevocationRepository
 	TemplateRepository() repositories.TemplateRepository
 	TemplateVersionRepository() repositories.TemplateVersionRepository
+	JobRepository() repositories.JobRepository
 
 	// Database lifecycle methods
 	Connect(ctx context.Context) error

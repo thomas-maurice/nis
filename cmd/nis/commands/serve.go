@@ -79,6 +79,15 @@ func init() {
 	serveCmd.Flags().Int("webhooks-backoff-cap-seconds", 600, "exponential-backoff cap interval in seconds")
 	serveCmd.Flags().Int("webhooks-shutdown-timeout-seconds", 30, "graceful drain of in-flight deliveries on SIGTERM")
 
+	// Jobs substrate flags (A2). Replaces the standalone EventsRetentionWorker
+	// loop; future scheduled work (P12 backups, A14 JWT sweeps, A15 cluster
+	// health) lands on this same runner.
+	serveCmd.Flags().Int("jobs-poll-interval-seconds", 0, "job runner poll cadence in seconds; 0 = auto (2s Postgres, 10s SQLite)")
+	serveCmd.Flags().Int("jobs-claim-batch", 10, "rows claimed per poll tick")
+	serveCmd.Flags().Int("jobs-lease-duration-seconds", 300, "how long a claim holds a row before a dead worker's row can be reclaimed")
+	serveCmd.Flags().Int("jobs-shutdown-timeout-seconds", 30, "graceful drain of in-flight jobs on SIGTERM")
+	serveCmd.Flags().Int("jobs-retention-days", 30, "retention for succeeded + cancelled job rows; dead-letter + failed survive forever")
+
 	// Flags are wired into viper via applyFlagOverrides in runServe rather
 	// than viper.BindPFlag — see cmd/nis/commands/viper_overrides.go for why.
 	// Note: encryption-key and jwt-secret are NOT marked as required flags
@@ -113,6 +122,12 @@ var serveFlagMapping = map[string]string{
 	"webhooks-backoff-base-seconds":     "webhooks.backoff_base_seconds",
 	"webhooks-backoff-cap-seconds":      "webhooks.backoff_cap_seconds",
 	"webhooks-shutdown-timeout-seconds": "webhooks.shutdown_timeout_seconds",
+
+	"jobs-poll-interval-seconds":    "jobs.poll_interval_seconds",
+	"jobs-claim-batch":              "jobs.claim_batch",
+	"jobs-lease-duration-seconds":   "jobs.lease_duration_seconds",
+	"jobs-shutdown-timeout-seconds": "jobs.shutdown_timeout_seconds",
+	"jobs-retention-days":           "jobs.retention_days",
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -280,6 +295,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	eventService := services.NewEventService(repoFactory)
 
+	// Jobs substrate (A2) read/admin surface — separate from JobRunner
+	// which executes work. Admin-only at the handler layer.
+	jobService := services.NewJobService(repoFactory)
+
 	webhookService := services.NewWebhookService(repoFactory, encryptor)
 
 	apiTokenService := services.NewAPITokenService(repoFactory)
@@ -348,6 +367,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		searchService,
 		templateService,
 		permissionService,
+		jobService,
 		authMiddleware,
 	)
 	if metricsHandler != nil {
@@ -389,14 +409,33 @@ func runServe(cmd *cobra.Command, args []string) error {
 		go domainGauges.RefreshLoop(ctx, 60*time.Second)
 	}
 
-	// Events retention worker.
-	retentionWorker := services.NewEventsRetentionWorker(
-		repoFactory,
-		viper.GetInt("events.retention_days"),
-		viper.GetInt("webhooks.succeeded_retention_days"),
-		24*time.Hour,
-	)
-	go retentionWorker.Run(ctx)
+	// Jobs substrate (A2). Replaces the dedicated EventsRetentionWorker
+	// goroutine with two handlers — events.retention_sweep and
+	// jobs.retention_sweep — registered on the JobRunner. The runner's
+	// per-tick watchdog keeps both schedules healthy across handler
+	// crashes, and the JobsView UI / JobService RPC surface gives admins
+	// visibility into the schedule (filed as P12/A14/A15/A16 follow-ups
+	// in PROPOSALS.md will plug onto this same substrate).
+	jobsPollInterval := time.Duration(viper.GetInt("jobs.poll_interval_seconds")) * time.Second
+	if jobsPollInterval == 0 {
+		jobsPollInterval = 2 * time.Second
+		if dbDriver == "sqlite" {
+			jobsPollInterval = 10 * time.Second
+		}
+	}
+	jobRunner := services.NewJobRunner(repoFactory, services.JobRunnerConfig{
+		PollInterval:    jobsPollInterval,
+		ClaimBatch:      viper.GetInt("jobs.claim_batch"),
+		LeaseDuration:   time.Duration(viper.GetInt("jobs.lease_duration_seconds")) * time.Second,
+		ShutdownTimeout: time.Duration(viper.GetInt("jobs.shutdown_timeout_seconds")) * time.Second,
+	})
+	services.RegisterRetentionHandlers(jobRunner, repoFactory, services.RetentionConfig{
+		EventRetentionDays:             viper.GetInt("events.retention_days"),
+		SucceededDeliveryRetentionDays: viper.GetInt("webhooks.succeeded_retention_days"),
+		JobRetentionDays:               viper.GetInt("jobs.retention_days"),
+		SweepInterval:                  24 * time.Hour,
+	})
+	go func() { _ = jobRunner.Run(ctx) }()
 
 	// JWT expiry sweeper (P2). Off-by-default behaviour comes from the per-
 	// operator policy (TTL=0 means the sweeper finds nothing to do). When an

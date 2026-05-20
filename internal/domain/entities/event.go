@@ -53,6 +53,16 @@ const (
 	// template.updated (which is template-side) so consumers can filter to
 	// "permission rollouts that actually landed on an SKK".
 	EventTypeTemplateApplied = "template.applied_to_scoped_key"
+	// Job lifecycle (A2). Emission is gated by HandlerSpec.AuditPolicy
+	// in JobRunner — recurring sweeps default to AuditFailuresOnly to
+	// avoid flooding the events table.
+	EventTypeJobEnqueued     = "job.enqueued"
+	EventTypeJobStarted      = "job.started"
+	EventTypeJobSucceeded    = "job.succeeded"
+	EventTypeJobFailed       = "job.failed"
+	EventTypeJobDeadLettered = "job.dead_lettered"
+	EventTypeJobCancelled    = "job.cancelled"
+	EventTypeJobRetried      = "job.retried"
 )
 
 // Event is a single audit-log entry. Stored append-only in the events table.

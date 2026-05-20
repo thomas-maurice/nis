@@ -107,6 +107,12 @@
                   Events
                 </router-link>
               </li>
+              <li v-if="authStore.isAdmin">
+                <router-link class="dropdown-item" to="/jobs">
+                  <font-awesome-icon :icon="['fas', 'clock']" class="me-2" />
+                  Background Jobs
+                </router-link>
+              </li>
             </ul>
           </li>
 

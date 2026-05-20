@@ -45,6 +45,23 @@ func repoErrToConnect(err error) error {
 // built without a sweeper wired in (test paths only).
 var errSweeperNotConfigured = errors.New("jwt expiry sweeper is not configured on this server")
 
+// mapJobStateErr translates JobRepository sentinels into Connect codes.
+// ErrJobInvalidStateTransition is FailedPrecondition (admin asked us to
+// retry/cancel a row in a state that doesn't allow it); ErrNotFound is
+// NotFound; anything else falls through.
+func mapJobStateErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, repositories.ErrJobInvalidStateTransition):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, repositories.ErrNotFound):
+		return connect.NewError(connect.CodeNotFound, err)
+	default:
+		return err
+	}
+}
+
 // authedUser returns the API user attached to the request by the auth interceptor.
 // If the context has no user (request never passed through auth), the caller gets
 // an `Unauthenticated` error suitable for returning directly from a handler.
