@@ -43,6 +43,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -112,15 +113,53 @@ func (s *ConfigService) GetRunningConfig(_ context.Context) (string, error) {
 // flag keys (via viper.AllKeys), and the curated extraKnownKeys list,
 // then inserts each (key, redacted-value) pair into a nested map suitable
 // for yaml.Marshal.
+//
+// Active-form-only filtering: `encryption.key` + `encryption.key_id`
+// (single-key mode) and `encryption.keys` + `encryption.current_key_id`
+// (multi-key mode) are mutually exclusive — `initEncryptionService`
+// picks one and ignores the other. Showing both confuses admins about
+// which one actually mints the encryptor. The filter drops the inactive
+// form based on which fields carry non-empty values.
 func buildRedactedTree() map[string]any {
+	skip := inactiveEncryptionKeys()
 	keys := dedupSortedKeys(append(viper.AllKeys(), extraKnownKeys...))
 	root := map[string]any{}
 	for _, key := range keys {
+		if skip[key] {
+			continue
+		}
 		val := viper.Get(key)
 		val = redactValue(key, val)
 		insertNested(root, strings.Split(key, "."), val)
 	}
 	return root
+}
+
+// inactiveEncryptionKeys returns the viper paths to omit from the output
+// because the OTHER encryption-config form is the live one. Mirrors the
+// branching in initEncryptionService: if encryption.keys has any entries
+// the single-key fields are ignored; otherwise the multi-key fields are
+// the inactive set. When neither has been configured (default state), we
+// suppress nothing — the admin needs to see SOMETHING is configured
+// (or, more usefully, that the binary would fail to boot).
+func inactiveEncryptionKeys() map[string]bool {
+	skip := map[string]bool{}
+	multiKey, _ := viper.Get("encryption.keys").([]any)
+	hasMultiKey := len(multiKey) > 0
+	hasSingleKey := strings.TrimSpace(viper.GetString("encryption.key")) != ""
+
+	switch {
+	case hasMultiKey:
+		// Multi-key form wins.
+		skip["encryption.key"] = true
+		skip["encryption.key_id"] = true
+	case hasSingleKey:
+		// Single-key form wins. Drop multi-key fields; current_key_id is
+		// the multi-key counterpart of key_id and irrelevant here.
+		skip["encryption.keys"] = true
+		skip["encryption.current_key_id"] = true
+	}
+	return skip
 }
 
 // dedupSortedKeys is the union helper for the key-source merge above. Sort
@@ -144,6 +183,18 @@ func dedupSortedKeys(in []string) []string {
 // gets caught even though we don't know the array length at registration
 // time.
 func redactValue(path string, val any) any {
+	// database.dsn carries a Postgres libpq password (or URI password)
+	// inline. Whole-value redaction would hide driver/host/db too — useful
+	// info for an admin. Smart-redact ONLY the password component so the
+	// rest of the DSN stays inspectable. SQLite DSNs are filesystem paths
+	// with neither pattern, so the smart redactor passes them through.
+	if path == "database.dsn" {
+		if s, ok := val.(string); ok {
+			return redactDSNPassword(s)
+		}
+		return val
+	}
+
 	if redactedPaths[path] {
 		return redactionPlaceholder
 	}
@@ -180,6 +231,36 @@ func redactValue(path string, val any) any {
 	default:
 		return val
 	}
+}
+
+// dsnPasswordRegexes redact the password component of a database DSN while
+// leaving the rest of the value visible. Three forms are covered:
+//
+//   1. libpq key=value, unquoted:  ...password=secret123 dbname=...
+//   2. libpq key=value, quoted:    ...password='hunter 2' dbname=...
+//   3. URI form:                   postgres://user:secret@host:5432/db
+//
+// SQLite DSNs are filesystem paths (./nis.db) — none of the patterns match,
+// so the value passes through unchanged.
+var dsnPasswordRegexes = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	// Quoted libpq form FIRST: the unquoted regex would otherwise consume
+	// the opening quote and trailing chars greedily.
+	{regexp.MustCompile(`(?i)\bpassword='[^']*'`), "password=***REDACTED***"},
+	{regexp.MustCompile(`(?i)\bpassword=\S+`), "password=***REDACTED***"},
+	// URI form: scheme://user:pw@host. The capturing group keeps user
+	// and "@" visible so the admin can still see who's connecting.
+	{regexp.MustCompile(`(://[^:/?@\s]+:)[^@\s]+(@)`), "${1}***REDACTED***${2}"},
+}
+
+func redactDSNPassword(dsn string) string {
+	out := dsn
+	for _, r := range dsnPasswordRegexes {
+		out = r.re.ReplaceAllString(out, r.repl)
+	}
+	return out
 }
 
 func lastSegment(path string) string {

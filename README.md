@@ -199,6 +199,11 @@ ending in `_secret`, `_password`, or `_access_key`) are replaced by
 configured without leaking its value. Env-only credentials (the documented
 prod path for `AUTH_JWT_SECRET` etc.) are visible-and-redacted, not absent.
 
+The `database.dsn` value is **smart-redacted**: only the password component
+is replaced, so an admin still sees driver, host, port, user, dbname, and
+sslmode. Both libpq key-value form (`host=... password=***REDACTED*** dbname=...`)
+and URI form (`postgres://user:***REDACTED***@host/db`) are handled.
+
 ## Use Cases
 
 **Multi-tenant SaaS** - Isolate customers with separate accounts
