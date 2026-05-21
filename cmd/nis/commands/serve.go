@@ -266,7 +266,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// keep connecting indefinitely. Done post-construction because
 	// AccountService doesn't otherwise need a ClusterService dep.
 	accountService.WithClusterService(clusterService)
-	// P6 auto-sync: SKK mutations also push the parent account JWT to
+	// P6 auto-sync: SSK mutations also push the parent account JWT to
 	// every cluster after the tx commits. Without this, an operator who
 	// adds a scoped key or bumps a template would have to remember to
 	// `nisctl cluster sync` afterwards. Same best-effort semantic as
@@ -342,11 +342,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Permission templates (P6) — operator-scoped versioned permission
 	// bundles. The service owns CRUD + versioning + delete-blocked-by-
-	// dependents; the actual application of a template version to an SKK
+	// dependents; the actual application of a template version to an SSK
 	// is in ScopedSigningKeyService.BumpScopedKeyTemplate so the existing
 	// account-JWT regen + post-commit push path is reused.
 	templateService := services.NewTemplateService(repoFactory, permissionService).
-		WithSKKService(scopedKeyService)
+		WithSSKService(scopedKeyService)
 
 	// Initialize auth middleware. The API-token flusher coalesces last_used_at
 	// updates so every authenticated request doesn't trigger its own DB write —

@@ -456,8 +456,8 @@ func (s *PermissionService) CanManageAPIUsers(apiUser *entities.APIUser) error {
 //
 // Templates are operator-scoped. Account-admin gets nothing (mirrors the
 // "account-admin cannot manage scoped keys" precedent — if they can't
-// see SKKs, exposing the templates that feed them buys nothing). Bump
-// and detach actions on SKKs reuse CanManageScopedKeys; this section
+// see SSKs, exposing the templates that feed them buys nothing). Bump
+// and detach actions on SSKs reuse CanManageScopedKeys; this section
 // covers only template-side authority.
 
 // CanManageTemplate: admin or operator-admin owning the operator (account-admin not allowed).

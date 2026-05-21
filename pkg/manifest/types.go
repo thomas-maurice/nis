@@ -243,7 +243,7 @@ func formatSize(b int64) string {
 
 // ScopedSigningKeySpec is the spec block for kind: ScopedSigningKey.
 //
-// When Template is non-empty, the SKK is created from that named
+// When Template is non-empty, the SSK is created from that named
 // template's snapshot and the permission fields above are IGNORED on
 // create. Manifest-side updates to template binding are intentionally
 // not supported in v1 — attaching, detaching, or bumping is an explicit
@@ -259,15 +259,15 @@ type ScopedSigningKeySpec struct {
 	ResponseMaxMsgs int
 	ResponseTTL     time.Duration
 	// Template references a Template by name within the same operator.
-	// Optional; when set, the SKK is templated.
+	// Optional; when set, the SSK is templated.
 	Template string
 	// TemplateVersion pins to a specific version. Zero means "current
 	// latest at apply time"; non-zero requires that exact version exist.
 	TemplateVersion int
-	// TrackLatest opts the SKK into TemplateService.UpdateTemplate's
+	// TrackLatest opts the SSK into TemplateService.UpdateTemplate's
 	// auto-propagation. Honoured only when Template != ""; otherwise
 	// the apply call rejects. Coexists with TemplateVersion in the
-	// schema but at apply time the SKK is created at the template's
+	// schema but at apply time the SSK is created at the template's
 	// current latest regardless of the pin (track + pin contradict).
 	TrackLatest bool
 }

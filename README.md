@@ -278,7 +278,7 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `user.cred.renewed` | RegenerateUserCredentials minted a fresh user JWT (manual or sweeper auto-renew) |
 | `user.revocation_pruned` | Sweeper removed an expired revocation entry from an account JWT |
 | `template.created` / `template.updated` / `template.deleted` | Permission template lifecycle (P6). `template.updated` carries `bumped:true` when the edit created a new version |
-| `template.applied_to_scoped_key` | An SKK adopted a template version. `action` payload distinguishes `create` (SKK was created from the template), `bump` (existing SKK was rolled to a new version), and `detach` |
+| `template.applied_to_scoped_key` | An SSK adopted a template version. `action` payload distinguishes `create` (SSK was created from the template), `bump` (existing SSK was rolled to a new version), and `detach` |
 
 Events carry `actor_type` (`user` for RPC-driven events from human logins, `api_token` for RPCs driven by a service-account token, `system` for background ones), `actor_id` (the API user OR the token ID, depending on actor_type), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
 
@@ -811,11 +811,11 @@ Full per-kind examples with annotated fields: [`example/manifests/`](example/man
 Templates are operator-scoped, versioned permission bundles. Instead of
 re-typing the same `pub_allow`/`sub_deny` lists across 50 scoped signing
 keys for a "ServiceReader" role, declare it once as a `Template`, then
-create SKKs from it with `--from-template`. The SKK carries a snapshot
+create SSKs from it with `--from-template`. The SSK carries a snapshot
 of the template's permissions plus a pin to a specific version.
 
 **Template updates never auto-cascade.** Bumping a template creates a
-new `template_versions` row and advances `latest_version`; SKKs pinned
+new `template_versions` row and advances `latest_version`; SSKs pinned
 to an older version stay on it until an operator explicitly bumps each
 one. This is deliberate — surprise permission rollouts to production
 clusters are exactly what P6 exists to prevent.
@@ -827,25 +827,25 @@ nisctl template create service-reader --operator my-op \
   --sub-allow "events.>" --sub-allow "_INBOX.>" \
   --pub-deny ">"
 
-# Create a standalone SKK with explicit permissions (no template).
-nisctl signing-key create reader-skk --operator my-op --account web \
+# Create a standalone SSK with explicit permissions (no template).
+nisctl signing-key create reader-ssk --operator my-op --account web \
   --description "service reader role" \
   --pub-allow "svc.>" --pub-deny "svc.admin.>" \
   --sub-allow "svc.>" --sub-allow "_INBOX.>" \
   --response-max-msgs 1 --response-ttl 2m
 
-# Or create an SKK from the template. The SKK is pinned to the template's
+# Or create an SSK from the template. The SSK is pinned to the template's
 # current latest_version unless --template-version is set. The perm
 # flags above are refused when --from-template is set — the template
 # wins.
-nisctl signing-key create reader-skk --operator my-op --account web \
+nisctl signing-key create reader-ssk --operator my-op --account web \
   --from-template service-reader
 
-# Edit an SKK in place. Metadata flags (--name, --description) and
+# Edit an SSK in place. Metadata flags (--name, --description) and
 # permission flags can be combined; only the flags you pass change.
 # Permission edits re-sign the parent account JWT and push to clusters.
-nisctl signing-key edit <SKK_ID> --description "narrowed scope"
-nisctl signing-key edit <SKK_ID> --pub-deny "svc.admin.>,svc.internal.>"
+nisctl signing-key edit <SSK_ID> --description "narrowed scope"
+nisctl signing-key edit <SSK_ID> --pub-deny "svc.admin.>,svc.internal.>"
 
 # Update the template (new permissions ⇒ new version row + latest_version bump).
 # Description-only updates do NOT bump the version. `edit` is an alias.
@@ -854,32 +854,32 @@ nisctl template update service-reader --operator my-op \
   --pub-deny ">" \
   --change-note "add metrics read access"
 
-# Existing SKKs still on v1 until explicit roll-out. List + bump:
+# Existing SSKs still on v1 until explicit roll-out. List + bump:
 nisctl template dependents service-reader --operator my-op
-nisctl signing-key bump-template <SKK_ID>          # to current latest
-nisctl signing-key bump-template <SKK_ID> --to-version 2
+nisctl signing-key bump-template <SSK_ID>          # to current latest
+nisctl signing-key bump-template <SSK_ID> --to-version 2
 
-# Detach an SKK from its template — keeps current permissions, stops
+# Detach an SSK from its template — keeps current permissions, stops
 # tracking. After detach, future template updates have no effect.
-nisctl signing-key detach-template <SKK_ID>
+nisctl signing-key detach-template <SSK_ID>
 ```
 
-**Drift flag.** Editing a templated SKK's permissions directly (via
+**Drift flag.** Editing a templated SSK's permissions directly (via
 `UpdatePermissions` / the UI) sets `template_drifted=true`. The
 template binding is preserved; the UI surfaces an "edited" badge so
 operators can decide whether a future bump should overwrite their
 custom edits or whether to detach first.
 
 **Reserved names.** `default` and `system` are refused as template
-names (collisions with the per-account default SKK and the `$SYS`
+names (collisions with the per-account default SSK and the `$SYS`
 system user).
 
-**Manifests.** `Template` is a new kind; SKK specs gain optional
+**Manifests.** `Template` is a new kind; SSK specs gain optional
 `template` + `templateVersion` fields. See
 [`example/manifests/template.yaml`](example/manifests/template.yaml)
 and [`example/manifests/full-stack.yaml`](example/manifests/full-stack.yaml).
 
-**Auto-sync (A13-lite, shipped with P6).** SKK mutations and account
+**Auto-sync (A13-lite, shipped with P6).** SSK mutations and account
 JSON edits now push the regenerated account JWT to every attached
 cluster after the DB tx commits. Best-effort: per-cluster failures are
 logged but don't fail the API call (`nisctl cluster sync` and the

@@ -16,7 +16,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
 
-// Reserved template names — kept in sync with the SKK reserved-name guards
+// Reserved template names — kept in sync with the SSK reserved-name guards
 // in pkg/manifest/validate.go. "default" and "system" are auto-created
 // per-account constructs at lower levels of the identity tree; allowing
 // templates to mint them would surface a confusing collision the moment
@@ -34,55 +34,55 @@ var (
 	ErrTemplateVersionNotFound     = errors.New("template version not found")
 	ErrTemplateRefForeignOperator  = errors.New("template belongs to a different operator")
 	ErrScopedKeyNotTemplated       = errors.New("scoped signing key is not pinned to a template")
-	// ErrSKKTrackLatestRequiresTemplate is returned when a caller asks to
-	// create an SKK with track_latest=true but supplies no template ref.
+	// ErrSSKTrackLatestRequiresTemplate is returned when a caller asks to
+	// create an SSK with track_latest=true but supplies no template ref.
 	// Tracking with nothing to track is meaningless.
-	ErrSKKTrackLatestRequiresTemplate = errors.New("track_latest requires a template binding")
-	// ErrSKKTrackingLatest is returned when a permission edit lands on an
-	// SKK that has track_latest=true. The next auto-bump would silently
+	ErrSSKTrackLatestRequiresTemplate = errors.New("track_latest requires a template binding")
+	// ErrSSKTrackingLatest is returned when a permission edit lands on an
+	// SSK that has track_latest=true. The next auto-bump would silently
 	// overwrite the edit; force the operator to disable tracking first
 	// (or detach) so the intent is explicit.
-	ErrSKKTrackingLatest = errors.New("scoped signing key is tracking latest; disable tracking or detach before editing permissions")
-	// ErrSKKTrackLatestDrifted is returned when a caller enables
-	// track_latest on a templated SKK whose permissions have drifted
+	ErrSSKTrackingLatest = errors.New("scoped signing key is tracking latest; disable tracking or detach before editing permissions")
+	// ErrSSKTrackLatestDrifted is returned when a caller enables
+	// track_latest on a templated SSK whose permissions have drifted
 	// from the template version. Either bump-template (clearing drift)
 	// or detach + re-attach is required.
-	ErrSKKTrackLatestDrifted = errors.New("scoped signing key has drifted from its template; bump-template or detach before enabling track_latest")
+	ErrSSKTrackLatestDrifted = errors.New("scoped signing key has drifted from its template; bump-template or detach before enabling track_latest")
 )
 
 // TemplateService manages operator-scoped permission templates and their
 // application onto scoped signing keys. Templates are immutable-versioned:
-// every permission edit creates a new template_versions row; pinned SKKs
+// every permission edit creates a new template_versions row; pinned SSKs
 // stay on their pinned version until an explicit bump.
 //
 // The service intentionally does NOT call ClusterService directly — push
-// happens through the SKK service's BumpScopedKeyTemplate /
+// happens through the SSK service's BumpScopedKeyTemplate /
 // DetachScopedKeyTemplate path (those reuse the existing
 // regenerateAccountJWTTx + post-commit push pattern). This service owns
-// the template entity; SKK ownership stays with ScopedSigningKeyService.
+// the template entity; SSK ownership stays with ScopedSigningKeyService.
 type TemplateService struct {
 	factory     persistence.RepositoryFactory
 	permService *PermissionService
-	// skkService is the bridge for auto-track propagation: it owns the
+	// sskService is the bridge for auto-track propagation: it owns the
 	// account-JWT regen helper and the cluster push. Set via
-	// WithSKKService post-construction; until then UpdateTemplate
+	// WithSSKService post-construction; until then UpdateTemplate
 	// silently skips the auto-track fan-out (tests that don't care
 	// about that path don't need to wire it).
-	skkService *ScopedSigningKeyService
+	sskService *ScopedSigningKeyService
 }
 
 func NewTemplateService(factory persistence.RepositoryFactory, permService *PermissionService) *TemplateService {
 	return &TemplateService{factory: factory, permService: permService}
 }
 
-// WithSKKService attaches the SKK service so UpdateTemplate can drive
+// WithSSKService attaches the SSK service so UpdateTemplate can drive
 // auto-track propagation (snapshot new version onto every
-// track_latest=true SKK, regen the parent account JWT, push to
+// track_latest=true SSK, regen the parent account JWT, push to
 // clusters after commit). Wired post-construction in serve.go because
 // TemplateService and ScopedSigningKeyService are mutually independent
 // at construction time.
-func (s *TemplateService) WithSKKService(skk *ScopedSigningKeyService) *TemplateService {
-	s.skkService = skk
+func (s *TemplateService) WithSSKService(ssk *ScopedSigningKeyService) *TemplateService {
+	s.sskService = ssk
 	return s
 }
 
@@ -252,9 +252,9 @@ type UpdateTemplateRequest struct {
 	PermissionsProvided bool
 }
 
-// autoTrackCap caps how many tracking SKKs UpdateTemplate will fan out
+// autoTrackCap caps how many tracking SSKs UpdateTemplate will fan out
 // to in one shot. Past this the call returns FailedPrecondition with a
-// hint to disable tracking on the excess SKKs first. Hard cap rather
+// hint to disable tracking on the excess SSKs first. Hard cap rather
 // than queued because (a) we have no worker substrate and (b) holding
 // row locks on hundreds of accounts in one tx would serialise unrelated
 // account-JWT regens. Tunable later if it ever bites.
@@ -325,14 +325,14 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 			outVer = &candidate
 			dirtyMeta = true
 
-			// Auto-track fan-out. List all SKKs tracking this template,
+			// Auto-track fan-out. List all SSKs tracking this template,
 			// snapshot the new version onto them, bump their template_version,
 			// and queue their parent accounts for a post-commit JWT push. The
 			// per-account JWT regen happens once per unique account inside
-			// this tx — multiple tracking SKKs on the same account are
-			// coalesced. Skip silently when skkService isn't wired (mostly
+			// this tx — multiple tracking SSKs on the same account are
+			// coalesced. Skip silently when sskService isn't wired (mostly
 			// unit tests; the prod path always wires it in serve.go).
-			if s.skkService != nil {
+			if s.sskService != nil {
 				tracking, err := tx.TemplateRepository().ListTrackingScopedKeys(ctx, tpl.ID)
 				if err != nil {
 					return fmt.Errorf("list tracking scoped keys: %w", err)
@@ -342,30 +342,30 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 						len(tracking), autoTrackCap)
 				}
 				touchedAccounts := make(map[uuid.UUID]struct{}, len(tracking))
-				for _, skk := range tracking {
-					skk.PubAllow = candidate.PubAllow
-					skk.PubDeny = candidate.PubDeny
-					skk.SubAllow = candidate.SubAllow
-					skk.SubDeny = candidate.SubDeny
-					skk.ResponseMaxMsgs = candidate.ResponseMaxMsgs
-					skk.ResponseTTL = candidate.ResponseTTL
+				for _, ssk := range tracking {
+					ssk.PubAllow = candidate.PubAllow
+					ssk.PubDeny = candidate.PubDeny
+					ssk.SubAllow = candidate.SubAllow
+					ssk.SubDeny = candidate.SubDeny
+					ssk.ResponseMaxMsgs = candidate.ResponseMaxMsgs
+					ssk.ResponseTTL = candidate.ResponseTTL
 					v := candidate.VersionNumber
-					skk.TemplateVersion = &v
-					skk.TemplateDrifted = false
-					skk.UpdatedAt = now
-					if err := tx.ScopedSigningKeyRepository().Update(ctx, skk); err != nil {
-						return fmt.Errorf("auto-track update SKK %s: %w", skk.ID, err)
+					ssk.TemplateVersion = &v
+					ssk.TemplateDrifted = false
+					ssk.UpdatedAt = now
+					if err := tx.ScopedSigningKeyRepository().Update(ctx, ssk); err != nil {
+						return fmt.Errorf("auto-track update SSK %s: %w", ssk.ID, err)
 					}
 					if err := events.EmitTx(ctx, tx, events.Event{
 						Type:         entities.EventTypeTemplateApplied,
 						OperatorID:   &tpl.OperatorID,
-						AccountID:    &skk.AccountID,
+						AccountID:    &ssk.AccountID,
 						ResourceType: "template",
 						ResourceID:   tpl.ID.String(),
 						Payload: map[string]any{
 							"action":           "auto_track",
-							"scoped_key_id":    skk.ID.String(),
-							"scoped_key_name":  skk.Name,
+							"scoped_key_id":    ssk.ID.String(),
+							"scoped_key_name":  ssk.Name,
 							"template_version": v,
 						},
 					}); err != nil {
@@ -374,25 +374,25 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 					if err := events.EmitTx(ctx, tx, events.Event{
 						Type:         entities.EventTypeScopedKeyUpdated,
 						OperatorID:   &tpl.OperatorID,
-						AccountID:    &skk.AccountID,
+						AccountID:    &ssk.AccountID,
 						ResourceType: "scoped_key",
-						ResourceID:   skk.ID.String(),
+						ResourceID:   ssk.ID.String(),
 						Payload: map[string]any{
-							"name":              skk.Name,
+							"name":              ssk.Name,
 							"auto_tracked":      true,
 							"bumped_to_version": v,
 						},
 					}); err != nil {
 						return fmt.Errorf("emit scoped_key.updated (auto_track): %w", err)
 					}
-					if _, seen := touchedAccounts[skk.AccountID]; seen {
+					if _, seen := touchedAccounts[ssk.AccountID]; seen {
 						continue
 					}
-					touchedAccounts[skk.AccountID] = struct{}{}
-					if err := s.skkService.RegenerateAccountJWTTx(ctx, tx, skk.AccountID); err != nil {
-						return fmt.Errorf("auto-track regen account %s JWT: %w", skk.AccountID, err)
+					touchedAccounts[ssk.AccountID] = struct{}{}
+					if err := s.sskService.RegenerateAccountJWTTx(ctx, tx, ssk.AccountID); err != nil {
+						return fmt.Errorf("auto-track regen account %s JWT: %w", ssk.AccountID, err)
 					}
-					pushAccounts = append(pushAccounts, skk.AccountID)
+					pushAccounts = append(pushAccounts, ssk.AccountID)
 				}
 			}
 		}
@@ -421,20 +421,20 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 		return nil, nil, err
 	}
 	// Best-effort cluster pushes for every account that had at least one
-	// tracking SKK auto-bumped. Same A13-lite semantic as
+	// tracking SSK auto-bumped. Same A13-lite semantic as
 	// ScopedSigningKeyService.pushAccountAfterCommit — failures are
 	// logged but do not fail the API call; nisctl cluster sync is the
 	// recovery tool.
-	if s.skkService != nil {
+	if s.sskService != nil {
 		for _, accountID := range pushAccounts {
-			s.skkService.PushAccountAfterCommit(ctx, accountID)
+			s.sskService.PushAccountAfterCommit(ctx, accountID)
 		}
 	}
 	return outTpl, outVer, nil
 }
 
-// DeleteTemplate refuses when any SKK pins this template. The FK on the
-// SKK side is ON DELETE SET NULL (not RESTRICT) — see the schema note
+// DeleteTemplate refuses when any SSK pins this template. The FK on the
+// SSK side is ON DELETE SET NULL (not RESTRICT) — see the schema note
 // for why — so this app-layer guard is the only block.
 func (s *TemplateService) DeleteTemplate(ctx context.Context, id uuid.UUID) error {
 	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {

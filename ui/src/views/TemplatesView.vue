@@ -69,7 +69,7 @@
       </div>
     </div>
 
-    <!-- Create modal. Permissions form mirrors the SKK create flow so
+    <!-- Create modal. Permissions form mirrors the SSK create flow so
          operators see familiar fields; the textareas use the same
          literal-newline binding pattern that fixed UI1 (split on \n, no
          filter-while-typing). -->
@@ -146,7 +146,7 @@
                   Leave both at <code>0</code> to get NATS's server-side
                   defaults (<code>1 msg / 2 min</code>) — that's the right
                   call for almost every service. Auto-grant only activates
-                  when the SKK using this template has a restricted
+                  when the SSK using this template has a restricted
                   <code>pub_allow</code>; permissive keys (no allow list)
                   publish freely and don't need auto-grant.
                 </div>
@@ -202,7 +202,7 @@ const formData = ref({
   // Defaults: 0/0 (no caps on replies, no time limit). Templates are an
   // account-wide construct and per-request latency varies per service
   // — a low TTL would silently break slow handlers. Per-service tighter
-  // bounds belong on the individual SKK, not the shared template.
+  // bounds belong on the individual SSK, not the shared template.
   responseMaxMsgs: 0,
   responseTTLSeconds: 0,
   changeNote: ''
@@ -304,7 +304,7 @@ const handleSubmit = async () => {
 
 const handleDelete = async (t) => {
   // Server-side guard: TemplateService.DeleteTemplate refuses with
-  // FailedPrecondition when any SKK still pins the template. The error
+  // FailedPrecondition when any SSK still pins the template. The error
   // bubbles up here verbatim — surface it in the page-level alert.
   if (!confirm(`Delete template "${t.name}"?\n\nThis is refused if any scoped signing key still pins this template; detach or bump them first.`)) {
     return

@@ -192,14 +192,14 @@ type ScopedSigningKeyModel struct {
 	Template        *TemplateModel  `gorm:"foreignKey:TemplateID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
 	TemplateVersion *int            `gorm:"type:integer"`
 	TemplateDrifted bool            `gorm:"type:boolean;not null;default:false"`
-	// TrackLatest opts this SKK into TemplateService.UpdateTemplate's
+	// TrackLatest opts this SSK into TemplateService.UpdateTemplate's
 	// auto-propagation: when a new template_versions row is created, every
-	// SKK with track_latest=true gets its perm columns snapshotted from
+	// SSK with track_latest=true gets its perm columns snapshotted from
 	// the new version and its parent account JWT re-signed + pushed.
 	// Service-layer invariants (not enforced by FK/CHECK): only allowed
 	// when template_id IS NOT NULL AND template_drifted=false.
 	TrackLatest     bool            `gorm:"type:boolean;not null;default:false"`
-	// IsPlainSigner marks SKKs that were imported from an NSC store
+	// IsPlainSigner marks SSKs that were imported from an NSC store
 	// where the parent account JWT lists this key as a plain string in
 	// signing_keys (not as a UserScope). For these keys NIS must:
 	//   1) emit them as plain strings on account-JWT regen (so existing
@@ -207,7 +207,7 @@ type ScopedSigningKeyModel struct {
 	//   2) NOT call SetScoped(true) on user JWTs we mint signed by them
 	//      (NATS would then apply the user JWT's perms directly, and a
 	//      SetScoped-zeroed JWT has subs:0/payload:0 = locked-out user).
-	// Default false: every NIS-native SKK is a real UserScope.
+	// Default false: every NIS-native SSK is a real UserScope.
 	IsPlainSigner   bool            `gorm:"type:boolean;not null;default:false"`
 	CreatedAt       time.Time       `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 	UpdatedAt       time.Time       `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`

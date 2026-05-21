@@ -46,10 +46,10 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 	seen := make(map[identity]string) // value = "source:docIdx" for diagnostics
 
 	// Track ScopedSigningKeys by (operator, account, name) for ref resolution.
-	type skkKey struct{ operator, account, name string }
-	knownScopedKeys := make(map[skkKey]struct{})
+	type sskKey struct{ operator, account, name string }
+	knownScopedKeys := make(map[sskKey]struct{})
 
-	// Track Templates by (operator, name) for SKK→template ref resolution.
+	// Track Templates by (operator, name) for SSK→template ref resolution.
 	type tmplKey struct{ operator, name string }
 	knownTemplates := make(map[tmplKey]struct{})
 
@@ -95,14 +95,14 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 
 		// Collect known ScopedSigningKeys for Rule 4 ref resolution.
 		if obj.Kind == KindScopedSigningKey {
-			knownScopedKeys[skkKey{
+			knownScopedKeys[sskKey{
 				operator: obj.Metadata.Operator,
 				account:  obj.Metadata.Account,
 				name:     obj.Metadata.Name,
 			}] = struct{}{}
 		}
 
-		// Collect known Templates for SKK→template ref resolution.
+		// Collect known Templates for SSK→template ref resolution.
 		if obj.Kind == KindTemplate {
 			knownTemplates[tmplKey{
 				operator: obj.Metadata.Operator,
@@ -123,7 +123,7 @@ func Validate(objects []Object, opts ValidateOptions) (*ValidateResult, error) {
 			continue
 		}
 		loc := objectLocation(obj)
-		key := skkKey{
+		key := sskKey{
 			operator: obj.Metadata.Operator,
 			account:  obj.Metadata.Account,
 			name:     obj.User.ScopedKey,
@@ -248,7 +248,7 @@ func validateReservedNames(obj Object) error {
 	case KindTemplate:
 		// Mirror the server-side TemplateService reserved-names guard.
 		// "default" / "system" would surface as confusing collisions with
-		// the per-account default SKK and the $SYS system user.
+		// the per-account default SSK and the $SYS system user.
 		if obj.Metadata.Name == "default" || obj.Metadata.Name == "system" {
 			return fmt.Errorf("metadata.name %q is reserved for kind Template", obj.Metadata.Name)
 		}

@@ -459,11 +459,11 @@ func (s *ExportService) importNSCAccount(ctx context.Context, tx persistence.Rep
 // importNSCScopedSigningKey imports a signing key from NSC via the tx.
 // `scope` is the value from accountClaims.SigningKeys[pubkey]:
 //   - nil  → plain signer; user JWTs we mint must NOT use SetScoped, and
-//     the SKK is emitted as a raw string on account-JWT regen.
+//     the SSK is emitted as a raw string on account-JWT regen.
 //   - *jwt.UserScope → scoped signer; copy the embedded Template's
-//     pub/sub/Resp into the SKK row so a future account-JWT regen
+//     pub/sub/Resp into the SSK row so a future account-JWT regen
 //     reproduces the same template (preserving the operator's intent).
-//     Without this, NIS would later emit the SKK with empty perms and
+//     Without this, NIS would later emit the SSK with empty perms and
 //     existing users that rely on the original template restrictions
 //     would silently lose those restrictions.
 func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persistence.RepositoryFactory, nscDir string, accountID uuid.UUID, signingKeyPubKey string, scope jwt.Scope) error {
@@ -515,10 +515,10 @@ func (s *ExportService) importNSCScopedSigningKey(ctx context.Context, tx persis
 	if us, ok := scope.(*jwt.UserScope); ok && us != nil {
 		// Preserve the template's permission surface so a future
 		// account-JWT regen reproduces the same scope. NatsLimits
-		// from the template are NOT mirrored onto the SKK row —
+		// from the template are NOT mirrored onto the SSK row —
 		// jwt_service.NewUserScope re-defaults them to NoLimit on
-		// regen and our SKK schema doesn't have per-key NatsLimits
-		// columns. If an operator ever needs per-SKK NatsLimits
+		// regen and our SSK schema doesn't have per-key NatsLimits
+		// columns. If an operator ever needs per-SSK NatsLimits
 		// after import, that's a separate schema extension.
 		scopedKey.IsPlainSigner = false
 		scopedKey.PubAllow = append([]string{}, us.Template.Pub.Allow...)

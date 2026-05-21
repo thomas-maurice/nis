@@ -38,14 +38,14 @@ func TestE2E_ResponsePermission_AutoGrantEnabledByDefault(t *testing.T) {
 	h := startStack(t)
 	s := h.bootStandardStack(t, "resp-default")
 
-	// A restricted SKK: pub_allow does NOT include _INBOX.>. If NIS
+	// A restricted SSK: pub_allow does NOT include _INBOX.>. If NIS
 	// stopped emitting Resp, a user signed by this key would hit a
 	// permission violation when trying to reply to a request. Both
 	// response_permission fields are unset (0/0) — the whole point is
 	// that NATS's defaults kick in without us specifying them.
 	respKeyID, err := adminCreateRestrictedRespKey(t, h, s.accountID, "resp-only")
 	if err != nil {
-		t.Fatalf("create restricted SKK: %v", err)
+		t.Fatalf("create restricted SSK: %v", err)
 	}
 	respUserID := h.createScopedUser(t, s.accountID, "resp-user", respKeyID)
 	h.syncCluster(t, s.clusterID)
@@ -59,7 +59,7 @@ func TestE2E_ResponsePermission_AutoGrantEnabledByDefault(t *testing.T) {
 	// Wire the responder: subscribe to demo.echo and reply with the
 	// request payload. This is the test's load-bearing assertion —
 	// the reply Publish() happens against `_INBOX.<random>` which the
-	// SKK's pub_allow does NOT cover, so it can only succeed if the
+	// SSK's pub_allow does NOT cover, so it can only succeed if the
 	// NATS response-permission auto-grant covered it.
 	respNC, respErrCh := dialWithErrCh(t, h.natsURL, respCredsPath)
 	defer respNC.Close()
@@ -93,7 +93,7 @@ func TestE2E_ResponsePermission_AutoGrantEnabledByDefault(t *testing.T) {
 	expectNoAsyncError(t, respErrCh, 200*time.Millisecond)
 }
 
-// adminCreateRestrictedRespKey creates a SKK on the given account with
+// adminCreateRestrictedRespKey creates a SSK on the given account with
 // permissions explicit enough to PUBLISH on demo.echo (the requester's
 // side wouldn't reach the responder otherwise), and SUBSCRIBE on
 // demo.echo (so it can receive the request), but NO pub_allow on

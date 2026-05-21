@@ -121,8 +121,8 @@ func TestE2E_Templates_CreateGetListUpdateDelete(t *testing.T) {
 	}
 }
 
-// TestE2E_Templates_CreateScopedKeyFromTemplate creates an SKK with a
-// TemplateRef, verifies the resulting SKK carries the template binding +
+// TestE2E_Templates_CreateScopedKeyFromTemplate creates an SSK with a
+// TemplateRef, verifies the resulting SSK carries the template binding +
 // the snapshot's permissions, and confirms DetachFromTemplate clears
 // the binding without touching the permission columns.
 func TestE2E_Templates_CreateScopedKeyFromTemplate(t *testing.T) {
@@ -142,9 +142,9 @@ func TestE2E_Templates_CreateScopedKeyFromTemplate(t *testing.T) {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
 
-	skkResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: accID,
-		Name:      "writer-skk",
+		Name:      "writer-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   opID,
 			TemplateName: "writer",
@@ -153,32 +153,32 @@ func TestE2E_Templates_CreateScopedKeyFromTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateScopedSigningKey with template: %v", err)
 	}
-	if skkResp.Msg.Key.TemplateId != tplResp.Msg.Template.Id {
-		t.Fatalf("expected SKK.template_id=%s, got %s", tplResp.Msg.Template.Id, skkResp.Msg.Key.TemplateId)
+	if sskResp.Msg.Key.TemplateId != tplResp.Msg.Template.Id {
+		t.Fatalf("expected SSK.template_id=%s, got %s", tplResp.Msg.Template.Id, sskResp.Msg.Key.TemplateId)
 	}
-	if skkResp.Msg.Key.TemplateVersion != 1 {
-		t.Fatalf("expected SKK.template_version=1, got %d", skkResp.Msg.Key.TemplateVersion)
+	if sskResp.Msg.Key.TemplateVersion != 1 {
+		t.Fatalf("expected SSK.template_version=1, got %d", sskResp.Msg.Key.TemplateVersion)
 	}
-	if skkResp.Msg.Key.TemplateDrifted {
-		t.Fatal("expected fresh templated SKK to not be drifted")
+	if sskResp.Msg.Key.TemplateDrifted {
+		t.Fatal("expected fresh templated SSK to not be drifted")
 	}
 	// Snapshot landed in permission columns.
-	if len(skkResp.Msg.Key.Permissions.PubAllow) != 1 || skkResp.Msg.Key.Permissions.PubAllow[0] != "writes.>" {
-		t.Fatalf("expected pub_allow=[writes.>], got %v", skkResp.Msg.Key.Permissions.PubAllow)
+	if len(sskResp.Msg.Key.Permissions.PubAllow) != 1 || sskResp.Msg.Key.Permissions.PubAllow[0] != "writes.>" {
+		t.Fatalf("expected pub_allow=[writes.>], got %v", sskResp.Msg.Key.Permissions.PubAllow)
 	}
 
 	// Detach: clears binding, leaves permissions.
 	detachResp, err := h.keyCli.DetachFromTemplate(context.Background(), connect.NewRequest(&nisv1.DetachFromTemplateRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 	}))
 	if err != nil {
 		t.Fatalf("DetachFromTemplate: %v", err)
 	}
 	if detachResp.Msg.Key.TemplateId != "" {
-		t.Fatalf("expected SKK.template_id cleared after detach, got %q", detachResp.Msg.Key.TemplateId)
+		t.Fatalf("expected SSK.template_id cleared after detach, got %q", detachResp.Msg.Key.TemplateId)
 	}
 	if detachResp.Msg.Key.TemplateVersion != 0 {
-		t.Fatalf("expected SKK.template_version cleared after detach, got %d", detachResp.Msg.Key.TemplateVersion)
+		t.Fatalf("expected SSK.template_version cleared after detach, got %d", detachResp.Msg.Key.TemplateVersion)
 	}
 	if len(detachResp.Msg.Key.Permissions.PubAllow) != 1 || detachResp.Msg.Key.Permissions.PubAllow[0] != "writes.>" {
 		t.Fatalf("expected permissions preserved after detach, got %v", detachResp.Msg.Key.Permissions.PubAllow)
@@ -186,9 +186,9 @@ func TestE2E_Templates_CreateScopedKeyFromTemplate(t *testing.T) {
 }
 
 // TestE2E_Templates_BumpAppliesNewPermissionsToNATS is the live-NATS
-// integration: an SKK is created from v1 (sub_allow=events.>), a user
+// integration: an SSK is created from v1 (sub_allow=events.>), a user
 // is signed by it and connects, the template is bumped to v2
-// (sub_deny=events.secret.>), Apply rolls the new scope into the SKK
+// (sub_deny=events.secret.>), Apply rolls the new scope into the SSK
 // and the auto-sync push lands it on NATS — a fresh connect under the
 // same user is now denied on events.secret.>. Without the auto-sync
 // portion of P6 the new perms would only land after a manual cluster
@@ -197,7 +197,7 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 	h := startStack(t)
 	s := h.bootStandardStack(t, "tpl-bump")
 
-	// Create a template + a SKK from it + a user signed by the SKK.
+	// Create a template + a SSK from it + a user signed by the SSK.
 	tplResp, err := h.templateCli.CreateTemplate(context.Background(), connect.NewRequest(&nisv1.CreateTemplateRequest{
 		OperatorId: s.operatorID,
 		Name:       "bump-tpl",
@@ -209,9 +209,9 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
-	skkResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: s.accountID,
-		Name:      "bump-skk",
+		Name:      "bump-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   s.operatorID,
 			TemplateName: "bump-tpl",
@@ -220,8 +220,8 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateScopedSigningKey from template: %v", err)
 	}
-	userID := h.createScopedUser(t, s.accountID, "bump-user", skkResp.Msg.Key.Id)
-	// Auto-sync wired in serve.go pushes after the SKK + user creates;
+	userID := h.createScopedUser(t, s.accountID, "bump-user", sskResp.Msg.Key.Id)
+	// Auto-sync wired in serve.go pushes after the SSK + user creates;
 	// no manual sync required.
 	credsPath := h.fetchUserCreds(t, userID, "bump-user")
 
@@ -252,16 +252,16 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 		t.Fatalf("UpdateTemplate to v2: %v", err)
 	}
 
-	// Apply v2 to the SKK. This is the explicit-roll-out path —
+	// Apply v2 to the SSK. This is the explicit-roll-out path —
 	// template update alone never auto-cascades.
 	bumpResp, err := h.templateCli.ApplyTemplateToScopedKey(context.Background(), connect.NewRequest(&nisv1.ApplyTemplateToScopedKeyRequest{
-		ScopedSigningKeyId: skkResp.Msg.Key.Id,
+		ScopedSigningKeyId: sskResp.Msg.Key.Id,
 	}))
 	if err != nil {
 		t.Fatalf("ApplyTemplateToScopedKey: %v", err)
 	}
 	if bumpResp.Msg.Key.TemplateVersion != 2 {
-		t.Fatalf("expected SKK pinned to v2 after bump, got v%d", bumpResp.Msg.Key.TemplateVersion)
+		t.Fatalf("expected SSK pinned to v2 after bump, got v%d", bumpResp.Msg.Key.TemplateVersion)
 	}
 
 	// New connect with the SAME credentials — the bump auto-pushed the
@@ -283,9 +283,9 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 }
 
 // TestE2E_Templates_DirectEditFlagsDrifted edits the permission columns
-// of a templated SKK directly (via UpdateScopedSigningKey) and confirms
+// of a templated SSK directly (via UpdateScopedSigningKey) and confirms
 // template_drifted flips true. The pinned template_id/version are left
-// alone — the operator can still see what the SKK was based on.
+// alone — the operator can still see what the SSK was based on.
 func TestE2E_Templates_DirectEditFlagsDrifted(t *testing.T) {
 	h := startStack(t)
 	opID := h.createOperator(t, "tpl-drift-op")
@@ -298,9 +298,9 @@ func TestE2E_Templates_DirectEditFlagsDrifted(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
-	skkResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: accID,
-		Name:      "edit-skk",
+		Name:      "edit-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   opID,
 			TemplateName: "edit-target",
@@ -309,13 +309,13 @@ func TestE2E_Templates_DirectEditFlagsDrifted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateScopedSigningKey: %v", err)
 	}
-	if skkResp.Msg.Key.TemplateDrifted {
-		t.Fatal("expected drifted=false on fresh templated SKK")
+	if sskResp.Msg.Key.TemplateDrifted {
+		t.Fatal("expected drifted=false on fresh templated SSK")
 	}
 
 	// Direct permission edit via UpdatePermissions — flips the drift flag.
 	if _, err := h.keyCli.UpdatePermissions(context.Background(), connect.NewRequest(&nisv1.UpdatePermissionsRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 		Permissions: &nisv1.UserPermissions{
 			PubAllow: []string{">", "custom.>"},
 		},
@@ -324,7 +324,7 @@ func TestE2E_Templates_DirectEditFlagsDrifted(t *testing.T) {
 	}
 
 	getResp, err := h.keyCli.GetScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.GetScopedSigningKeyRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 	}))
 	if err != nil {
 		t.Fatalf("GetScopedSigningKey: %v", err)
@@ -333,13 +333,13 @@ func TestE2E_Templates_DirectEditFlagsDrifted(t *testing.T) {
 		t.Fatal("expected drifted=true after direct permission edit")
 	}
 	if getResp.Msg.Key.TemplateId == "" {
-		t.Fatal("template_id should remain set on drifted SKK (not auto-detached)")
+		t.Fatal("template_id should remain set on drifted SSK (not auto-detached)")
 	}
 }
 
 // TestE2E_Templates_DeleteBlockedByDependents asserts that DeleteTemplate
-// refuses (FailedPrecondition) when any SKK still pins the template,
-// and succeeds after the SKK is detached.
+// refuses (FailedPrecondition) when any SSK still pins the template,
+// and succeeds after the SSK is detached.
 func TestE2E_Templates_DeleteBlockedByDependents(t *testing.T) {
 	h := startStack(t)
 	opID := h.createOperator(t, "tpl-del-op")
@@ -353,9 +353,9 @@ func TestE2E_Templates_DeleteBlockedByDependents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
-	skkResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: accID,
-		Name:      "del-skk",
+		Name:      "del-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   opID,
 			TemplateName: "del-target",
@@ -370,15 +370,15 @@ func TestE2E_Templates_DeleteBlockedByDependents(t *testing.T) {
 		Id: tplResp.Msg.Template.Id,
 	}))
 	if err == nil {
-		t.Fatal("expected DeleteTemplate to fail when SKK pins it")
+		t.Fatal("expected DeleteTemplate to fail when SSK pins it")
 	}
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("expected FailedPrecondition, got %v (%v)", connect.CodeOf(err), err)
 	}
 
-	// Detach the SKK ⇒ delete now succeeds.
+	// Detach the SSK ⇒ delete now succeeds.
 	if _, err := h.keyCli.DetachFromTemplate(context.Background(), connect.NewRequest(&nisv1.DetachFromTemplateRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 	})); err != nil {
 		t.Fatalf("DetachFromTemplate: %v", err)
 	}
@@ -456,9 +456,9 @@ func TestE2E_Templates_OperatorAdminCannotSeeOtherOperator(t *testing.T) {
 }
 
 // TestE2E_Templates_AutoTrackPropagates is the load-bearing test for
-// the auto-track feature: create a template + a tracking SKK + a user,
+// the auto-track feature: create a template + a tracking SSK + a user,
 // confirm the user can publish on a subject the template doesn't deny,
-// then update the template to add a sub_deny, and confirm the SKK was
+// then update the template to add a sub_deny, and confirm the SSK was
 // auto-bumped + the parent account JWT re-signed + pushed without the
 // operator calling ApplyTemplateToScopedKey.
 func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
@@ -476,9 +476,9 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
-	skkResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: s.accountID,
-		Name:      "auto-skk",
+		Name:      "auto-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   s.operatorID,
 			TemplateName: "auto-tpl",
@@ -488,14 +488,14 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateScopedSigningKey from template with TrackLatest: %v", err)
 	}
-	if !skkResp.Msg.Key.TrackLatest {
-		t.Fatal("expected TrackLatest=true on created SKK")
+	if !sskResp.Msg.Key.TrackLatest {
+		t.Fatal("expected TrackLatest=true on created SSK")
 	}
-	if skkResp.Msg.Key.TemplateVersion != 1 {
-		t.Fatalf("expected v1 pin at create, got v%d", skkResp.Msg.Key.TemplateVersion)
+	if sskResp.Msg.Key.TemplateVersion != 1 {
+		t.Fatalf("expected v1 pin at create, got v%d", sskResp.Msg.Key.TemplateVersion)
 	}
 
-	userID := h.createScopedUser(t, s.accountID, "auto-user", skkResp.Msg.Key.Id)
+	userID := h.createScopedUser(t, s.accountID, "auto-user", sskResp.Msg.Key.Id)
 	credsPath := h.fetchUserCreds(t, userID, "auto-user")
 
 	// Phase 1: v1 perms allow subscribing to events.secret.foo (no deny).
@@ -513,8 +513,8 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	}
 
 	// Update the template to v2: add sub_deny on events.secret.>.
-	// Because the SKK has track_latest=true, TemplateService.UpdateTemplate
-	// should snapshot the new version onto the SKK, regen the parent
+	// Because the SSK has track_latest=true, TemplateService.UpdateTemplate
+	// should snapshot the new version onto the SSK, regen the parent
 	// account JWT, and push to clusters — all WITHOUT a manual
 	// ApplyTemplateToScopedKey call.
 	if _, err := h.templateCli.UpdateTemplate(context.Background(), connect.NewRequest(&nisv1.UpdateTemplateRequest{
@@ -529,21 +529,21 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 		t.Fatalf("UpdateTemplate to v2: %v", err)
 	}
 
-	// Confirm the SKK was auto-bumped at the DB layer.
+	// Confirm the SSK was auto-bumped at the DB layer.
 	getResp, err := h.keyCli.GetScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.GetScopedSigningKeyRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 	}))
 	if err != nil {
 		t.Fatalf("GetScopedSigningKey after auto-track: %v", err)
 	}
 	if getResp.Msg.Key.TemplateVersion != 2 {
-		t.Fatalf("expected SKK auto-bumped to v2, got v%d", getResp.Msg.Key.TemplateVersion)
+		t.Fatalf("expected SSK auto-bumped to v2, got v%d", getResp.Msg.Key.TemplateVersion)
 	}
 	if !getResp.Msg.Key.TrackLatest {
 		t.Fatal("track_latest should remain true after auto-bump")
 	}
 	if getResp.Msg.Key.TemplateDrifted {
-		t.Fatal("auto-bumped SKK must not be flagged drifted")
+		t.Fatal("auto-bumped SSK must not be flagged drifted")
 	}
 	gotDeny := false
 	for _, s := range getResp.Msg.Key.Permissions.GetSubDeny() {
@@ -571,7 +571,7 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 }
 
 // TestE2E_Templates_TrackLatest_RejectsDirectEdit confirms the
-// service-layer guard: editing permissions on a tracking SKK returns
+// service-layer guard: editing permissions on a tracking SSK returns
 // FailedPrecondition rather than silently being overwritten on the
 // next template bump.
 func TestE2E_Templates_TrackLatest_RejectsDirectEdit(t *testing.T) {
@@ -586,9 +586,9 @@ func TestE2E_Templates_TrackLatest_RejectsDirectEdit(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
-	skkResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
+	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: accID,
-		Name:      "reject-skk",
+		Name:      "reject-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   opID,
 			TemplateName: "reject-tpl",
@@ -600,7 +600,7 @@ func TestE2E_Templates_TrackLatest_RejectsDirectEdit(t *testing.T) {
 	}
 
 	_, err = h.keyCli.UpdatePermissions(context.Background(), connect.NewRequest(&nisv1.UpdatePermissionsRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 		Permissions: &nisv1.UserPermissions{
 			PubAllow: []string{">", "custom.>"},
 		},
@@ -614,13 +614,13 @@ func TestE2E_Templates_TrackLatest_RejectsDirectEdit(t *testing.T) {
 
 	// Disabling tracking lets the same edit succeed.
 	if _, err := h.keyCli.SetTrackLatest(context.Background(), connect.NewRequest(&nisv1.SetTrackLatestRequest{
-		Id:      skkResp.Msg.Key.Id,
+		Id:      sskResp.Msg.Key.Id,
 		Enabled: false,
 	})); err != nil {
 		t.Fatalf("SetTrackLatest off: %v", err)
 	}
 	if _, err := h.keyCli.UpdatePermissions(context.Background(), connect.NewRequest(&nisv1.UpdatePermissionsRequest{
-		Id: skkResp.Msg.Key.Id,
+		Id: sskResp.Msg.Key.Id,
 		Permissions: &nisv1.UserPermissions{
 			PubAllow: []string{">", "custom.>"},
 		},
@@ -630,7 +630,7 @@ func TestE2E_Templates_TrackLatest_RejectsDirectEdit(t *testing.T) {
 }
 
 // TestE2E_Templates_TrackLatest_RequiresCleanTemplate pins that
-// enabling tracking on a drifted or untemplated SKK is rejected.
+// enabling tracking on a drifted or untemplated SSK is rejected.
 // Operator must bump-to-latest (clearing drift) or detach-and-recreate
 // before they can opt in.
 func TestE2E_Templates_TrackLatest_RequiresCleanTemplate(t *testing.T) {
@@ -646,24 +646,24 @@ func TestE2E_Templates_TrackLatest_RequiresCleanTemplate(t *testing.T) {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
 
-	// Case 1: untemplated SKK. SetTrackLatest must reject.
-	plainSKK := h.createScopedKey(t, accID, "plain-skk", &nisv1.UserPermissions{PubAllow: []string{">"}})
+	// Case 1: untemplated SSK. SetTrackLatest must reject.
+	plainSSK := h.createScopedKey(t, accID, "plain-ssk", &nisv1.UserPermissions{PubAllow: []string{">"}})
 	_, err := h.keyCli.SetTrackLatest(context.Background(), connect.NewRequest(&nisv1.SetTrackLatestRequest{
-		Id:      plainSKK,
+		Id:      plainSSK,
 		Enabled: true,
 	}))
 	if err == nil {
-		t.Fatal("expected SetTrackLatest(true) on untemplated SKK to fail, got nil")
+		t.Fatal("expected SetTrackLatest(true) on untemplated SSK to fail, got nil")
 	}
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("expected FailedPrecondition for untemplated, got %v (%v)", connect.CodeOf(err), err)
 	}
 
 	// Case 2: templated + drifted. Set tracking off, edit, then try to
-	// re-enable. Should reject because the SKK is now drifted.
+	// re-enable. Should reject because the SSK is now drifted.
 	driftedResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: accID,
-		Name:      "drifted-skk",
+		Name:      "drifted-ssk",
 		Template: &nisv1.TemplateRef{
 			OperatorId:   opID,
 			TemplateName: "clean-tpl",
@@ -686,7 +686,7 @@ func TestE2E_Templates_TrackLatest_RequiresCleanTemplate(t *testing.T) {
 		Enabled: true,
 	}))
 	if err == nil {
-		t.Fatal("expected SetTrackLatest(true) on drifted SKK to fail, got nil")
+		t.Fatal("expected SetTrackLatest(true) on drifted SSK to fail, got nil")
 	}
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("expected FailedPrecondition for drifted, got %v (%v)", connect.CodeOf(err), err)

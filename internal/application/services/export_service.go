@@ -187,8 +187,8 @@ type ExportedScopedKeyData struct {
 	SubDeny         []string      `json:"sub_deny" yaml:"sub_deny"`
 	ResponseMaxMsgs int           `json:"response_max_msgs" yaml:"response_max_msgs"`
 	ResponseTTL     time.Duration `json:"response_ttl" yaml:"response_ttl"`
-	// P6 template binding. Both omitempty: a non-templated SKK carries
-	// neither; a templated SKK carries both (CHECK constraint enforces
+	// P6 template binding. Both omitempty: a non-templated SSK carries
+	// neither; a templated SSK carries both (CHECK constraint enforces
 	// this at the DB layer). Drift flag is preserved across round-trip
 	// so an operator restoring a backup sees the same "edited" badge.
 	TemplateID      *uuid.UUID    `json:"template_id,omitempty" yaml:"template_id,omitempty"`
@@ -633,7 +633,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			}
 		}
 
-		// Restore templates BEFORE accounts/SKKs — scoped_signing_keys
+		// Restore templates BEFORE accounts/SSKs — scoped_signing_keys
 		// has FK template_id → templates(id) ON DELETE SET NULL. With
 		// SET NULL the FK doesn't strictly block ordering, but inserting
 		// templates first keeps the round-trip honest (no orphan windows

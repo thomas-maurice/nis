@@ -20,7 +20,7 @@ var templateCmd = &cobra.Command{
 list their version history and dependents.
 
 Templates are immutable-versioned: every permission edit creates a new
-version row; SKKs pinned to an older version stay on it until an
+version row; SSKs pinned to an older version stay on it until an
 explicit bump via 'nisctl signing-key bump-template ID'.`,
 }
 
@@ -65,9 +65,9 @@ var templateUpdateCmd = &cobra.Command{
 	Long: `Partial update — only the flags you pass take effect. Description-only
 edits update in place. Permission edits (--pub-allow, --pub-deny,
 --sub-allow, --sub-deny, --response-max-msgs, --response-ttl) create a
-new template_versions row and bump latest_version. Pinned SKKs are NOT
-touched — run 'nisctl signing-key bump-template ID' per SKK to roll
-forward, or set track_latest on the SKK to opt into auto-apply.
+new template_versions row and bump latest_version. Pinned SSKs are NOT
+touched — run 'nisctl signing-key bump-template ID' per SSK to roll
+forward, or set track_latest on the SSK to opt into auto-apply.
 
 Permission edits are REPLACE-semantics relative to the latest version:
 this command fetches the latest version's permissions, overlays only
@@ -80,7 +80,7 @@ value) to clear a list explicitly.`,
 
 var templateDeleteCmd = &cobra.Command{
 	Use:   "delete NAME",
-	Short: "Delete a template (refused when any SKK pins it)",
+	Short: "Delete a template (refused when any SSK pins it)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runTemplateDelete,
 }
@@ -94,7 +94,7 @@ var templateVersionsCmd = &cobra.Command{
 
 var templateDependentsCmd = &cobra.Command{
 	Use:   "dependents NAME",
-	Short: "List SKKs currently pinned to this template",
+	Short: "List SSKs currently pinned to this template",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runTemplateDependents,
 }
@@ -428,12 +428,12 @@ func runTemplateDependents(cmd *cobra.Command, args []string) error {
 	}
 	if len(resp.Msg.Dependents) == 0 {
 		if GetOutputFormat() != "quiet" {
-			printer.PrintMessage("No SKKs are pinned to this template")
+			printer.PrintMessage("No SSKs are pinned to this template")
 		}
 		return nil
 	}
 	if GetOutputFormat() == "table" {
-		headers := []string{"SKK ID", "ACCOUNT", "SKK NAME", "PINNED VERSION", "DRIFTED?"}
+		headers := []string{"SSK ID", "ACCOUNT", "SSK NAME", "PINNED VERSION", "DRIFTED?"}
 		rows := make([][]string, len(resp.Msg.Dependents))
 		for i, d := range resp.Msg.Dependents {
 			drift := "no"

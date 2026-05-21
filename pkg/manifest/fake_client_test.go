@@ -81,7 +81,7 @@ func (f *fakePlannerClient) UserClient() nisv1connect.UserServiceClient {
 	return &fakeUserClient{f}
 }
 func (f *fakePlannerClient) ScopedSigningKeyClient() nisv1connect.ScopedSigningKeyServiceClient {
-	return &fakeSKKClient{f}
+	return &fakeSSKClient{f}
 }
 func (f *fakePlannerClient) ClusterClient() nisv1connect.ClusterServiceClient {
 	return &fakeClusterClient{f}
@@ -359,9 +359,9 @@ func (c *fakeUserClient) RegenerateUserCredentials(_ context.Context, _ *connect
 
 // ---- scoped signing key client ----
 
-type fakeSKKClient struct{ f *fakePlannerClient }
+type fakeSSKClient struct{ f *fakePlannerClient }
 
-func (c *fakeSKKClient) CreateScopedSigningKey(_ context.Context, req *connect.Request[nisv1.CreateScopedSigningKeyRequest]) (*connect.Response[nisv1.CreateScopedSigningKeyResponse], error) {
+func (c *fakeSSKClient) CreateScopedSigningKey(_ context.Context, req *connect.Request[nisv1.CreateScopedSigningKeyRequest]) (*connect.Response[nisv1.CreateScopedSigningKeyResponse], error) {
 	c.f.recordCall("CreateScopedSigningKey")
 	sk := &nisv1.ScopedSigningKey{
 		Id:                 nextID(),
@@ -374,7 +374,7 @@ func (c *fakeSKKClient) CreateScopedSigningKey(_ context.Context, req *connect.R
 	c.f.scopedKeys[sk.GetAccountId()] = append(c.f.scopedKeys[sk.GetAccountId()], sk)
 	return connect.NewResponse(&nisv1.CreateScopedSigningKeyResponse{Key: sk}), nil
 }
-func (c *fakeSKKClient) GetScopedSigningKey(_ context.Context, req *connect.Request[nisv1.GetScopedSigningKeyRequest]) (*connect.Response[nisv1.GetScopedSigningKeyResponse], error) {
+func (c *fakeSSKClient) GetScopedSigningKey(_ context.Context, req *connect.Request[nisv1.GetScopedSigningKeyRequest]) (*connect.Response[nisv1.GetScopedSigningKeyResponse], error) {
 	for _, keys := range c.f.scopedKeys {
 		for _, sk := range keys {
 			if sk.GetId() == req.Msg.GetId() {
@@ -384,7 +384,7 @@ func (c *fakeSKKClient) GetScopedSigningKey(_ context.Context, req *connect.Requ
 	}
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
-func (c *fakeSKKClient) GetScopedSigningKeyByName(_ context.Context, req *connect.Request[nisv1.GetScopedSigningKeyByNameRequest]) (*connect.Response[nisv1.GetScopedSigningKeyByNameResponse], error) {
+func (c *fakeSSKClient) GetScopedSigningKeyByName(_ context.Context, req *connect.Request[nisv1.GetScopedSigningKeyByNameRequest]) (*connect.Response[nisv1.GetScopedSigningKeyByNameResponse], error) {
 	for _, sk := range c.f.scopedKeys[req.Msg.GetAccountId()] {
 		if sk.GetName() == req.Msg.GetName() {
 			return connect.NewResponse(&nisv1.GetScopedSigningKeyByNameResponse{Key: sk}), nil
@@ -392,11 +392,11 @@ func (c *fakeSKKClient) GetScopedSigningKeyByName(_ context.Context, req *connec
 	}
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
-func (c *fakeSKKClient) ListScopedSigningKeys(_ context.Context, req *connect.Request[nisv1.ListScopedSigningKeysRequest]) (*connect.Response[nisv1.ListScopedSigningKeysResponse], error) {
+func (c *fakeSSKClient) ListScopedSigningKeys(_ context.Context, req *connect.Request[nisv1.ListScopedSigningKeysRequest]) (*connect.Response[nisv1.ListScopedSigningKeysResponse], error) {
 	keys := c.f.scopedKeys[req.Msg.GetAccountId()]
 	return connect.NewResponse(&nisv1.ListScopedSigningKeysResponse{Keys: keys}), nil
 }
-func (c *fakeSKKClient) UpdateScopedSigningKey(_ context.Context, req *connect.Request[nisv1.UpdateScopedSigningKeyRequest]) (*connect.Response[nisv1.UpdateScopedSigningKeyResponse], error) {
+func (c *fakeSSKClient) UpdateScopedSigningKey(_ context.Context, req *connect.Request[nisv1.UpdateScopedSigningKeyRequest]) (*connect.Response[nisv1.UpdateScopedSigningKeyResponse], error) {
 	c.f.recordCall("UpdateScopedSigningKey")
 	for _, keys := range c.f.scopedKeys {
 		for _, sk := range keys {
@@ -410,7 +410,7 @@ func (c *fakeSKKClient) UpdateScopedSigningKey(_ context.Context, req *connect.R
 	}
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
-func (c *fakeSKKClient) UpdatePermissions(_ context.Context, req *connect.Request[nisv1.UpdatePermissionsRequest]) (*connect.Response[nisv1.UpdatePermissionsResponse], error) {
+func (c *fakeSSKClient) UpdatePermissions(_ context.Context, req *connect.Request[nisv1.UpdatePermissionsRequest]) (*connect.Response[nisv1.UpdatePermissionsResponse], error) {
 	c.f.recordCall("UpdatePermissions")
 	for _, keys := range c.f.scopedKeys {
 		for _, sk := range keys {
@@ -423,7 +423,7 @@ func (c *fakeSKKClient) UpdatePermissions(_ context.Context, req *connect.Reques
 	}
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
-func (c *fakeSKKClient) DeleteScopedSigningKey(_ context.Context, req *connect.Request[nisv1.DeleteScopedSigningKeyRequest]) (*connect.Response[nisv1.DeleteScopedSigningKeyResponse], error) {
+func (c *fakeSSKClient) DeleteScopedSigningKey(_ context.Context, req *connect.Request[nisv1.DeleteScopedSigningKeyRequest]) (*connect.Response[nisv1.DeleteScopedSigningKeyResponse], error) {
 	c.f.recordCall("DeleteScopedSigningKey")
 	for accID, keys := range c.f.scopedKeys {
 		for i, sk := range keys {
@@ -436,7 +436,7 @@ func (c *fakeSKKClient) DeleteScopedSigningKey(_ context.Context, req *connect.R
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
 
-func (c *fakeSKKClient) DetachFromTemplate(_ context.Context, req *connect.Request[nisv1.DetachFromTemplateRequest]) (*connect.Response[nisv1.DetachFromTemplateResponse], error) {
+func (c *fakeSSKClient) DetachFromTemplate(_ context.Context, req *connect.Request[nisv1.DetachFromTemplateRequest]) (*connect.Response[nisv1.DetachFromTemplateResponse], error) {
 	c.f.recordCall("DetachFromTemplate")
 	for _, keys := range c.f.scopedKeys {
 		for _, sk := range keys {
@@ -452,7 +452,7 @@ func (c *fakeSKKClient) DetachFromTemplate(_ context.Context, req *connect.Reque
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
 
-func (c *fakeSKKClient) SetTrackLatest(_ context.Context, req *connect.Request[nisv1.SetTrackLatestRequest]) (*connect.Response[nisv1.SetTrackLatestResponse], error) {
+func (c *fakeSSKClient) SetTrackLatest(_ context.Context, req *connect.Request[nisv1.SetTrackLatestRequest]) (*connect.Response[nisv1.SetTrackLatestResponse], error) {
 	c.f.recordCall("SetTrackLatest")
 	for _, keys := range c.f.scopedKeys {
 		for _, sk := range keys {

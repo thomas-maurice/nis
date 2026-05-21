@@ -55,9 +55,9 @@ func assertCallsNotContain(t *testing.T, f *fakePlannerClient, calls ...string) 
 	}
 }
 
-// buildFullBatch builds a minimal 4-object batch: Op + Acc + SKK + User
+// buildFullBatch builds a minimal 4-object batch: Op + Acc + SSK + User
 // (no prior server state — all creates).
-func buildFullBatch(opName, accName, skkName, userName string) []Object {
+func buildFullBatch(opName, accName, sskName, userName string) []Object {
 	return []Object{
 		{
 			TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindOperator},
@@ -71,7 +71,7 @@ func buildFullBatch(opName, accName, skkName, userName string) []Object {
 		},
 		{
 			TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindScopedSigningKey},
-			Metadata: ObjectMeta{Name: skkName, Operator: opName, Account: accName},
+			Metadata: ObjectMeta{Name: sskName, Operator: opName, Account: accName},
 			ScopedSigningKey: &ScopedSigningKeySpec{
 				PubAllow: []string{"foo.>"},
 				SubAllow: []string{"foo.>"},
@@ -80,7 +80,7 @@ func buildFullBatch(opName, accName, skkName, userName string) []Object {
 		{
 			TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindUser},
 			Metadata: ObjectMeta{Name: userName, Operator: opName, Account: accName},
-			User:     &UserSpec{ScopedKey: skkName},
+			User:     &UserSpec{ScopedKey: sskName},
 		},
 	}
 }
@@ -91,7 +91,7 @@ func newUUID() string { return uuid.New().String() }
 // ---- tests ----
 
 // TestApply_CreateOnlyPath verifies that a fresh server gets all four entities
-// created and the SKK reference is resolved from cache.
+// created and the SSK reference is resolved from cache.
 func TestApply_CreateOnlyPath(t *testing.T) {
 	f := newFakePlannerClient()
 	batch := buildFullBatch("op1", "acc1", "writer", "alice")
@@ -105,7 +105,7 @@ func TestApply_CreateOnlyPath(t *testing.T) {
 
 	assertCallsContain(t, f, "CreateOperator", "CreateAccount", "CreateScopedSigningKey", "CreateUser")
 
-	// Verify cache-based SKK reference: the user should have the SKK ID, not "".
+	// Verify cache-based SSK reference: the user should have the SSK ID, not "".
 	var createdUser *nisv1.User
 	for _, users := range f.users {
 		for _, u := range users {
@@ -285,18 +285,18 @@ func TestApply_UpdateJetStreamLimits(t *testing.T) {
 	}
 }
 
-// TestApply_UpdateSKKPermissions verifies drift in permissions triggers UpdatePermissions.
-func TestApply_UpdateSKKPermissions(t *testing.T) {
+// TestApply_UpdateSSKPermissions verifies drift in permissions triggers UpdatePermissions.
+func TestApply_UpdateSSKPermissions(t *testing.T) {
 	f := newFakePlannerClient()
 	opID := newUUID()
 	accID := newUUID()
-	skkID := newUUID()
+	sskID := newUUID()
 	op := &nisv1.Operator{Id: opID, Name: "permop"}
 	f.addOperator(op)
 	acc := &nisv1.Account{Id: accID, OperatorId: opID, Name: "permacc"}
 	f.addAccount(acc)
 	sk := &nisv1.ScopedSigningKey{
-		Id:        skkID,
+		Id:        sskID,
 		AccountId: accID,
 		Name:      "writer",
 		Permissions: &nisv1.UserPermissions{
@@ -326,10 +326,10 @@ func TestApply_UpdateSKKPermissions(t *testing.T) {
 	assertCallsContain(t, f, "UpdatePermissions")
 }
 
-// TestApply_DefaultSKKAfterCreateAccount tests the case where a new account
+// TestApply_DefaultSSKAfterCreateAccount tests the case where a new account
 // has a "default" key with custom permissions — the planner routes it as
 // Update(uuid.Nil), and the apply engine must list keys to find the auto-created default.
-func TestApply_DefaultSKKAfterCreateAccount(t *testing.T) {
+func TestApply_DefaultSSKAfterCreateAccount(t *testing.T) {
 	f := newFakePlannerClient()
 	f.addOperator(&nisv1.Operator{Id: newUUID(), Name: "newaccop"})
 
@@ -375,7 +375,7 @@ func TestApply_DefaultSKKAfterCreateAccount(t *testing.T) {
 	assertCallsContain(t, f, "CreateAccount", "UpdatePermissions")
 }
 
-// TestApply_UserScopedKeyResolvedFromServer verifies that when the SKK isn't
+// TestApply_UserScopedKeyResolvedFromServer verifies that when the SSK isn't
 // in the cache (it already exists server-side), GetScopedSigningKeyByName is used.
 func TestApply_UserScopedKeyResolvedFromServer(t *testing.T) {
 	f := newFakePlannerClient()
@@ -385,9 +385,9 @@ func TestApply_UserScopedKeyResolvedFromServer(t *testing.T) {
 	f.addOperator(op)
 	acc := &nisv1.Account{Id: accID, OperatorId: opID, Name: "srvacc"}
 	f.addAccount(acc)
-	skkID := newUUID()
+	sskID := newUUID()
 	sk := &nisv1.ScopedSigningKey{
-		Id:        skkID,
+		Id:        sskID,
 		AccountId: accID,
 		Name:      "existing-key",
 		Permissions: &nisv1.UserPermissions{
@@ -421,8 +421,8 @@ func TestApply_UserScopedKeyResolvedFromServer(t *testing.T) {
 	if bob == nil {
 		t.Fatal("user 'bob' not found")
 	}
-	if bob.GetScopedSigningKeyId() != skkID {
-		t.Errorf("ScopedSigningKeyId = %q, want %q", bob.GetScopedSigningKeyId(), skkID)
+	if bob.GetScopedSigningKeyId() != sskID {
+		t.Errorf("ScopedSigningKeyId = %q, want %q", bob.GetScopedSigningKeyId(), sskID)
 	}
 }
 

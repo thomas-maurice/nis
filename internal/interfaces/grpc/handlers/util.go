@@ -32,9 +32,9 @@ func repoErrToConnect(err error) error {
 		errors.Is(err, services.ErrScopedKeyNotTemplated),
 		errors.Is(err, services.ErrTemplateRefForeignOperator),
 		errors.Is(err, services.ErrTemplateVersionNotFound),
-		errors.Is(err, services.ErrSKKTrackLatestRequiresTemplate),
-		errors.Is(err, services.ErrSKKTrackingLatest),
-		errors.Is(err, services.ErrSKKTrackLatestDrifted):
+		errors.Is(err, services.ErrSSKTrackLatestRequiresTemplate),
+		errors.Is(err, services.ErrSSKTrackingLatest),
+		errors.Is(err, services.ErrSSKTrackLatestDrifted):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return err

@@ -22,7 +22,7 @@ type DeleteItem struct {
 
 // topoOrder maps each Kind to a sort rank for deletion (lower = deleted first).
 // Templates sort BEFORE Operator (5) but AFTER ScopedSigningKey (1): a
-// template can only be deleted once no SKK pins it, and the server
+// template can only be deleted once no SSK pins it, and the server
 // enforces that via TemplateService.DeleteTemplate's dependents check.
 var deleteOrder = map[string]int{
 	KindUser:             0,
@@ -263,10 +263,10 @@ func deleteScopedSigningKey(ctx context.Context, c PlannerClient, obj Object, ca
 		return DeleteItem{Object: obj, Outcome: OutcomeFailed},
 			fmt.Errorf("manifest delete: ScopedSigningKey %s: GetScopedSigningKeyByName: %w", path, err)
 	}
-	skkID := lookupResp.Msg.GetKey().GetId()
+	sskID := lookupResp.Msg.GetKey().GetId()
 
 	if _, err := c.ScopedSigningKeyClient().DeleteScopedSigningKey(ctx, connect.NewRequest(&nisv1.DeleteScopedSigningKeyRequest{
-		Id: skkID,
+		Id: sskID,
 	})); err != nil {
 		if connect.CodeOf(err) == connect.CodeNotFound {
 			return DeleteItem{Object: obj, Outcome: OutcomeNoop, Note: "already gone"}, nil

@@ -60,7 +60,7 @@ export class ScopedSigningKey extends Message<ScopedSigningKey> {
 
   /**
    * Template ref (both empty/zero or both set; enforced by a CHECK on the
-   * underlying table). When set, the SKK was created or bumped from
+   * underlying table). When set, the SSK was created or bumped from
    * templates[template_id]@template_version. The pub/sub fields above are
    * a snapshot of that version at bump time.
    *
@@ -74,7 +74,7 @@ export class ScopedSigningKey extends Message<ScopedSigningKey> {
   templateVersion = 0;
 
   /**
-   * Set true when the SKK's pub/sub fields were edited directly since the
+   * Set true when the SSK's pub/sub fields were edited directly since the
    * last bump. Surfaced in the UI as an "edited" badge.
    *
    * @generated from field: bool template_drifted = 12;
@@ -83,7 +83,7 @@ export class ScopedSigningKey extends Message<ScopedSigningKey> {
 
   /**
    * When true, TemplateService.UpdateTemplate auto-applies new versions of
-   * the bound template to this SKK (regen account JWT + push to clusters)
+   * the bound template to this SSK (regen account JWT + push to clusters)
    * without operator action. Only valid when template_id is set AND
    * template_drifted is false. Direct edits via UpdatePermissions are
    * rejected while this is true so an auto-apply can't silently
@@ -94,7 +94,7 @@ export class ScopedSigningKey extends Message<ScopedSigningKey> {
   trackLatest = false;
 
   /**
-   * Marks SKKs whose parent account JWT lists the key as a raw string
+   * Marks SSKs whose parent account JWT lists the key as a raw string
    * in signing_keys (not a UserScope). NSC imports populate this from
    * the source account JWT shape. On regen NIS emits these as plain
    * strings; on user-mint NIS skips SetScoped so NATS uses the user
@@ -178,7 +178,7 @@ export class CreateScopedSigningKeyRequest extends Message<CreateScopedSigningKe
   responsePermission?: ResponsePermission;
 
   /**
-   * Optional template ref. When set, the SKK is created from the named
+   * Optional template ref. When set, the SSK is created from the named
    * template's permissions (snapshotted into the pub/sub fields) and the
    * permissions+response_permission fields above are ignored. When
    * template_version is 0 with template_name set, applies the template's
@@ -189,9 +189,9 @@ export class CreateScopedSigningKeyRequest extends Message<CreateScopedSigningKe
   template?: TemplateRef;
 
   /**
-   * Opt the new SKK into TemplateService.UpdateTemplate's auto-apply.
+   * Opt the new SSK into TemplateService.UpdateTemplate's auto-apply.
    * Only honoured when `template` is also set; ignored otherwise. The
-   * SKK starts at the template's latest version regardless of any
+   * SSK starts at the template's latest version regardless of any
    * version_number pin, because pinning + tracking-latest contradict.
    *
    * @generated from field: bool track_latest = 7;
@@ -825,8 +825,8 @@ export class DeleteScopedSigningKeyResponse extends Message<DeleteScopedSigningK
 
 /**
  * DetachFromTemplateRequest clears the template_id / template_version /
- * template_drifted fields on the SKK without changing its permission
- * columns. After detach, the SKK becomes a standalone key — future
+ * template_drifted fields on the SSK without changing its permission
+ * columns. After detach, the SSK becomes a standalone key — future
  * template updates do not affect it and the UI stops showing it as
  * templated. Permission columns retain whatever values they had at
  * detach time.
@@ -905,7 +905,7 @@ export class DetachFromTemplateResponse extends Message<DetachFromTemplateRespon
 }
 
 /**
- * SetTrackLatestRequest toggles the track_latest flag on a templated SKK.
+ * SetTrackLatestRequest toggles the track_latest flag on a templated SSK.
  * Enabling requires template_id != "" AND template_drifted == false.
  * Disabling has no preconditions. Disabling does not detach — operator
  * must call DetachFromTemplate separately.

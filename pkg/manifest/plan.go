@@ -117,7 +117,7 @@ func Plan(ctx context.Context, c PlannerClient, batch []Object) (*PlanResult, er
 	}
 
 	// Walk in topo order: Operator → Template → Cluster → Account →
-	// ScopedSigningKey → User. Templates land after Operator so an SKK
+	// ScopedSigningKey → User. Templates land after Operator so an SSK
 	// in the same batch can reference one declared above it.
 	order := []string{KindOperator, KindTemplate, KindCluster, KindAccount, KindScopedSigningKey, KindUser}
 	byKind := make(map[string][]Object)
@@ -199,7 +199,7 @@ func fetchState(ctx context.Context, c PlannerClient, batch []Object) (*serverSt
 			state.accounts[opName][acc.GetName()] = acc
 
 			// Fetch scoped signing keys for this account.
-			skkResp, err := c.ScopedSigningKeyClient().ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
+			sskResp, err := c.ScopedSigningKeyClient().ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
 				AccountId: acc.GetId(),
 			}))
 			if err != nil {
@@ -209,7 +209,7 @@ func fetchState(ctx context.Context, c PlannerClient, batch []Object) (*serverSt
 				state.scopedKeys[opName] = make(map[string]map[string]*nisv1.ScopedSigningKey)
 			}
 			state.scopedKeys[opName][acc.GetName()] = make(map[string]*nisv1.ScopedSigningKey)
-			for _, sk := range skkResp.Msg.GetKeys() {
+			for _, sk := range sskResp.Msg.GetKeys() {
 				state.scopedKeys[opName][acc.GetName()][sk.GetName()] = sk
 			}
 
@@ -242,7 +242,7 @@ func fetchState(ctx context.Context, c PlannerClient, batch []Object) (*serverSt
 		}
 
 		// Fetch templates for this operator. ListTemplates is operator-
-		// scoped so we know any template referenced by an SKK in this
+		// scoped so we know any template referenced by an SSK in this
 		// operator must show up here (or in the batch).
 		tmplResp, err := c.TemplateClient().ListTemplates(ctx, connect.NewRequest(&nisv1.ListTemplatesRequest{
 			OperatorId: op.GetId(),
@@ -480,8 +480,8 @@ func classifyScopedSigningKey(obj Object, state *serverState, newAccounts map[st
 	// knows to fetch it after the parent account create.
 	if keyName == "default" {
 		if newAccounts[opName] != nil && newAccounts[opName][accName] {
-			spec := skkSpecOrDefault(obj.ScopedSigningKey)
-			updates := diffScopedSigningKeySpec(spec, defaultSKKBaseline())
+			spec := sskSpecOrDefault(obj.ScopedSigningKey)
+			updates := diffScopedSigningKeySpec(spec, defaultSSKBaseline())
 			return PlanItem{
 				Object:     obj,
 				Action:     ActionUpdate,
@@ -502,7 +502,7 @@ func classifyScopedSigningKey(obj Object, state *serverState, newAccounts map[st
 		return PlanItem{}, fmt.Errorf("manifest plan: scoped key %q: bad server ID: %w", keyName, err)
 	}
 
-	spec := skkSpecOrDefault(obj.ScopedSigningKey)
+	spec := sskSpecOrDefault(obj.ScopedSigningKey)
 	updates := diffScopedSigningKey(spec, existing)
 	if len(updates) == 0 {
 		return PlanItem{Object: obj, Action: ActionNoop, ExistingID: id}, nil
@@ -577,16 +577,16 @@ func classifyUser(obj Object, state *serverState) (PlanItem, error) {
 	}}, nil
 }
 
-// skkSpecOrDefault returns the spec if non-nil, else an empty ScopedSigningKeySpec.
-func skkSpecOrDefault(spec *ScopedSigningKeySpec) ScopedSigningKeySpec {
+// sskSpecOrDefault returns the spec if non-nil, else an empty ScopedSigningKeySpec.
+func sskSpecOrDefault(spec *ScopedSigningKeySpec) ScopedSigningKeySpec {
 	if spec != nil {
 		return *spec
 	}
 	return ScopedSigningKeySpec{}
 }
 
-// defaultSKKBaseline is the permissive default the server auto-creates.
-func defaultSKKBaseline() *nisv1.ScopedSigningKey {
+// defaultSSKBaseline is the permissive default the server auto-creates.
+func defaultSSKBaseline() *nisv1.ScopedSigningKey {
 	return &nisv1.ScopedSigningKey{
 		Permissions: &nisv1.UserPermissions{
 			PubAllow: []string{">"},

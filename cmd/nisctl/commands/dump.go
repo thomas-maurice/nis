@@ -94,21 +94,21 @@ func runDumpOperator(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list accounts: %w", err)
 	}
 
-	// Fetch all SKKs and users across non-$SYS accounts.
-	var allSKKs []*nisv1.ScopedSigningKey
+	// Fetch all SSKs and users across non-$SYS accounts.
+	var allSSKs []*nisv1.ScopedSigningKey
 	var allUsers []*nisv1.User
 	for _, acc := range accResp.Msg.GetAccounts() {
 		if acc.GetName() == "$SYS" {
 			continue
 		}
 
-		skkResp, err := nisClient.ScopedSigningKey.ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
+		sskResp, err := nisClient.ScopedSigningKey.ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
 			AccountId: acc.GetId(),
 		}))
 		if err != nil {
 			return fmt.Errorf("list scoped signing keys for account %q: %w", acc.GetName(), err)
 		}
-		allSKKs = append(allSKKs, skkResp.Msg.GetKeys()...)
+		allSSKs = append(allSSKs, sskResp.Msg.GetKeys()...)
 
 		userResp, err := nisClient.User.ListUsers(ctx, connect.NewRequest(&nisv1.ListUsersRequest{
 			AccountId: acc.GetId(),
@@ -142,7 +142,7 @@ func runDumpOperator(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	objs := manifest.DumpObjects(op, clResp.Msg.GetClusters(), accResp.Msg.GetAccounts(), allSKKs, allUsers, allTemplates, kindSet)
+	objs := manifest.DumpObjects(op, clResp.Msg.GetClusters(), accResp.Msg.GetAccounts(), allSSKs, allUsers, allTemplates, kindSet)
 
 	data, err := manifest.EncodeYAML(objs)
 	if err != nil {

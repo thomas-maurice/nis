@@ -4,7 +4,7 @@
 # "MetricsWriter") — a ScopedSigningKey can be created from a template and is
 # then pinned to a specific version. Updating the template creates a new
 # version row but never auto-rolls dependents; an operator explicitly bumps
-# each SKK (via `nisctl signing-key bump-template KEY` or the UI).
+# each SSK (via `nisctl signing-key bump-template KEY` or the UI).
 #
 # Required fields: apiVersion, kind, metadata.name, metadata.operator
 # Optional fields: spec.description, spec.changeNote
@@ -17,7 +17,7 @@
 #     permissions below.
 #   - If it exists, UpdateTemplate is called: description changes update in
 #     place, permission changes create a new version row and bump
-#     latest_version. SKKs already pinned to an older version stay pinned.
+#     latest_version. SSKs already pinned to an older version stay pinned.
 #
 # `changeNote` is attached to the new version row when a permission edit
 # bumps the version; it's discarded on description-only edits and on

@@ -24,7 +24,7 @@ func testCluster(id, opID, name string, urls []string) *nisv1.Cluster {
 	return &nisv1.Cluster{Id: id, OperatorId: opID, Name: name, ServerUrls: urls}
 }
 
-func testSKK(id, accID, name, desc string) *nisv1.ScopedSigningKey {
+func testSSK(id, accID, name, desc string) *nisv1.ScopedSigningKey {
 	return &nisv1.ScopedSigningKey{
 		Id: id, AccountId: accID, Name: name, Description: desc,
 		Permissions:        &nisv1.UserPermissions{},
@@ -39,7 +39,7 @@ func testUser(id, accID, name, desc string) *nisv1.User {
 const (
 	opID  = "11111111-1111-1111-1111-111111111111"
 	accID = "22222222-2222-2222-2222-222222222222"
-	skkID = "33333333-3333-3333-3333-333333333333"
+	sskID = "33333333-3333-3333-3333-333333333333"
 	usrID = "44444444-4444-4444-4444-444444444444"
 	clID  = "55555555-5555-5555-5555-555555555555"
 )
@@ -80,7 +80,7 @@ func TestPlan_AllNoop_SameManifest(t *testing.T) {
 	fc.addAccount(acc)
 	cl := testCluster(clID, opID, "prod", []string{"nats://localhost:4222"})
 	fc.addCluster(cl)
-	sk := testSKK(skkID, accID, "writer", "")
+	sk := testSSK(sskID, accID, "writer", "")
 	sk.Permissions = &nisv1.UserPermissions{PubAllow: []string{"events.>"}}
 	fc.addScopedKey(sk)
 	u := testUser(usrID, accID, "api", "api user")
@@ -298,13 +298,13 @@ func TestPlan_OperatorJWTPolicyDrift(t *testing.T) {
 	}
 }
 
-func TestPlan_SKKPermissionsDrift(t *testing.T) {
+func TestPlan_SSKPermissionsDrift(t *testing.T) {
 	fc := newFakePlannerClient()
 	op := testOperator(opID, "acme", "")
 	fc.addOperator(op)
 	acc := testAccount(accID, opID, "billing", "")
 	fc.addAccount(acc)
-	sk := testSKK(skkID, accID, "writer", "")
+	sk := testSSK(sskID, accID, "writer", "")
 	sk.Permissions = &nisv1.UserPermissions{PubAllow: []string{"events.>"}}
 	fc.addScopedKey(sk)
 
@@ -323,26 +323,26 @@ func TestPlan_SKKPermissionsDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	var skkItem *PlanItem
+	var sskItem *PlanItem
 	for i := range result.Items {
 		if result.Items[i].Object.Kind == KindScopedSigningKey {
-			skkItem = &result.Items[i]
+			sskItem = &result.Items[i]
 		}
 	}
-	if skkItem == nil {
+	if sskItem == nil {
 		t.Fatal("no ScopedSigningKey item")
 	}
-	if skkItem.Action != ActionUpdate {
-		t.Errorf("Action=%v want ActionUpdate", skkItem.Action)
+	if sskItem.Action != ActionUpdate {
+		t.Errorf("Action=%v want ActionUpdate", sskItem.Action)
 	}
 	found := false
-	for _, u := range skkItem.Updates {
+	for _, u := range sskItem.Updates {
 		if u.RPC == "UpdatePermissions" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("no UpdatePermissions op, got %v", skkItem.Updates)
+		t.Errorf("no UpdatePermissions op, got %v", sskItem.Updates)
 	}
 }
 
@@ -352,11 +352,11 @@ func TestPlan_UserScopedKeyReassignment_HardError(t *testing.T) {
 	fc.addOperator(op)
 	acc := testAccount(accID, opID, "billing", "")
 	fc.addAccount(acc)
-	// Server user has scoped key "writer" (by ID skkID)
-	sk := testSKK(skkID, accID, "writer", "")
+	// Server user has scoped key "writer" (by ID sskID)
+	sk := testSSK(sskID, accID, "writer", "")
 	fc.addScopedKey(sk)
 	u := testUser(usrID, accID, "api", "")
-	u.ScopedSigningKeyId = skkID
+	u.ScopedSigningKeyId = sskID
 	fc.addUser(u)
 
 	// Manifest wants to change scopedKey to "reader"
@@ -411,7 +411,7 @@ func TestPlan_ClusterDrift_NoopWithNote(t *testing.T) {
 	}
 }
 
-func TestPlan_DefaultSKKOnNewAccount_UpdateWithNilID(t *testing.T) {
+func TestPlan_DefaultSSKOnNewAccount_UpdateWithNilID(t *testing.T) {
 	fc := newFakePlannerClient()
 	// Operator exists, but account does not → it's a CREATE.
 	op := testOperator(opID, "acme", "")
@@ -433,34 +433,34 @@ func TestPlan_DefaultSKKOnNewAccount_UpdateWithNilID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	var skkItem *PlanItem
+	var sskItem *PlanItem
 	for i := range result.Items {
 		if result.Items[i].Object.Kind == KindScopedSigningKey {
-			skkItem = &result.Items[i]
+			sskItem = &result.Items[i]
 		}
 	}
-	if skkItem == nil {
+	if sskItem == nil {
 		t.Fatal("no ScopedSigningKey item")
 	}
-	if skkItem.Action != ActionUpdate {
-		t.Errorf("Action=%v want ActionUpdate (default key on new account)", skkItem.Action)
+	if sskItem.Action != ActionUpdate {
+		t.Errorf("Action=%v want ActionUpdate (default key on new account)", sskItem.Action)
 	}
-	if skkItem.ExistingID != uuid.Nil {
-		t.Errorf("ExistingID=%v want uuid.Nil", skkItem.ExistingID)
+	if sskItem.ExistingID != uuid.Nil {
+		t.Errorf("ExistingID=%v want uuid.Nil", sskItem.ExistingID)
 	}
-	if !strings.Contains(skkItem.Note, "auto-created by server") {
-		t.Errorf("Note=%q missing 'auto-created by server'", skkItem.Note)
+	if !strings.Contains(sskItem.Note, "auto-created by server") {
+		t.Errorf("Note=%q missing 'auto-created by server'", sskItem.Note)
 	}
 }
 
-func TestPlan_DefaultSKKOnExistingAccount_NormalUpdate(t *testing.T) {
+func TestPlan_DefaultSSKOnExistingAccount_NormalUpdate(t *testing.T) {
 	fc := newFakePlannerClient()
 	op := testOperator(opID, "acme", "")
 	fc.addOperator(op)
 	acc := testAccount(accID, opID, "billing", "")
 	fc.addAccount(acc)
 	// Server has default key with pub=[">"]
-	sk := testSKK(skkID, accID, "default", "")
+	sk := testSSK(sskID, accID, "default", "")
 	sk.Permissions = &nisv1.UserPermissions{PubAllow: []string{">"}, SubAllow: []string{">"}}
 	fc.addScopedKey(sk)
 
@@ -480,20 +480,20 @@ func TestPlan_DefaultSKKOnExistingAccount_NormalUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	var skkItem *PlanItem
+	var sskItem *PlanItem
 	for i := range result.Items {
 		if result.Items[i].Object.Kind == KindScopedSigningKey {
-			skkItem = &result.Items[i]
+			sskItem = &result.Items[i]
 		}
 	}
-	if skkItem.Action != ActionUpdate {
-		t.Errorf("Action=%v want ActionUpdate", skkItem.Action)
+	if sskItem.Action != ActionUpdate {
+		t.Errorf("Action=%v want ActionUpdate", sskItem.Action)
 	}
-	if skkItem.ExistingID.String() != skkID {
-		t.Errorf("ExistingID=%v want %v", skkItem.ExistingID, skkID)
+	if sskItem.ExistingID.String() != sskID {
+		t.Errorf("ExistingID=%v want %v", sskItem.ExistingID, sskID)
 	}
-	if skkItem.Note != "" {
-		t.Errorf("Note should be empty for normal update, got %q", skkItem.Note)
+	if sskItem.Note != "" {
+		t.Errorf("Note should be empty for normal update, got %q", sskItem.Note)
 	}
 }
 
@@ -527,7 +527,7 @@ func TestPlan_OrderInsensitiveSetEquality(t *testing.T) {
 	fc.addOperator(op)
 	acc := testAccount(accID, opID, "billing", "")
 	fc.addAccount(acc)
-	sk := testSKK(skkID, accID, "writer", "")
+	sk := testSSK(sskID, accID, "writer", "")
 	sk.Permissions = &nisv1.UserPermissions{PubAllow: []string{"a", "b", "c"}}
 	fc.addScopedKey(sk)
 

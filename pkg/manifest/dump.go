@@ -28,18 +28,18 @@ func DumpObjects(
 	op *nisv1.Operator,
 	clusters []*nisv1.Cluster,
 	accounts []*nisv1.Account,
-	skks []*nisv1.ScopedSigningKey,
+	ssks []*nisv1.ScopedSigningKey,
 	users []*nisv1.User,
 	templates []*TemplateWithCurrentVersion,
 	kinds map[string]bool,
 ) []Object {
-	// Build a lookup from SKK ID → name for user ScopedKey resolution.
-	skkIDToName := make(map[string]string, len(skks))
-	for _, sk := range skks {
-		skkIDToName[sk.GetId()] = sk.GetName()
+	// Build a lookup from SSK ID → name for user ScopedKey resolution.
+	sskIDToName := make(map[string]string, len(ssks))
+	for _, sk := range ssks {
+		sskIDToName[sk.GetId()] = sk.GetName()
 	}
 
-	// Build a lookup from template ID → name for SKK template-ref resolution.
+	// Build a lookup from template ID → name for SSK template-ref resolution.
 	tplIDToName := make(map[string]string, len(templates))
 	for _, t := range templates {
 		tplIDToName[t.Template.GetId()] = t.Template.GetName()
@@ -52,7 +52,7 @@ func DumpObjects(
 		out = append(out, operatorToObject(op))
 	}
 
-	// Templates (operator-scoped). Emit before Clusters/Accounts so an SKK
+	// Templates (operator-scoped). Emit before Clusters/Accounts so an SSK
 	// further down can reference one declared above.
 	if kinds[KindTemplate] {
 		for _, t := range templates {
@@ -77,9 +77,9 @@ func DumpObjects(
 				out = append(out, accountToObject(acc, op.GetName()))
 			}
 			if kinds[KindScopedSigningKey] {
-				for _, sk := range skks {
+				for _, sk := range ssks {
 					if sk.GetAccountId() == acc.GetId() {
-						out = append(out, skkToObject(sk, op.GetName(), acc.GetName(), tplIDToName))
+						out = append(out, sskToObject(sk, op.GetName(), acc.GetName(), tplIDToName))
 					}
 				}
 			}
@@ -91,7 +91,7 @@ func DumpObjects(
 					if u.GetName() == "system" {
 						continue
 					}
-					out = append(out, userToObject(u, op.GetName(), acc.GetName(), skkIDToName))
+					out = append(out, userToObject(u, op.GetName(), acc.GetName(), sskIDToName))
 				}
 			}
 		}
@@ -158,7 +158,7 @@ func accountToObject(acc *nisv1.Account, opName string) Object {
 	}
 }
 
-func skkToObject(sk *nisv1.ScopedSigningKey, opName, accName string, tplIDToName map[string]string) Object {
+func sskToObject(sk *nisv1.ScopedSigningKey, opName, accName string, tplIDToName map[string]string) Object {
 	spec := &ScopedSigningKeySpec{
 		Description: sk.GetDescription(),
 	}
@@ -226,12 +226,12 @@ func templateToObject(t *TemplateWithCurrentVersion, opName string) Object {
 	}
 }
 
-func userToObject(u *nisv1.User, opName, accName string, skkIDToName map[string]string) Object {
+func userToObject(u *nisv1.User, opName, accName string, sskIDToName map[string]string) Object {
 	spec := &UserSpec{
 		Description: u.GetDescription(),
 	}
 	if id := u.GetScopedSigningKeyId(); id != "" {
-		spec.ScopedKey = skkIDToName[id]
+		spec.ScopedKey = sskIDToName[id]
 	}
 	if u.GetJwtTtlSeconds() != 0 {
 		d := time.Duration(u.GetJwtTtlSeconds()) * time.Second

@@ -58,7 +58,7 @@ var (
 	// Permission + metadata flags shared by `create` and `edit`. Permissions
 	// reach the server via two different RPCs depending on the command:
 	// create stuffs them straight into CreateScopedSigningKeyRequest;
-	// edit fetches the current SKK first, overlays only the lists the
+	// edit fetches the current SSK first, overlays only the lists the
 	// caller actually changed (Cobra's .Changed() drives the overlay),
 	// and re-sends the full set through UpdatePermissions — which is
 	// REPLACE-semantics on the server. Without the overlay, "edit --pub-allow
@@ -76,8 +76,8 @@ var (
 var signingKeyDetachTemplateCmd = &cobra.Command{
 	Use:   "detach-template ID",
 	Short: "Detach a scoped signing key from its template",
-	Long: `Clear the SKK's template_id and template_version, leaving its
-current permission columns untouched. After detach, the SKK becomes
+	Long: `Clear the SSK's template_id and template_version, leaving its
+current permission columns untouched. After detach, the SSK becomes
 standalone — future template updates have no effect on it, and the UI
 stops rendering "From template X@vN" / outdated badges.`,
 	Args: cobra.ExactArgs(1),
@@ -87,11 +87,11 @@ stops rendering "From template X@vN" / outdated badges.`,
 var signingKeyBumpTemplateCmd = &cobra.Command{
 	Use:   "bump-template ID",
 	Short: "Apply a template version to a scoped signing key",
-	Long: `Snapshot a target template version's permissions into the SKK,
+	Long: `Snapshot a target template version's permissions into the SSK,
 regenerate the parent account JWT, and push to every attached cluster.
 When --to-version is unset, applies the template's current latest_version.
 This is the explicit roll-out path — template updates never auto-cascade
-to dependent SKKs.`,
+to dependent SSKs.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSigningKeyBumpTemplate,
 }
@@ -102,9 +102,9 @@ var signingKeyTrackLatestEnabled bool
 var signingKeyTrackLatestCmd = &cobra.Command{
 	Use:   "track-latest ID",
 	Short: "Enable or disable auto-tracking of the bound template's latest version",
-	Long: `Toggle the SKK's track_latest flag. When enabled, every UpdateTemplate
-on the bound template auto-applies the new version to this SKK (re-signs
-the parent account JWT, pushes to clusters). Enabling requires the SKK
+	Long: `Toggle the SSK's track_latest flag. When enabled, every UpdateTemplate
+on the bound template auto-applies the new version to this SSK (re-signs
+the parent account JWT, pushes to clusters). Enabling requires the SSK
 to be templated AND clean (no drift); direct permission edits are
 rejected while tracking is on so an auto-apply can't silently overwrite
 operator changes.`,
@@ -125,11 +125,11 @@ call UpdatePermissions: the parent account JWT is re-signed and pushed
 to every attached cluster on the next sync.
 
 Permission RPC is REPLACE-semantics on the server, but this command does
-partial-set: it fetches the current SKK, overlays only the lists you
+partial-set: it fetches the current SSK, overlays only the lists you
 named on the command line, and sends the full set back. Pass
 "--pub-allow ''" (empty value) to clear a list explicitly.
 
-Editing permissions on a templated SKK flips its template_drifted flag
+Editing permissions on a templated SSK flips its template_drifted flag
 and is rejected outright when track_latest is enabled — bump or detach
 first.`,
 	Args: cobra.ExactArgs(1),
@@ -158,13 +158,13 @@ func init() {
 	signingKeyCreateCmd.Flags().StringSliceVar(&signingKeySubDeny, "sub-deny", nil, "subject pattern denied for subscribe (repeatable / comma-separated)")
 	signingKeyCreateCmd.Flags().IntVar(&signingKeyResponseMaxMsgs, "response-max-msgs", 0, "max reply messages on auto-granted inbox replies (0 = NATS default of 1; only emitted when there's a restricted pub-allow or any response cap is set — see SKILL Scoped-signer Resp emission rule)")
 	signingKeyCreateCmd.Flags().StringVar(&signingKeyResponseTTL, "response-ttl", "", "reply inbox TTL on auto-granted responses (e.g. 30s; empty = no explicit cap)")
-	signingKeyCreateCmd.Flags().StringVar(&signingKeyFromTemplate, "from-template", "", "create the SKK from this operator-scoped template (snapshots its permissions; mutually exclusive with the perm flags above)")
+	signingKeyCreateCmd.Flags().StringVar(&signingKeyFromTemplate, "from-template", "", "create the SSK from this operator-scoped template (snapshots its permissions; mutually exclusive with the perm flags above)")
 	signingKeyCreateCmd.Flags().IntVar(&signingKeyTemplateVersion, "template-version", 0, "pin to a specific template version (0 = current latest)")
-	signingKeyCreateCmd.Flags().BoolVar(&signingKeyTrackLatest, "track-latest", false, "auto-apply every new template version to this SKK (requires --from-template; ignores --template-version)")
+	signingKeyCreateCmd.Flags().BoolVar(&signingKeyTrackLatest, "track-latest", false, "auto-apply every new template version to this SSK (requires --from-template; ignores --template-version)")
 	_ = signingKeyCreateCmd.MarkFlagRequired("operator")
 	_ = signingKeyCreateCmd.MarkFlagRequired("account")
 
-	signingKeyEditCmd.Flags().StringVar(&signingKeyName, "name", "", "new name for the SKK")
+	signingKeyEditCmd.Flags().StringVar(&signingKeyName, "name", "", "new name for the SSK")
 	signingKeyEditCmd.Flags().StringVar(&signingKeyDescription, "description", "", "new description")
 	signingKeyEditCmd.Flags().StringSliceVar(&signingKeyPubAllow, "pub-allow", nil, "replace the pub allow list (empty value clears it)")
 	signingKeyEditCmd.Flags().StringSliceVar(&signingKeyPubDeny, "pub-deny", nil, "replace the pub deny list")
@@ -207,7 +207,7 @@ func runSigningKeyCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Mutual exclusion: --from-template snapshots a template's perms into
-	// the new SKK. Passing perm flags at the same time would be misleading
+	// the new SSK. Passing perm flags at the same time would be misleading
 	// — the server ignores the perm fields in that case (see scoped_key.proto
 	// docstring on CreateScopedSigningKeyRequest.template). Fail loud rather
 	// than silently dropping what the caller asked for.
@@ -235,7 +235,7 @@ func runSigningKeyCreate(cmd *cobra.Command, args []string) error {
 	} else if anySSKPermFlagSet(cmd) {
 		// Only attach the proto sub-messages when the caller actually asked
 		// for permissions. An always-non-nil ResponsePermission would force
-		// jwt_service.go to emit a Resp clause on the SKK — see the
+		// jwt_service.go to emit a Resp clause on the SSK — see the
 		// "Scoped-signer Resp emission rule" in SKILL.md.
 		createReq.Permissions = &nisv1.UserPermissions{
 			PubAllow: signingKeyPubAllow,
@@ -310,7 +310,7 @@ func runSigningKeyEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("nothing to do: pass --name / --description for metadata, or --pub-allow / --pub-deny / --sub-allow / --sub-deny / --response-max-msgs / --response-ttl for permissions")
 	}
 
-	// We need the current SKK regardless: metadata-edit prints it back,
+	// We need the current SSK regardless: metadata-edit prints it back,
 	// and permission-edit overlays unset lists.
 	getResp, err := GetClient().ScopedSigningKey.GetScopedSigningKey(context.Background(),
 		connect.NewRequest(&nisv1.GetScopedSigningKeyRequest{Id: id}))

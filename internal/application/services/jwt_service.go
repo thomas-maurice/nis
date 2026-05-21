@@ -121,7 +121,7 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 	// embeds the template (pub/sub permissions + response limits) into the account
 	// JWT so NATS can apply them to any user JWT signed by that key.
 	//
-	// IsPlainSigner SKKs are the exception — they get added as plain
+	// IsPlainSigner SSKs are the exception — they get added as plain
 	// strings via SigningKeys.Add. Those are the ones we imported from
 	// an NSC store where the original account JWT carried the key as a
 	// raw string in signing_keys. NATS then treats the user JWT's own
@@ -145,13 +145,13 @@ func (s *JWTService) GenerateAccountJWT(ctx context.Context, account *entities.A
 		scope.Template.Pub.Deny = sk.PubDeny
 		scope.Template.Sub.Allow = sk.SubAllow
 		scope.Template.Sub.Deny = sk.SubDeny
-		// Emit Resp when the SKK either declares an explicit response
+		// Emit Resp when the SSK either declares an explicit response
 		// limit OR has a restricted pub_allow. The second case is the
 		// load-bearing one: NATS's validateResponsePermissions
 		// (server/auth.go) flips publish from "allow anything not
 		// denied" to "allow only what's in pub_allow + auto-granted
 		// reply inboxes" the moment Resp is present. Emitting it
-		// unconditionally would silently break every "permissive" SKK
+		// unconditionally would silently break every "permissive" SSK
 		// (nil/empty pub_allow). Emitting it only when pub_allow is
 		// restrictive gives services the NATS-side default auto-grant
 		// (1 msg / 2 min from server/const.go:DEFAULT_ALLOW_RESPONSE_*)
@@ -241,7 +241,7 @@ func (s *JWTService) GenerateUserJWT(ctx context.Context, user *entities.User, a
 		// NatsLimits with NoLimit sentinels, so we have to clear them explicitly.
 		// `SetScoped(true)` zeroes the embedded UserPermissionLimits in one shot.
 		//
-		// Skip SetScoped when the SKK is an IsPlainSigner: the parent
+		// Skip SetScoped when the SSK is an IsPlainSigner: the parent
 		// account JWT lists it as a plain signing_keys string (not a
 		// UserScope), so NATS does NOT apply any template — it uses the
 		// user JWT's own perms. A SetScoped-zeroed user under a plain

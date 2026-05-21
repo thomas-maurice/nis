@@ -61,7 +61,7 @@ func (s *AccountService) WithClusterService(cs *ClusterService) *AccountService 
 // truth; the drift dashboard (P9) surfaces any cluster that fell behind.
 //
 // This is the auto-sync side of P6: before P6, mutating an account or
-// SKK left the DB ahead of NATS until an operator ran `nisctl cluster
+// SSK left the DB ahead of NATS until an operator ran `nisctl cluster
 // sync`. Now every mutation that changes the account JWT triggers a
 // push as part of the same operation, with the same best-effort
 // semantics DeleteAccount uses.

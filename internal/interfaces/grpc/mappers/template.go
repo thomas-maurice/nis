@@ -32,7 +32,7 @@ func TemplatesToProto(ts []*entities.Template) []*pb.Template {
 
 // TemplateVersionToProto converts a domain TemplateVersion to its proto shape.
 // Mirrors ScopedSigningKey's permissions+response_permission shape so the UI
-// can render template versions and SKKs side-by-side without two converters.
+// can render template versions and SSKs side-by-side without two converters.
 func TemplateVersionToProto(v *entities.TemplateVersion) *pb.TemplateVersion {
 	if v == nil {
 		return nil

@@ -401,7 +401,7 @@ func applyScopedSigningKey(ctx context.Context, c PlannerClient, item PlanItem, 
 		return ApplyItem{Object: item.Object, Action: item.Action, Outcome: OutcomeApplied}, nil
 
 	case ActionUpdate:
-		skkID := item.ExistingID.String()
+		sskID := item.ExistingID.String()
 
 		// Default scoped key on a brand-new account: ExistingID is uuid.Nil.
 		// The server auto-created "default" when the account was created.
@@ -420,7 +420,7 @@ func applyScopedSigningKey(ctx context.Context, c PlannerClient, item PlanItem, 
 			found := false
 			for _, sk := range resp.Msg.GetKeys() {
 				if sk.GetName() == "default" {
-					skkID = sk.GetId()
+					sskID = sk.GetId()
 					found = true
 					break
 				}
@@ -429,7 +429,7 @@ func applyScopedSigningKey(ctx context.Context, c PlannerClient, item PlanItem, 
 				return failedItem(item), fmt.Errorf("manifest apply: ScopedSigningKey %s: default key not found after account create", path)
 			}
 		}
-		cache.scopedKeyByPath[path] = skkID
+		cache.scopedKeyByPath[path] = sskID
 		_ = accPath
 
 		for _, op := range item.Updates {
@@ -437,14 +437,14 @@ func applyScopedSigningKey(ctx context.Context, c PlannerClient, item PlanItem, 
 			case "UpdateScopedSigningKey":
 				desc := spec.Description
 				if _, err := c.ScopedSigningKeyClient().UpdateScopedSigningKey(ctx, connect.NewRequest(&nisv1.UpdateScopedSigningKeyRequest{
-					Id:          skkID,
+					Id:          sskID,
 					Description: &desc,
 				})); err != nil {
 					return failedItem(item), fmt.Errorf("manifest apply: ScopedSigningKey %s: UpdateScopedSigningKey: %w", path, err)
 				}
 			case "UpdatePermissions":
 				if _, err := c.ScopedSigningKeyClient().UpdatePermissions(ctx, connect.NewRequest(&nisv1.UpdatePermissionsRequest{
-					Id: skkID,
+					Id: sskID,
 					Permissions: &nisv1.UserPermissions{
 						PubAllow: spec.PubAllow,
 						PubDeny:  spec.PubDeny,
@@ -460,7 +460,7 @@ func applyScopedSigningKey(ctx context.Context, c PlannerClient, item PlanItem, 
 				}
 			case "SetTrackLatest":
 				if _, err := c.ScopedSigningKeyClient().SetTrackLatest(ctx, connect.NewRequest(&nisv1.SetTrackLatestRequest{
-					Id:      skkID,
+					Id:      sskID,
 					Enabled: spec.TrackLatest,
 				})); err != nil {
 					return failedItem(item), fmt.Errorf("manifest apply: ScopedSigningKey %s: SetTrackLatest: %w", path, err)
@@ -489,11 +489,11 @@ func applyUser(ctx context.Context, c PlannerClient, item PlanItem, cache *apply
 			return failedItem(item), fmt.Errorf("manifest apply: User %s: %w", path, err)
 		}
 
-		var skkID string
+		var sskID string
 		if spec.ScopedKey != "" {
-			skkPath := meta.Operator + "/" + meta.Account + "/" + spec.ScopedKey
-			if cached, ok := cache.scopedKeyByPath[skkPath]; ok {
-				skkID = cached
+			sskPath := meta.Operator + "/" + meta.Account + "/" + spec.ScopedKey
+			if cached, ok := cache.scopedKeyByPath[sskPath]; ok {
+				sskID = cached
 			} else {
 				// Not in cache — look up from server.
 				resp, err := c.ScopedSigningKeyClient().GetScopedSigningKeyByName(ctx, connect.NewRequest(&nisv1.GetScopedSigningKeyByNameRequest{
@@ -503,7 +503,7 @@ func applyUser(ctx context.Context, c PlannerClient, item PlanItem, cache *apply
 				if err != nil {
 					return failedItem(item), fmt.Errorf("manifest apply: User %s: GetScopedSigningKeyByName(%q): %w", path, spec.ScopedKey, err)
 				}
-				skkID = resp.Msg.GetKey().GetId()
+				sskID = resp.Msg.GetKey().GetId()
 			}
 		}
 
@@ -511,7 +511,7 @@ func applyUser(ctx context.Context, c PlannerClient, item PlanItem, cache *apply
 			AccountId:          accID,
 			Name:               meta.Name,
 			Description:        spec.Description,
-			ScopedSigningKeyId: skkID,
+			ScopedSigningKeyId: sskID,
 		})); err != nil {
 			return failedItem(item), fmt.Errorf("manifest apply: User %s: CreateUser: %w", path, err)
 		}

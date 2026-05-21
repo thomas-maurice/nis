@@ -2,7 +2,7 @@
 -- create "templates" + "template_versions" BEFORE the scoped_signing_keys
 -- recreation, because new_scoped_signing_keys declares an FK to
 -- templates(id) and SQLite resolves referenced tables at table-creation
--- time even with `PRAGMA foreign_keys = off`. Atlas emits the SKK
+-- time even with `PRAGMA foreign_keys = off`. Atlas emits the SSK
 -- recreation first; the order is hand-corrected here.
 --
 -- create "templates" table

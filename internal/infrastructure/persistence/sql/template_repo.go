@@ -143,7 +143,7 @@ func (r *TemplateRepo) ListDependentScopedKeys(ctx context.Context, templateID u
 	return out, nil
 }
 
-// ListTrackingScopedKeys returns SKKs pinned to this template AND
+// ListTrackingScopedKeys returns SSKs pinned to this template AND
 // flagged track_latest=true. Ordered by (account_id, name) so the
 // TemplateService.UpdateTemplate fan-out can batch per-account JWT
 // regens without resorting.

@@ -55,10 +55,10 @@
             </div>
           </div>
 
-          <!-- Template binding card (P6). Visible only when the SKK was
+          <!-- Template binding card (P6). Visible only when the SSK was
                created/bumped from a template. "Edited" + "Outdated" badges
                surface the two divergence states; the Detach button is the
-               escape hatch for a SKK the operator wants to make standalone. -->
+               escape hatch for a SSK the operator wants to make standalone. -->
           <div v-if="signingKey.templateId" class="card mt-3">
             <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="mb-0">
@@ -69,10 +69,10 @@
                 <span v-if="signingKey.trackLatest" class="badge bg-primary me-1" title="Auto-applies every new template version. Permission edits are rejected while on.">
                   Tracking latest
                 </span>
-                <span v-if="signingKey.templateDrifted" class="badge bg-warning text-dark me-1" title="SKK permissions were edited directly since the last bump. The next bump will overwrite them.">
+                <span v-if="signingKey.templateDrifted" class="badge bg-warning text-dark me-1" title="SSK permissions were edited directly since the last bump. The next bump will overwrite them.">
                   Edited
                 </span>
-                <span v-if="templateOutdated" class="badge bg-info text-dark me-1" :title="`Template latest version is ${template.latestVersion}; this SKK is pinned to v${signingKey.templateVersion}`">
+                <span v-if="templateOutdated" class="badge bg-info text-dark me-1" :title="`Template latest version is ${template.latestVersion}; this SSK is pinned to v${signingKey.templateVersion}`">
                   Outdated
                 </span>
                 <span v-else-if="template && !signingKey.trackLatest" class="badge bg-success">
@@ -122,9 +122,9 @@
                 {{ detaching ? 'Detaching...' : 'Detach from template' }}
               </button>
               <p class="text-muted small mt-2 mb-0">
-                Detach keeps the SKK's current permissions intact but stops
+                Detach keeps the SSK's current permissions intact but stops
                 tracking the template. Future template updates won't affect
-                this SKK. Tracking is also cleared automatically.
+                this SSK. Tracking is also cleared automatically.
               </p>
             </div>
           </div>
@@ -207,7 +207,7 @@ const templateOutdated = computed(() => {
 
 const handleDetach = async () => {
   if (!signingKey.value?.id) return
-  if (!confirm(`Detach "${signingKey.value.name}" from template "${template.value?.name ?? 'unknown'}"?\n\nThe SKK's current permissions will be preserved. Future template updates will not affect this SKK.`)) {
+  if (!confirm(`Detach "${signingKey.value.name}" from template "${template.value?.name ?? 'unknown'}"?\n\nThe SSK's current permissions will be preserved. Future template updates will not affect this SSK.`)) {
     return
   }
   detaching.value = true

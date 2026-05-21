@@ -101,9 +101,9 @@ func TestE2E_ImportNSC_MinimalArchive(t *testing.T) {
 // would surface as a silent permission regression on first account-JWT
 // regen. This test imports an archive carrying one plain + two scoped
 // signers and asserts:
-//   - both kinds get their own SKK row,
+//   - both kinds get their own SSK row,
 //   - is_plain_signer is true for the plain one and false for scoped,
-//   - the scoped SKK rows preserved the template's pub/sub/resp
+//   - the scoped SSK rows preserved the template's pub/sub/resp
 //     contents — not the empty defaults the bug shipped.
 func TestE2E_ImportNSC_MixedSigningKeys(t *testing.T) {
 	h := startStack(t)
@@ -155,20 +155,20 @@ func TestE2E_ImportNSC_MixedSigningKeys(t *testing.T) {
 		t.Fatal("mixed-account not found post-import")
 	}
 
-	skks, err := h.keyCli.ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
+	ssks, err := h.keyCli.ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
 		AccountId: accountID,
 	}))
 	if err != nil {
 		t.Fatalf("ListScopedSigningKeys: %v", err)
 	}
-	byPub := make(map[string]*nisv1.ScopedSigningKey, len(skks.Msg.Keys))
-	for _, k := range skks.Msg.Keys {
+	byPub := make(map[string]*nisv1.ScopedSigningKey, len(ssks.Msg.Keys))
+	for _, k := range ssks.Msg.Keys {
 		byPub[k.PublicKey] = k
 	}
-	// Sanity: every signing key in the archive must round-trip into an SKK.
+	// Sanity: every signing key in the archive must round-trip into an SSK.
 	for _, pub := range append(append([]string{}, plainPubs...), scopedPubs...) {
 		if _, ok := byPub[pub]; !ok {
-			t.Fatalf("expected SKK for signing key %s in imported account, got pubs: %v", pub, mapPubs(byPub))
+			t.Fatalf("expected SSK for signing key %s in imported account, got pubs: %v", pub, mapPubs(byPub))
 		}
 	}
 
@@ -178,37 +178,37 @@ func TestE2E_ImportNSC_MixedSigningKeys(t *testing.T) {
 	// the cluster healthcheck silently times out.
 	plain := byPub[plainPubs[0]]
 	if !plain.TrackLatest == false { // sanity — unrelated field, not set on import
-		t.Fatalf("plain signer SKK unexpectedly has track_latest=true")
+		t.Fatalf("plain signer SSK unexpectedly has track_latest=true")
 	}
 	// IsPlainSigner is the load-bearing assertion for the plain case.
 	// (Proto field name is also is_plain_signer; surfaced via mapper.)
-	if got := plain; !skkIsPlainSigner(t, h, got.Id) {
-		t.Fatalf("expected is_plain_signer=true for plain signer SKK %s; got false", got.Id)
+	if got := plain; !sskIsPlainSigner(t, h, got.Id) {
+		t.Fatalf("expected is_plain_signer=true for plain signer SSK %s; got false", got.Id)
 	}
 
 	// Scoped signers must NOT be flagged plain, AND must have the
-	// template's pub/sub/resp contents copied verbatim into the SKK
+	// template's pub/sub/resp contents copied verbatim into the SSK
 	// row. The pre-fix bug stripped these on the way in.
 	reader := byPub[scopedPubs[0]]
-	if skkIsPlainSigner(t, h, reader.Id) {
-		t.Fatalf("scoped signer SKK %s unexpectedly has is_plain_signer=true", reader.Id)
+	if sskIsPlainSigner(t, h, reader.Id) {
+		t.Fatalf("scoped signer SSK %s unexpectedly has is_plain_signer=true", reader.Id)
 	}
 	if reader.Name != "service-reader" {
-		t.Fatalf("scoped signer SKK name = %q, want %q (role from NSC UserScope)", reader.Name, "service-reader")
+		t.Fatalf("scoped signer SSK name = %q, want %q (role from NSC UserScope)", reader.Name, "service-reader")
 	}
 	if !sliceEqual(reader.Permissions.GetPubAllow(), []string{"svc.read.>"}) {
-		t.Fatalf("scoped signer SKK pub_allow = %v, want [svc.read.>]", reader.Permissions.GetPubAllow())
+		t.Fatalf("scoped signer SSK pub_allow = %v, want [svc.read.>]", reader.Permissions.GetPubAllow())
 	}
 	if !sliceEqual(reader.Permissions.GetSubDeny(), []string{"svc.events.secret.>"}) {
-		t.Fatalf("scoped signer SKK sub_deny = %v, want [svc.events.secret.>]", reader.Permissions.GetSubDeny())
+		t.Fatalf("scoped signer SSK sub_deny = %v, want [svc.events.secret.>]", reader.Permissions.GetSubDeny())
 	}
 
 	responder := byPub[scopedPubs[1]]
-	if skkIsPlainSigner(t, h, responder.Id) {
-		t.Fatalf("scoped signer SKK %s unexpectedly has is_plain_signer=true", responder.Id)
+	if sskIsPlainSigner(t, h, responder.Id) {
+		t.Fatalf("scoped signer SSK %s unexpectedly has is_plain_signer=true", responder.Id)
 	}
 	if rp := responder.GetResponsePermission(); rp == nil || rp.MaxMsgs != 3 || rp.Expires != int64(90*time.Second) {
-		t.Fatalf("scoped signer SKK response_permission = %+v, want max=3 expires=90s", rp)
+		t.Fatalf("scoped signer SSK response_permission = %+v, want max=3 expires=90s", rp)
 	}
 }
 
@@ -232,10 +232,10 @@ func sliceEqual(a, b []string) bool {
 	return true
 }
 
-// skkIsPlainSigner re-fetches the SKK and reads the is_plain_signer
+// sskIsPlainSigner re-fetches the SSK and reads the is_plain_signer
 // proto field directly. Used to assert that the importer correctly
 // classifies plain vs scoped signers from a mixed NSC archive.
-func skkIsPlainSigner(t *testing.T, h *harness, id string) bool {
+func sskIsPlainSigner(t *testing.T, h *harness, id string) bool {
 	t.Helper()
 	resp, err := h.keyCli.GetScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.GetScopedSigningKeyRequest{Id: id}))
 	if err != nil {

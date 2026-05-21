@@ -337,10 +337,10 @@ func (h *ScopedSigningKeyHandler) DeleteScopedSigningKey(
 }
 
 // DetachFromTemplate clears template_id / template_version /
-// template_drifted on the SKK without changing its permission columns.
+// template_drifted on the SSK without changing its permission columns.
 // Auth: CanManageScopedKeys (admin or operator-admin owning the parent
 // account; account-admin denied — matches the existing Create/Update
-// authority for SKKs).
+// authority for SSKs).
 func (h *ScopedSigningKeyHandler) DetachFromTemplate(
 	ctx context.Context,
 	req *connect.Request[pb.DetachFromTemplateRequest],
@@ -354,7 +354,7 @@ func (h *ScopedSigningKeyHandler) DetachFromTemplate(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	// Resolve account ownership first so the permission check is scoped
-	// to the SKK's actual parent, not whatever the caller claims.
+	// to the SSK's actual parent, not whatever the caller claims.
 	existing, err := h.service.GetScopedSigningKey(ctx, id)
 	if err != nil {
 		return nil, repoErrToConnect(err)
@@ -371,9 +371,9 @@ func (h *ScopedSigningKeyHandler) DetachFromTemplate(
 	}), nil
 }
 
-// SetTrackLatest toggles the SKK's track_latest flag. Same authority
+// SetTrackLatest toggles the SSK's track_latest flag. Same authority
 // as Detach (CanManageScopedKeys) — it's a binding-shape change, not a
-// permission edit. Enabling on a drifted or untemplated SKK is
+// permission edit. Enabling on a drifted or untemplated SSK is
 // rejected by the service layer.
 func (h *ScopedSigningKeyHandler) SetTrackLatest(
 	ctx context.Context,

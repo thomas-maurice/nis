@@ -167,7 +167,7 @@ func TestManifest_Apply_Idempotent(t *testing.T) {
 			plan.Summary.Create, plan.Summary.Update)
 	}
 	if plan.Summary.Noop < 4 {
-		t.Fatalf("expected Noop >= 4 (including auto-default SKK), got %d", plan.Summary.Noop)
+		t.Fatalf("expected Noop >= 4 (including auto-default SSK), got %d", plan.Summary.Noop)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestManifest_Apply_DefaultScopedKeyRoundTrip(t *testing.T) {
 	accName := "mfd-acc"
 
 	// First pass: create the operator and account to get the auto-generated
-	// default SKK, then fetch its server-side description so the manifest spec
+	// default SSK, then fetch its server-side description so the manifest spec
 	// matches the server on the round-trip check.
 	opID := h.createOperator(t, opName)
 	accID := h.createAccount(t, opID, accName)
@@ -235,7 +235,7 @@ func TestManifest_Apply_DefaultScopedKeyRoundTrip(t *testing.T) {
 		t.Fatalf("default key PubDeny should contain %q, got %v", "secret.>", perms.GetPubDeny())
 	}
 
-	// Second plan: default SKK should be Noop now that spec matches server.
+	// Second plan: default SSK should be Noop now that spec matches server.
 	plan, err := manifest.Plan(context.Background(), pc, batch)
 	if err != nil {
 		t.Fatalf("re-plan: %v", err)
@@ -243,7 +243,7 @@ func TestManifest_Apply_DefaultScopedKeyRoundTrip(t *testing.T) {
 	for _, item := range plan.Items {
 		if item.Object.Kind == manifest.KindScopedSigningKey && item.Object.Metadata.Name == "default" {
 			if item.Action != manifest.ActionNoop {
-				t.Fatalf("default SKK re-plan action = %v, want ActionNoop (updates: %v)", item.Action, item.Updates)
+				t.Fatalf("default SSK re-plan action = %v, want ActionNoop (updates: %v)", item.Action, item.Updates)
 			}
 		}
 	}
@@ -528,7 +528,7 @@ func TestManifest_Delete_RefusesReserved(t *testing.T) {
 	pc := buildAdminPlannerClient(t, h)
 
 	// Create an operator so the reserved entities ($SYS account, system user,
-	// default SKK) actually exist on the server.
+	// default SSK) actually exist on the server.
 	opID := h.createOperator(t, "mdr-op")
 
 	// Get the $SYS account ID for post-check.
@@ -661,16 +661,16 @@ func TestManifest_Dump_RoundTrip(t *testing.T) {
 		t.Fatalf("ListAccounts: %v", err)
 	}
 
-	var allSKKs []*nisv1.ScopedSigningKey
+	var allSSKs []*nisv1.ScopedSigningKey
 	var allUsers []*nisv1.User
 	for _, acc := range accListResp.Msg.GetAccounts() {
-		skkResp, err := h.keyCli.ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
+		sskResp, err := h.keyCli.ListScopedSigningKeys(ctx, connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
 			AccountId: acc.GetId(),
 		}))
 		if err != nil {
 			t.Fatalf("ListScopedSigningKeys(acc=%s): %v", acc.GetName(), err)
 		}
-		allSKKs = append(allSKKs, skkResp.Msg.GetKeys()...)
+		allSSKs = append(allSSKs, sskResp.Msg.GetKeys()...)
 
 		userListResp, err := h.userCli.ListUsers(ctx, connect.NewRequest(&nisv1.ListUsersRequest{
 			AccountId: acc.GetId(),
@@ -691,7 +691,7 @@ func TestManifest_Dump_RoundTrip(t *testing.T) {
 		opResp.Msg.GetOperator(),
 		nil, // no clusters to dump
 		accListResp.Msg.GetAccounts(),
-		allSKKs,
+		allSSKs,
 		allUsers,
 		nil, // no templates in this test fixture
 		allKinds,

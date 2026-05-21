@@ -10,8 +10,8 @@ import { ScopedSigningKey } from "./scoped_key_pb.js";
 
 /**
  * Template is an operator-scoped, versioned bundle of NATS subject
- * permissions. SKKs reference templates by (template_id, version_number);
- * the SKK's pub/sub columns are a snapshot — JWT-regen reads the columns,
+ * permissions. SSKs reference templates by (template_id, version_number);
+ * the SSK's pub/sub columns are a snapshot — JWT-regen reads the columns,
  * not the template. Templates make "the same ServiceReader role across 50
  * accounts" expressible once with an explicit bump path for rollouts.
  *
@@ -840,7 +840,7 @@ export class ListTemplateDependentsRequest extends Message<ListTemplateDependent
  */
 export class ListTemplateDependentsResponse extends Message<ListTemplateDependentsResponse> {
   /**
-   * Pinned SKKs across all accounts under the operator. UI surfaces this
+   * Pinned SSKs across all accounts under the operator. UI surfaces this
    * before a delete attempt or a bulk-bump action.
    *
    * @generated from field: repeated nis.v1.ScopedSigningKeyRef dependents = 1;
@@ -876,7 +876,7 @@ export class ListTemplateDependentsResponse extends Message<ListTemplateDependen
 }
 
 /**
- * ScopedSigningKeyRef is a thin denormalized view of a templated SKK; the
+ * ScopedSigningKeyRef is a thin denormalized view of a templated SSK; the
  * full ScopedSigningKey shape lives in scoped_key.proto. Inlined here so
  * the dependents list can show "account / key / current pinned version /
  * drifted?" without an extra round-trip per row.
@@ -949,7 +949,7 @@ export class ScopedSigningKeyRef extends Message<ScopedSigningKeyRef> {
 
 /**
  * ApplyTemplateToScopedKeyRequest snapshots a template version into an
- * SKK's permission columns, sets template_version on the SKK, clears the
+ * SSK's permission columns, sets template_version on the SSK, clears the
  * drifted flag, regenerates the parent account JWT, and pushes to every
  * attached cluster post-commit. When version_number is 0, applies the
  * template's current latest_version.

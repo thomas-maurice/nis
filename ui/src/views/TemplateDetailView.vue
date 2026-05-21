@@ -95,7 +95,7 @@
           </div>
         </div>
 
-        <!-- Dependents: which SKKs currently pin this template. Operators
+        <!-- Dependents: which SSKs currently pin this template. Operators
              use this to scope a rollout — "bump these N keys to v4" — and
              to spot drifted keys that would silently get overwritten on a
              bump. -->
@@ -109,12 +109,12 @@
               </h5>
             </div>
             <div class="card-body p-0">
-              <div v-if="dependents.length === 0" class="p-3 text-muted">No SKKs are currently pinned to this template.</div>
+              <div v-if="dependents.length === 0" class="p-3 text-muted">No SSKs are currently pinned to this template.</div>
               <table v-else class="table mb-0">
                 <thead>
                   <tr>
                     <th>Account</th>
-                    <th>SKK name</th>
+                    <th>SSK name</th>
                     <th>Pinned</th>
                     <th></th>
                   </tr>
@@ -139,7 +139,7 @@
                         class="btn btn-sm btn-outline-primary"
                         @click="handleBump(d)"
                         :disabled="bumpingId === d.scopedSigningKeyId"
-                        :title="`Apply v${template.latestVersion} to this SKK and push to NATS`"
+                        :title="`Apply v${template.latestVersion} to this SSK and push to NATS`"
                       >
                         <font-awesome-icon :icon="['fas', 'sync']" class="me-1" />
                         Bump
@@ -157,7 +157,7 @@
     <!-- Edit modal. Same shape as TemplatesView's create modal so
          operators see one consistent form. Description-only edits land
          in place; permission edits create a new template_versions row
-         and bump latest_version — pinned SKKs are NOT auto-rolled. -->
+         and bump latest_version — pinned SSKs are NOT auto-rolled. -->
     <div v-if="showEditModal" class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -171,9 +171,9 @@
           <div class="modal-body">
             <div v-if="editFormError" class="alert alert-danger">{{ editFormError }}</div>
             <div class="alert alert-warning small mb-3">
-              Pinned SKKs are NOT automatically rolled to the new version.
+              Pinned SSKs are NOT automatically rolled to the new version.
               After saving, use the "Dependent scoped signing keys" table
-              below to bump each SKK explicitly (or leave them on the
+              below to bump each SSK explicitly (or leave them on the
               current version).
             </div>
             <form @submit.prevent="handleEditSubmit">
@@ -217,7 +217,7 @@
                   — streaming responses that run past it hit a permission
                   violation. Leave both at <code>0</code> to get NATS's
                   server-side defaults (<code>1 msg / 2 min</code>);
-                  auto-grant only activates on SKKs with a restricted
+                  auto-grant only activates on SSKs with a restricted
                   <code>pub_allow</code>.
                 </div>
                 <div class="row">
@@ -367,8 +367,8 @@ const load = async () => {
 
 const handleBump = async (d) => {
   const msg = d.drifted
-    ? `Bump "${d.scopedSigningKeyName}" to v${template.value.latestVersion}?\n\nThis SKK was edited directly since its last bump — those edits will be OVERWRITTEN by the template's v${template.value.latestVersion} permissions.`
-    : `Apply template v${template.value.latestVersion} to "${d.scopedSigningKeyName}"?\n\nThe SKK's permissions will be snapshotted from the template version and pushed to every attached cluster.`
+    ? `Bump "${d.scopedSigningKeyName}" to v${template.value.latestVersion}?\n\nThis SSK was edited directly since its last bump — those edits will be OVERWRITTEN by the template's v${template.value.latestVersion} permissions.`
+    : `Apply template v${template.value.latestVersion} to "${d.scopedSigningKeyName}"?\n\nThe SSK's permissions will be snapshotted from the template version and pushed to every attached cluster.`
   if (!confirm(msg)) return
   bumpingId.value = d.scopedSigningKeyId
   try {
@@ -378,7 +378,7 @@ const handleBump = async (d) => {
     })
     await load()
   } catch (err) {
-    error.value = err.response?.data?.message || 'Failed to bump SKK'
+    error.value = err.response?.data?.message || 'Failed to bump SSK'
   } finally {
     bumpingId.value = ''
   }

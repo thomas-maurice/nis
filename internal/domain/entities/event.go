@@ -47,11 +47,11 @@ const (
 	EventTypeTemplateCreated      = "template.created"
 	EventTypeTemplateUpdated      = "template.updated"
 	EventTypeTemplateDeleted      = "template.deleted"
-	// EventTypeTemplateApplied is emitted whenever an SKK's template
+	// EventTypeTemplateApplied is emitted whenever an SSK's template
 	// version is set or changed — initial create-from-template, explicit
 	// bump, or detach (with payload.action="detach"). Distinct from
 	// template.updated (which is template-side) so consumers can filter to
-	// "permission rollouts that actually landed on an SKK".
+	// "permission rollouts that actually landed on an SSK".
 	EventTypeTemplateApplied = "template.applied_to_scoped_key"
 	// Job lifecycle (A2). Emission is gated by HandlerSpec.AuditPolicy
 	// in JobRunner — recurring sweeps default to AuditFailuresOnly to

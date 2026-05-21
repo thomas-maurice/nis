@@ -1,7 +1,7 @@
-h1:QJ7B9tQpv1uSGD5ciMhuR9bmD48te+MAvTh1EUYfG6g=
+h1:0l1acEnIt7DcOaOqFxm3mVSTEiHjd3N1iBgesT1CuDw=
 00001_initial.sql h1:ebiF4Omc/yXU9lye5CdAS3c/+px2SA3pDTKsH0al464=
 00002_add_templates.sql h1:n+nWRL+7JwJo+aP66RAb7ANfxTj1i4qbjxzYt3Qrbvk=
-00003_skk_track_latest.sql h1:dJUcZ5NVTpf5lm08oqrMgMu2pMbT2aCeUyFTgoVN3fk=
-00004_skk_is_plain_signer.sql h1:A9lmFM5X37Zffcnhb+O/hyhb5NdaFg3GBAP9ugvCd3Q=
-00005_add_jobs.sql h1:WDt4dQDjxWw+9UA/hTnjLuL1CPGND7vZc3XQGaAftSM=
-00006_add_backups.sql h1:5bQ8r5MwFL+xJJSluwSi2EMJlqa7q0XXw0X51pzCTn8=
+00003_ssk_track_latest.sql h1:pXRI2LpbNwfuRoKBfeyF78Vt6w0BU4qeTuHD7cFH/l4=
+00004_ssk_is_plain_signer.sql h1:v8aYgSgAXfVxt4wGSxQ/qb0cqU0Qw0wWKP9f2pqs0l8=
+00005_add_jobs.sql h1:K/y7AdazK2fKtETH+50EQtQtUiSbzC3SNE0mlHuKn7Q=
+00006_add_backups.sql h1:Lb6c2MdYg+A2+mTzaH19WVWxtq3Z3v/69tb5AsevkU0=

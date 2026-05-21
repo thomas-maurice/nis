@@ -8,13 +8,13 @@ import (
 )
 
 // buildDumpFixture returns a proto state for a single operator with one
-// cluster, two accounts ($SYS filtered, app kept), one default SKK, one
-// named SKK, one system user (filtered), and one app user.
+// cluster, two accounts ($SYS filtered, app kept), one default SSK, one
+// named SSK, one system user (filtered), and one app user.
 func buildDumpFixture() (
 	op *nisv1.Operator,
 	clusters []*nisv1.Cluster,
 	accounts []*nisv1.Account,
-	skks []*nisv1.ScopedSigningKey,
+	ssks []*nisv1.ScopedSigningKey,
 	users []*nisv1.User,
 ) {
 	op = &nisv1.Operator{
@@ -58,8 +58,8 @@ func buildDumpFixture() (
 	}
 	accounts = []*nisv1.Account{sysAcc, appAcc}
 
-	defaultSKK := &nisv1.ScopedSigningKey{
-		Id:        "skk-default-id",
+	defaultSSK := &nisv1.ScopedSigningKey{
+		Id:        "ssk-default-id",
 		AccountId: "acc-app-id",
 		Name:      "default",
 		Permissions: &nisv1.UserPermissions{
@@ -68,8 +68,8 @@ func buildDumpFixture() (
 		},
 		ResponsePermission: &nisv1.ResponsePermission{},
 	}
-	writerSKK := &nisv1.ScopedSigningKey{
-		Id:        "skk-writer-id",
+	writerSSK := &nisv1.ScopedSigningKey{
+		Id:        "ssk-writer-id",
 		AccountId: "acc-app-id",
 		Name:      "writer",
 		Permissions: &nisv1.UserPermissions{
@@ -78,7 +78,7 @@ func buildDumpFixture() (
 		},
 		ResponsePermission: &nisv1.ResponsePermission{},
 	}
-	skks = []*nisv1.ScopedSigningKey{defaultSKK, writerSKK}
+	ssks = []*nisv1.ScopedSigningKey{defaultSSK, writerSSK}
 
 	systemUser := &nisv1.User{
 		Id:        "user-system-id",
@@ -90,7 +90,7 @@ func buildDumpFixture() (
 		AccountId:          "acc-app-id",
 		Name:               "payments-api",
 		Description:        "API user",
-		ScopedSigningKeyId: "skk-writer-id",
+		ScopedSigningKeyId: "ssk-writer-id",
 	}
 	ttl := 24 * time.Hour
 	ttlUser := &nisv1.User{
@@ -104,12 +104,12 @@ func buildDumpFixture() (
 }
 
 func TestDumpObjects_SYSAccountFiltered(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind == KindAccount && obj.Metadata.Name == "$SYS" {
@@ -119,12 +119,12 @@ func TestDumpObjects_SYSAccountFiltered(t *testing.T) {
 }
 
 func TestDumpObjects_SystemUserFiltered(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind == KindUser && obj.Metadata.Name == "system" {
@@ -133,13 +133,13 @@ func TestDumpObjects_SystemUserFiltered(t *testing.T) {
 	}
 }
 
-func TestDumpObjects_DefaultSKKIncluded(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+func TestDumpObjects_DefaultSSKIncluded(t *testing.T) {
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	found := false
 	for _, obj := range objs {
@@ -153,9 +153,9 @@ func TestDumpObjects_DefaultSKKIncluded(t *testing.T) {
 }
 
 func TestDumpObjects_JWTPolicyEmittedWhenNonZero(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{KindOperator: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	if len(objs) != 1 {
 		t.Fatalf("expected 1 object, got %d", len(objs))
@@ -166,14 +166,14 @@ func TestDumpObjects_JWTPolicyEmittedWhenNonZero(t *testing.T) {
 }
 
 func TestDumpObjects_JWTPolicyOmittedWhenZero(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	op.UserJwtTtlSeconds = 0
 	op.AccountJwtTtlSeconds = 0
 	op.JwtWarnWindowSeconds = 0
 	op.JwtAutoRenew = false
 
 	kinds := map[string]bool{KindOperator: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	if len(objs) != 1 {
 		t.Fatalf("expected 1 object, got %d", len(objs))
@@ -184,7 +184,7 @@ func TestDumpObjects_JWTPolicyOmittedWhenZero(t *testing.T) {
 }
 
 func TestDumpObjects_JetStreamOmittedWhenAllZero(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	// Replace app account with one that has no JetStream.
 	for i, acc := range accounts {
 		if acc.Name == "payments" {
@@ -197,7 +197,7 @@ func TestDumpObjects_JetStreamOmittedWhenAllZero(t *testing.T) {
 	}
 
 	kinds := map[string]bool{KindAccount: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind == KindAccount && obj.Account.JetStream != nil {
@@ -207,9 +207,9 @@ func TestDumpObjects_JetStreamOmittedWhenAllZero(t *testing.T) {
 }
 
 func TestDumpObjects_UserScopedKeyResolved(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{KindUser: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	found := false
 	for _, obj := range objs {
@@ -226,9 +226,9 @@ func TestDumpObjects_UserScopedKeyResolved(t *testing.T) {
 }
 
 func TestDumpObjects_UserJWTTTLIncludedWhenSet(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{KindUser: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	found := false
 	for _, obj := range objs {
@@ -247,9 +247,9 @@ func TestDumpObjects_UserJWTTTLIncludedWhenSet(t *testing.T) {
 }
 
 func TestDumpObjects_KindsFilter(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{KindOperator: true, KindCluster: true}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	for _, obj := range objs {
 		if obj.Kind != KindOperator && obj.Kind != KindCluster {
@@ -265,12 +265,12 @@ func TestDumpObjects_KindsFilter(t *testing.T) {
 // TestDumpRoundTrip builds a full dump, encodes it to YAML, parses it back,
 // and verifies the key fields survived the round-trip.
 func TestDumpRoundTrip(t *testing.T) {
-	op, clusters, accounts, skks, users := buildDumpFixture()
+	op, clusters, accounts, ssks, users := buildDumpFixture()
 	kinds := map[string]bool{
 		KindOperator: true, KindCluster: true, KindAccount: true,
 		KindScopedSigningKey: true, KindUser: true,
 	}
-	objs := DumpObjects(op, clusters, accounts, skks, users, nil, kinds)
+	objs := DumpObjects(op, clusters, accounts, ssks, users, nil, kinds)
 
 	data, err := EncodeYAML(objs)
 	if err != nil {

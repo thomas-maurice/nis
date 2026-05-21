@@ -30,8 +30,8 @@ spec:
     autoRenew: true
 ---
 # Operator-scoped permission template — defines a "service-reader" role once.
-# The billing-reader SKK below pins to it via spec.template, so updates to
-# the template can be rolled out to every SKK that pins it via
+# The billing-reader SSK below pins to it via spec.template, so updates to
+# the template can be rolled out to every SSK that pins it via
 # `nisctl signing-key bump-template KEY` (no auto-cascade by design).
 apiVersion: nis/v1
 kind: Template
@@ -117,8 +117,8 @@ spec:
 ---
 # Scoped signing key for billing — created from the service-reader template.
 # When `spec.template` is set, the permission fields below are IGNORED on
-# create; the template's snapshot is materialised into the SKK. Drift
-# (direct edits to a templated SKK) gets flagged via template_drifted and
+# create; the template's snapshot is materialised into the SSK. Drift
+# (direct edits to a templated SSK) gets flagged via template_drifted and
 # surfaced in the UI; the next bump overwrites unless the operator
 # detaches first.
 apiVersion: nis/v1

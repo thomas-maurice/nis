@@ -18,19 +18,19 @@ type TemplateRepository interface {
 	Update(ctx context.Context, t *entities.Template) error
 	Delete(ctx context.Context, id uuid.UUID) error
 
-	// CountDependentScopedKeys returns how many SKK rows currently pin
+	// CountDependentScopedKeys returns how many SSK rows currently pin
 	// this template. Used by DeleteTemplate to reject when > 0 with a
 	// FailedPrecondition.
 	CountDependentScopedKeys(ctx context.Context, templateID uuid.UUID) (int64, error)
 
-	// ListDependentScopedKeys returns the SKKs pinned to this template
+	// ListDependentScopedKeys returns the SSKs pinned to this template
 	// across all accounts under the operator. Used by the UI/CLI to show
 	// who would be affected by a bump or a delete attempt.
 	ListDependentScopedKeys(ctx context.Context, templateID uuid.UUID) ([]*entities.ScopedSigningKey, error)
 
-	// ListTrackingScopedKeys returns the SKKs pinned to this template
+	// ListTrackingScopedKeys returns the SSKs pinned to this template
 	// that have track_latest=true. Used by TemplateService.UpdateTemplate
-	// to find the set of SKKs that should be auto-bumped to a newly-
+	// to find the set of SSKs that should be auto-bumped to a newly-
 	// created version. Ordered by account_id then name for stable
 	// per-account batching.
 	ListTrackingScopedKeys(ctx context.Context, templateID uuid.UUID) ([]*entities.ScopedSigningKey, error)

@@ -30,7 +30,7 @@ func assertAllDeleted(t *testing.T, res *DeleteResult) {
 // ---- tests ----
 
 // TestDeleteAll_ReverseTopoOrder verifies that deletion happens in
-// User → SKK → Account → Cluster → Operator order.
+// User → SSK → Account → Cluster → Operator order.
 func TestDeleteAll_ReverseTopoOrder(t *testing.T) {
 	f := newFakePlannerClient()
 	op := &nisv1.Operator{Id: "op-del", Name: "delop"}
@@ -38,7 +38,7 @@ func TestDeleteAll_ReverseTopoOrder(t *testing.T) {
 	acc := &nisv1.Account{Id: "acc-del", OperatorId: "op-del", Name: "delacc"}
 	f.addAccount(acc)
 	sk := &nisv1.ScopedSigningKey{
-		Id:                 "skk-del",
+		Id:                 "ssk-del",
 		AccountId:          "acc-del",
 		Name:               "writer",
 		Permissions:        &nisv1.UserPermissions{},
@@ -68,7 +68,7 @@ func TestDeleteAll_ReverseTopoOrder(t *testing.T) {
 		}
 	}
 
-	// Verify call order: User → SKK → Account → Operator
+	// Verify call order: User → SSK → Account → Operator
 	wantOrder := []string{"DeleteUser", "DeleteScopedSigningKey", "DeleteAccount", "DeleteOperator"}
 	// Extract only delete calls from the log.
 	var deleteCalls []string
@@ -111,15 +111,15 @@ func TestDeleteAll_ReservedUserSystem(t *testing.T) {
 	}
 }
 
-// TestDeleteAll_ReservedSKKDefault verifies that "default" SKK is refused.
-func TestDeleteAll_ReservedSKKDefault(t *testing.T) {
+// TestDeleteAll_ReservedSSKDefault verifies that "default" SSK is refused.
+func TestDeleteAll_ReservedSSKDefault(t *testing.T) {
 	f := newFakePlannerClient()
 	batch := []Object{
 		{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindScopedSigningKey}, Metadata: ObjectMeta{Name: "default", Operator: "op", Account: "acc"}},
 	}
 	_, err := DeleteAll(context.Background(), f, batch)
 	if err == nil {
-		t.Fatal("expected error for default SKK, got nil")
+		t.Fatal("expected error for default SSK, got nil")
 	}
 }
 
@@ -219,16 +219,16 @@ func TestDeleteAll_ClusterDelete(t *testing.T) {
 	}
 }
 
-// TestDeleteAll_SKKDelete verifies SKK delete resolves the full operator→account→skk chain.
-func TestDeleteAll_SKKDelete(t *testing.T) {
+// TestDeleteAll_SSKDelete verifies SSK delete resolves the full operator→account→ssk chain.
+func TestDeleteAll_SSKDelete(t *testing.T) {
 	f := newFakePlannerClient()
-	op := &nisv1.Operator{Id: "op-skk2", Name: "skkop"}
+	op := &nisv1.Operator{Id: "op-ssk2", Name: "sskop"}
 	f.addOperator(op)
-	acc := &nisv1.Account{Id: "acc-skk2", OperatorId: "op-skk2", Name: "skkacc"}
+	acc := &nisv1.Account{Id: "acc-ssk2", OperatorId: "op-ssk2", Name: "sskacc"}
 	f.addAccount(acc)
 	sk := &nisv1.ScopedSigningKey{
-		Id:                 "skk-id2",
-		AccountId:          "acc-skk2",
+		Id:                 "ssk-id2",
+		AccountId:          "acc-ssk2",
 		Name:               "mykey",
 		Permissions:        &nisv1.UserPermissions{},
 		ResponsePermission: &nisv1.ResponsePermission{},
@@ -236,7 +236,7 @@ func TestDeleteAll_SKKDelete(t *testing.T) {
 	f.addScopedKey(sk)
 
 	batch := []Object{
-		{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindScopedSigningKey}, Metadata: ObjectMeta{Name: "mykey", Operator: "skkop", Account: "skkacc"}},
+		{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: KindScopedSigningKey}, Metadata: ObjectMeta{Name: "mykey", Operator: "sskop", Account: "sskacc"}},
 	}
 	res := mustDeleteAll(t, f, batch)
 	assertAllDeleted(t, res)

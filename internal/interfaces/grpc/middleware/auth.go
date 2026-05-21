@@ -243,9 +243,9 @@ func extractAction(method string) string {
 		return "delete"
 	}
 	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") {
-		// P6 template ops: applying a template version, bumping an SKK to
+		// P6 template ops: applying a template version, bumping an SSK to
 		// a new version, detaching from a template, or toggling
-		// track_latest all mutate the SKK's binding/perm columns and
+		// track_latest all mutate the SSK's binding/perm columns and
 		// (for bump/apply) the parent account JWT. Same authority as a
 		// plain "update". Without this, the default would fall through
 		// to "read" and silently bypass Casbin's mutation rows.

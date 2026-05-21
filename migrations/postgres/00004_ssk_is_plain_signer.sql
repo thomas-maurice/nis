@@ -1,7 +1,7 @@
 -- +goose Up
 -- modify "scoped_signing_keys" table
 ALTER TABLE "scoped_signing_keys" ADD COLUMN "is_plain_signer" boolean NOT NULL DEFAULT false;
--- Backfill: every SKK that was imported from NSC carries a stable
+-- Backfill: every SSK that was imported from NSC carries a stable
 -- description string. Mark those as plain signers so the system user
 -- minted against them stops getting SetScoped'd into a subs:0 lockout
 -- (the cluster healthcheck on imported operators silently timed out

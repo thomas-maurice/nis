@@ -35,22 +35,22 @@ type ScopedSigningKey struct {
 	CreatedAt          *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt          *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// Template ref (both empty/zero or both set; enforced by a CHECK on the
-	// underlying table). When set, the SKK was created or bumped from
+	// underlying table). When set, the SSK was created or bumped from
 	// templates[template_id]@template_version. The pub/sub fields above are
 	// a snapshot of that version at bump time.
 	TemplateId      string `protobuf:"bytes,10,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
 	TemplateVersion int32  `protobuf:"varint,11,opt,name=template_version,json=templateVersion,proto3" json:"template_version,omitempty"`
-	// Set true when the SKK's pub/sub fields were edited directly since the
+	// Set true when the SSK's pub/sub fields were edited directly since the
 	// last bump. Surfaced in the UI as an "edited" badge.
 	TemplateDrifted bool `protobuf:"varint,12,opt,name=template_drifted,json=templateDrifted,proto3" json:"template_drifted,omitempty"`
 	// When true, TemplateService.UpdateTemplate auto-applies new versions of
-	// the bound template to this SKK (regen account JWT + push to clusters)
+	// the bound template to this SSK (regen account JWT + push to clusters)
 	// without operator action. Only valid when template_id is set AND
 	// template_drifted is false. Direct edits via UpdatePermissions are
 	// rejected while this is true so an auto-apply can't silently
 	// overwrite operator changes.
 	TrackLatest bool `protobuf:"varint,13,opt,name=track_latest,json=trackLatest,proto3" json:"track_latest,omitempty"`
-	// Marks SKKs whose parent account JWT lists the key as a raw string
+	// Marks SSKs whose parent account JWT lists the key as a raw string
 	// in signing_keys (not a UserScope). NSC imports populate this from
 	// the source account JWT shape. On regen NIS emits these as plain
 	// strings; on user-mint NIS skips SetScoped so NATS uses the user
@@ -197,15 +197,15 @@ type CreateScopedSigningKeyRequest struct {
 	Description        string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	Permissions        *UserPermissions       `protobuf:"bytes,4,opt,name=permissions,proto3" json:"permissions,omitempty"`
 	ResponsePermission *ResponsePermission    `protobuf:"bytes,5,opt,name=response_permission,json=responsePermission,proto3" json:"response_permission,omitempty"`
-	// Optional template ref. When set, the SKK is created from the named
+	// Optional template ref. When set, the SSK is created from the named
 	// template's permissions (snapshotted into the pub/sub fields) and the
 	// permissions+response_permission fields above are ignored. When
 	// template_version is 0 with template_name set, applies the template's
 	// current latest_version.
 	Template *TemplateRef `protobuf:"bytes,6,opt,name=template,proto3" json:"template,omitempty"`
-	// Opt the new SKK into TemplateService.UpdateTemplate's auto-apply.
+	// Opt the new SSK into TemplateService.UpdateTemplate's auto-apply.
 	// Only honoured when `template` is also set; ignored otherwise. The
-	// SKK starts at the template's latest version regardless of any
+	// SSK starts at the template's latest version regardless of any
 	// version_number pin, because pinning + tracking-latest contradict.
 	TrackLatest   bool `protobuf:"varint,7,opt,name=track_latest,json=trackLatest,proto3" json:"track_latest,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -981,8 +981,8 @@ func (*DeleteScopedSigningKeyResponse) Descriptor() ([]byte, []int) {
 }
 
 // DetachFromTemplateRequest clears the template_id / template_version /
-// template_drifted fields on the SKK without changing its permission
-// columns. After detach, the SKK becomes a standalone key — future
+// template_drifted fields on the SSK without changing its permission
+// columns. After detach, the SSK becomes a standalone key — future
 // template updates do not affect it and the UI stops showing it as
 // templated. Permission columns retain whatever values they had at
 // detach time.
@@ -1074,7 +1074,7 @@ func (x *DetachFromTemplateResponse) GetKey() *ScopedSigningKey {
 	return nil
 }
 
-// SetTrackLatestRequest toggles the track_latest flag on a templated SKK.
+// SetTrackLatestRequest toggles the track_latest flag on a templated SSK.
 // Enabling requires template_id != "" AND template_drifted == false.
 // Disabling has no preconditions. Disabling does not detach — operator
 // must call DetachFromTemplate separately.

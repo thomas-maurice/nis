@@ -50,7 +50,7 @@ func NewScopedSigningKeyService(
 }
 
 // WithClusterService attaches a ClusterService used to push the
-// parent account JWT to every attached cluster after an SKK mutation
+// parent account JWT to every attached cluster after an SSK mutation
 // commits. Mirrors AccountService.WithClusterService — both are wired
 // post-construction in serve.go because the two services are mutually
 // independent at construction time. Tests that don't wire this skip the
@@ -99,7 +99,7 @@ func (s *ScopedSigningKeyService) pushAccountAfterCommit(ctx context.Context, ac
 
 // RegenerateAccountJWTTx is the exported wrapper around regenerateAccountJWTTx.
 // TemplateService calls this from its auto-track propagation path so the
-// same tx that updates the tracking SKKs also re-signs the parent account
+// same tx that updates the tracking SSKs also re-signs the parent account
 // JWT — keeping the "account JWT row mirrors the current set of scoped
 // signers" invariant atomic across services.
 func (s *ScopedSigningKeyService) RegenerateAccountJWTTx(ctx context.Context, tx persistence.RepositoryFactory, accountID uuid.UUID) error {
@@ -152,13 +152,13 @@ type CreateScopedSigningKeyRequest struct {
 	ResponseTTL     time.Duration
 	// Optional template ref. When set, Pub*/Sub*/Response* above are
 	// ignored and the named template's permissions are snapshotted into
-	// the SKK columns. Cross-operator refs are rejected with
+	// the SSK columns. Cross-operator refs are rejected with
 	// ErrTemplateRefForeignOperator so an admin can't accidentally seed
 	// operator B's account with operator A's template.
 	TemplateRef *TemplateRef
-	// TrackLatest opts the new SKK into TemplateService.UpdateTemplate's
+	// TrackLatest opts the new SSK into TemplateService.UpdateTemplate's
 	// auto-propagation. Only honoured when TemplateRef != nil; rejected
-	// otherwise. When set, the SKK is snapshotted from the template's
+	// otherwise. When set, the SSK is snapshotted from the template's
 	// current latest_version regardless of any VersionNumber pin — a
 	// version pin + tracking-latest contradict.
 	TrackLatest bool
@@ -254,7 +254,7 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 			tnum := ver.VersionNumber
 			tmplID, tmplVer = &tid, &tnum
 		} else if req.TrackLatest {
-			return fmt.Errorf("%w: track_latest requires a template ref", ErrSKKTrackLatestRequiresTemplate)
+			return fmt.Errorf("%w: track_latest requires a template ref", ErrSSKTrackLatestRequiresTemplate)
 		}
 
 		// Create scoped signing key entity
@@ -308,7 +308,7 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 		}); err != nil {
 			return fmt.Errorf("emit scoped_key.created: %w", err)
 		}
-		// When the SKK was seeded from a template, also emit
+		// When the SSK was seeded from a template, also emit
 		// template.applied_to_scoped_key with action=create so audit
 		// queries on the template can find every key that ever adopted a
 		// version of it.
@@ -412,7 +412,7 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 
 		// Update permission arrays if provided (even if empty). Track
 		// separately whether *permission* fields changed — when a
-		// templated SKK's permissions are edited directly the row gets
+		// templated SSK's permissions are edited directly the row gets
 		// flagged as drifted so the UI can show an "edited" badge and
 		// the operator knows a future bump would overwrite their changes.
 		permissionsTouched := false
@@ -449,12 +449,12 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 			permissionsTouched = true
 		}
 
-		// Reject permission edits on SKKs that are auto-tracking. Without
+		// Reject permission edits on SSKs that are auto-tracking. Without
 		// this guard, the next template bump would silently overwrite the
 		// operator's edit. Force them to disable tracking (or detach)
 		// first so the intent is explicit and auditable.
 		if permissionsTouched && scopedKey.TrackLatest {
-			return ErrSKKTrackingLatest
+			return ErrSSKTrackingLatest
 		}
 
 		if permissionsTouched && scopedKey.TemplateID != nil && !scopedKey.TemplateDrifted {
@@ -553,27 +553,27 @@ func (s *ScopedSigningKeyService) DeleteScopedSigningKey(ctx context.Context, id
 }
 
 // BumpScopedKeyTemplate snapshots a target template version's permissions
-// into the SKK, sets template_version, clears template_drifted, and
+// into the SSK, sets template_version, clears template_drifted, and
 // re-signs the parent account JWT. The post-commit NATS push is wired in
 // Task #7; for now the call is DB-only and operators must
-// `nisctl cluster sync` to roll out (matches today's SKK Create/Update
+// `nisctl cluster sync` to roll out (matches today's SSK Create/Update
 // behaviour). When versionNumber == 0, applies the template's current
 // latest_version.
 func (s *ScopedSigningKeyService) BumpScopedKeyTemplate(ctx context.Context, scopedKeyID uuid.UUID, versionNumber int) (*entities.ScopedSigningKey, error) {
 	var result *entities.ScopedSigningKey
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
-		skk, err := tx.ScopedSigningKeyRepository().GetByID(ctx, scopedKeyID)
+		ssk, err := tx.ScopedSigningKeyRepository().GetByID(ctx, scopedKeyID)
 		if err != nil {
 			return err
 		}
-		if skk.TemplateID == nil {
+		if ssk.TemplateID == nil {
 			return fmt.Errorf("%w: %s", ErrScopedKeyNotTemplated, scopedKeyID)
 		}
-		account, err := tx.AccountRepository().GetByID(ctx, skk.AccountID)
+		account, err := tx.AccountRepository().GetByID(ctx, ssk.AccountID)
 		if err != nil {
 			return fmt.Errorf("get account for bump: %w", err)
 		}
-		tpl, err := tx.TemplateRepository().GetByID(ctx, *skk.TemplateID)
+		tpl, err := tx.TemplateRepository().GetByID(ctx, *ssk.TemplateID)
 		if err != nil {
 			return fmt.Errorf("get template: %w", err)
 		}
@@ -589,32 +589,32 @@ func (s *ScopedSigningKeyService) BumpScopedKeyTemplate(ctx context.Context, sco
 			return fmt.Errorf("get template version: %w", err)
 		}
 
-		skk.PubAllow = ver.PubAllow
-		skk.PubDeny = ver.PubDeny
-		skk.SubAllow = ver.SubAllow
-		skk.SubDeny = ver.SubDeny
-		skk.ResponseMaxMsgs = ver.ResponseMaxMsgs
-		skk.ResponseTTL = ver.ResponseTTL
-		skk.TemplateVersion = &target
-		skk.TemplateDrifted = false
-		skk.UpdatedAt = clock.Now()
+		ssk.PubAllow = ver.PubAllow
+		ssk.PubDeny = ver.PubDeny
+		ssk.SubAllow = ver.SubAllow
+		ssk.SubDeny = ver.SubDeny
+		ssk.ResponseMaxMsgs = ver.ResponseMaxMsgs
+		ssk.ResponseTTL = ver.ResponseTTL
+		ssk.TemplateVersion = &target
+		ssk.TemplateDrifted = false
+		ssk.UpdatedAt = clock.Now()
 
-		if err := tx.ScopedSigningKeyRepository().Update(ctx, skk); err != nil {
-			return fmt.Errorf("update SKK on bump: %w", err)
+		if err := tx.ScopedSigningKeyRepository().Update(ctx, ssk); err != nil {
+			return fmt.Errorf("update SSK on bump: %w", err)
 		}
-		if err := s.regenerateAccountJWTTx(ctx, tx, skk.AccountID); err != nil {
+		if err := s.regenerateAccountJWTTx(ctx, tx, ssk.AccountID); err != nil {
 			return err
 		}
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeTemplateApplied,
 			OperatorID:   &account.OperatorID,
-			AccountID:    &skk.AccountID,
+			AccountID:    &ssk.AccountID,
 			ResourceType: "template",
 			ResourceID:   tpl.ID.String(),
 			Payload: map[string]any{
 				"action":           "bump",
-				"scoped_key_id":    skk.ID.String(),
-				"scoped_key_name":  skk.Name,
+				"scoped_key_id":    ssk.ID.String(),
+				"scoped_key_name":  ssk.Name,
 				"template_version": target,
 			},
 		}); err != nil {
@@ -623,14 +623,14 @@ func (s *ScopedSigningKeyService) BumpScopedKeyTemplate(ctx context.Context, sco
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeScopedKeyUpdated,
 			OperatorID:   &account.OperatorID,
-			AccountID:    &skk.AccountID,
+			AccountID:    &ssk.AccountID,
 			ResourceType: "scoped_key",
-			ResourceID:   skk.ID.String(),
-			Payload:      map[string]any{"name": skk.Name, "bumped_to_version": target},
+			ResourceID:   ssk.ID.String(),
+			Payload:      map[string]any{"name": ssk.Name, "bumped_to_version": target},
 		}); err != nil {
 			return fmt.Errorf("emit scoped_key.updated (bump): %w", err)
 		}
-		result = skk
+		result = ssk
 		return nil
 	})
 	if err != nil {
@@ -644,55 +644,55 @@ func (s *ScopedSigningKeyService) BumpScopedKeyTemplate(ctx context.Context, sco
 }
 
 // DetachScopedKeyTemplate clears template_id / template_version /
-// template_drifted, leaving the permission columns untouched. The SKK
+// template_drifted, leaving the permission columns untouched. The SSK
 // becomes a standalone key; future template updates have no effect on
 // it. No JWT regen needed — permissions did not change.
 func (s *ScopedSigningKeyService) DetachScopedKeyTemplate(ctx context.Context, scopedKeyID uuid.UUID) (*entities.ScopedSigningKey, error) {
 	var result *entities.ScopedSigningKey
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
-		skk, err := tx.ScopedSigningKeyRepository().GetByID(ctx, scopedKeyID)
+		ssk, err := tx.ScopedSigningKeyRepository().GetByID(ctx, scopedKeyID)
 		if err != nil {
 			return err
 		}
-		if skk.TemplateID == nil {
+		if ssk.TemplateID == nil {
 			return fmt.Errorf("%w: %s", ErrScopedKeyNotTemplated, scopedKeyID)
 		}
-		account, err := tx.AccountRepository().GetByID(ctx, skk.AccountID)
+		account, err := tx.AccountRepository().GetByID(ctx, ssk.AccountID)
 		if err != nil {
 			return fmt.Errorf("get account for detach: %w", err)
 		}
-		priorTemplateID := *skk.TemplateID
-		priorVersion := *skk.TemplateVersion
+		priorTemplateID := *ssk.TemplateID
+		priorVersion := *ssk.TemplateVersion
 
-		skk.TemplateID = nil
-		skk.TemplateVersion = nil
-		skk.TemplateDrifted = false
+		ssk.TemplateID = nil
+		ssk.TemplateVersion = nil
+		ssk.TemplateDrifted = false
 		// Detach implies "no template binding"; tracking-latest without
 		// a binding is incoherent, so clear the flag too. The operator
 		// can re-enable tracking after re-attaching via create-from-
 		// template if they want that behaviour back.
-		skk.TrackLatest = false
-		skk.UpdatedAt = clock.Now()
+		ssk.TrackLatest = false
+		ssk.UpdatedAt = clock.Now()
 
-		if err := tx.ScopedSigningKeyRepository().Update(ctx, skk); err != nil {
-			return fmt.Errorf("update SKK on detach: %w", err)
+		if err := tx.ScopedSigningKeyRepository().Update(ctx, ssk); err != nil {
+			return fmt.Errorf("update SSK on detach: %w", err)
 		}
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeTemplateApplied,
 			OperatorID:   &account.OperatorID,
-			AccountID:    &skk.AccountID,
+			AccountID:    &ssk.AccountID,
 			ResourceType: "template",
 			ResourceID:   priorTemplateID.String(),
 			Payload: map[string]any{
 				"action":              "detach",
-				"scoped_key_id":       skk.ID.String(),
-				"scoped_key_name":     skk.Name,
+				"scoped_key_id":       ssk.ID.String(),
+				"scoped_key_name":     ssk.Name,
 				"detached_from_version": priorVersion,
 			},
 		}); err != nil {
 			return fmt.Errorf("emit template.applied_to_scoped_key (detach): %w", err)
 		}
-		result = skk
+		result = ssk
 		return nil
 	})
 	if err != nil {
@@ -702,7 +702,7 @@ func (s *ScopedSigningKeyService) DetachScopedKeyTemplate(ctx context.Context, s
 }
 
 // SetScopedKeyTrackLatest toggles the track_latest flag on a templated
-// SKK. Enabling requires (a) a template binding and (b) clean state
+// SSK. Enabling requires (a) a template binding and (b) clean state
 // (TemplateDrifted == false) — turning tracking on while drifted would
 // silently overwrite the operator's drift on the next template bump,
 // the exact footgun the rejection-on-edit guard exists to prevent.
@@ -711,45 +711,45 @@ func (s *ScopedSigningKeyService) DetachScopedKeyTemplate(ctx context.Context, s
 func (s *ScopedSigningKeyService) SetScopedKeyTrackLatest(ctx context.Context, scopedKeyID uuid.UUID, enabled bool) (*entities.ScopedSigningKey, error) {
 	var result *entities.ScopedSigningKey
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
-		skk, err := tx.ScopedSigningKeyRepository().GetByID(ctx, scopedKeyID)
+		ssk, err := tx.ScopedSigningKeyRepository().GetByID(ctx, scopedKeyID)
 		if err != nil {
 			return err
 		}
 		if enabled {
-			if skk.TemplateID == nil {
-				return fmt.Errorf("%w: %s", ErrSKKTrackLatestRequiresTemplate, scopedKeyID)
+			if ssk.TemplateID == nil {
+				return fmt.Errorf("%w: %s", ErrSSKTrackLatestRequiresTemplate, scopedKeyID)
 			}
-			if skk.TemplateDrifted {
-				return fmt.Errorf("%w: %s", ErrSKKTrackLatestDrifted, scopedKeyID)
+			if ssk.TemplateDrifted {
+				return fmt.Errorf("%w: %s", ErrSSKTrackLatestDrifted, scopedKeyID)
 			}
 		}
-		if skk.TrackLatest == enabled {
-			result = skk
+		if ssk.TrackLatest == enabled {
+			result = ssk
 			return nil
 		}
-		skk.TrackLatest = enabled
-		skk.UpdatedAt = clock.Now()
-		if err := tx.ScopedSigningKeyRepository().Update(ctx, skk); err != nil {
-			return fmt.Errorf("update SKK on set-track-latest: %w", err)
+		ssk.TrackLatest = enabled
+		ssk.UpdatedAt = clock.Now()
+		if err := tx.ScopedSigningKeyRepository().Update(ctx, ssk); err != nil {
+			return fmt.Errorf("update SSK on set-track-latest: %w", err)
 		}
-		account, err := tx.AccountRepository().GetByID(ctx, skk.AccountID)
+		account, err := tx.AccountRepository().GetByID(ctx, ssk.AccountID)
 		if err != nil {
 			return fmt.Errorf("set-track-latest: lookup account: %w", err)
 		}
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeScopedKeyUpdated,
 			OperatorID:   &account.OperatorID,
-			AccountID:    &skk.AccountID,
+			AccountID:    &ssk.AccountID,
 			ResourceType: "scoped_key",
-			ResourceID:   skk.ID.String(),
+			ResourceID:   ssk.ID.String(),
 			Payload: map[string]any{
-				"name":         skk.Name,
+				"name":         ssk.Name,
 				"track_latest": enabled,
 			},
 		}); err != nil {
 			return fmt.Errorf("emit scoped_key.updated (set-track-latest): %w", err)
 		}
-		result = skk
+		result = ssk
 		return nil
 	})
 	if err != nil {

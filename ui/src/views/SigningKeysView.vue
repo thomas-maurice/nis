@@ -129,7 +129,7 @@
           </div>
           <div v-if="localFormData.useTemplate">
             <div class="form-text mb-2">
-              The SKK is pinned to a template version and its permissions are
+              The SSK is pinned to a template version and its permissions are
               a snapshot of the template. Future template updates do NOT
               auto-roll; bump explicitly from the template detail page.
             </div>
@@ -165,7 +165,7 @@
                 />
                 <div class="form-text small">
                   <span v-if="localFormData.trackLatest">Resolved server-side at create.</span>
-                  <span v-else>SKK stays on this version until you bump it.</span>
+                  <span v-else>SSK stays on this version until you bump it.</span>
                 </div>
               </div>
               <div class="col-md-2 mb-2">
@@ -184,11 +184,11 @@
             </div>
             <div v-if="localFormData.trackLatest" class="alert alert-warning small mt-2 mb-0">
               <strong>Track latest</strong> auto-applies every new template
-              version to this SKK: the parent account JWT is re-signed and
+              version to this SSK: the parent account JWT is re-signed and
               pushed to all clusters whenever the template is updated. Direct
-              permission edits to the SKK are rejected while this is on, so
+              permission edits to the SSK are rejected while this is on, so
               the next auto-bump can't silently overwrite them. Turn it off
-              if you want the SKK pinned to a specific version until you
+              if you want the SSK pinned to a specific version until you
               bump it explicitly.
             </div>
           </div>
@@ -317,7 +317,7 @@ const loadOperators = async () => {
     const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {})
     operators.value = response.data.operators || []
     // Once we know the operator list, fan out a ListTemplates per operator
-    // so the SKK create form can offer a "Create from template" selector.
+    // so the SSK create form can offer a "Create from template" selector.
     // For typical operator counts (<10) this is fine; if it ever grows we
     // can lazy-load on operator-dropdown change instead.
     await loadAllTemplates()
@@ -368,7 +368,7 @@ const showCreateModal = () => {
     useTemplate: false,
     templateName: '',
     // Default is explicit pin to current latest (set when a template is
-    // picked below). trackLatest=false makes the SKK stable across
+    // picked below). trackLatest=false makes the SSK stable across
     // future template bumps — matches the "no surprise cascade" rule.
     templateVersion: 0,
     trackLatest: false
@@ -484,7 +484,7 @@ const handleSubmit = async (data) => {
       // service-side ScopedSigningKeyService.CreateScopedSigningKey,
       // which ignores Pub*/Sub* when TemplateRef is set. When
       // trackLatest is on we send 0 so the server resolves to current
-      // latest; otherwise we send the explicit pin so the SKK stays
+      // latest; otherwise we send the explicit pin so the SSK stays
       // on that version until a manual bump.
       if (data.useTemplate && data.templateName) {
         createReq.template = {

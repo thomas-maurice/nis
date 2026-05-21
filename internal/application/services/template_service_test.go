@@ -210,10 +210,10 @@ func (s *TemplateServiceTestSuite) TestDeleteTemplate_BlockedByDependents() {
 	})
 	require.NoError(s.T(), err)
 
-	// Create an account + SKK pinned to the template.
+	// Create an account + SSK pinned to the template.
 	acc, err := s.accountService.CreateAccount(s.ctx, CreateAccountRequest{OperatorID: opID, Name: "acc"})
 	require.NoError(s.T(), err)
-	skk, err := s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
+	ssk, err := s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
 		AccountID: acc.ID,
 		Name:      "templated",
 		TemplateRef: &TemplateRef{
@@ -222,20 +222,20 @@ func (s *TemplateServiceTestSuite) TestDeleteTemplate_BlockedByDependents() {
 		},
 	})
 	require.NoError(s.T(), err)
-	require.NotNil(s.T(), skk.TemplateID)
+	require.NotNil(s.T(), ssk.TemplateID)
 
 	err = s.templateService.DeleteTemplate(s.ctx, tpl.ID)
 	require.Error(s.T(), err)
 	assert.True(s.T(), errors.Is(err, ErrTemplateHasDependents), "expected ErrTemplateHasDependents, got %v", err)
 
-	// Detach the SKK, then delete succeeds.
-	_, err = s.scopedKeyService.DetachScopedKeyTemplate(s.ctx, skk.ID)
+	// Detach the SSK, then delete succeeds.
+	_, err = s.scopedKeyService.DetachScopedKeyTemplate(s.ctx, ssk.ID)
 	require.NoError(s.T(), err)
 	require.NoError(s.T(), s.templateService.DeleteTemplate(s.ctx, tpl.ID))
 }
 
 func (s *TemplateServiceTestSuite) TestBumpScopedKey_AppliesNewVersion() {
-	opID := s.makeOperator("op-bump-skk")
+	opID := s.makeOperator("op-bump-ssk")
 	acc, err := s.accountService.CreateAccount(s.ctx, CreateAccountRequest{OperatorID: opID, Name: "acc"})
 	require.NoError(s.T(), err)
 
@@ -245,13 +245,13 @@ func (s *TemplateServiceTestSuite) TestBumpScopedKey_AppliesNewVersion() {
 		PubAllow:   []string{"v1.>"},
 	})
 	require.NoError(s.T(), err)
-	skk, err := s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
+	ssk, err := s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
 		AccountID:   acc.ID,
 		Name:        "k",
 		TemplateRef: &TemplateRef{OperatorID: opID, TemplateName: "t"},
 	})
 	require.NoError(s.T(), err)
-	assert.Equal(s.T(), []string{"v1.>"}, skk.PubAllow)
+	assert.Equal(s.T(), []string{"v1.>"}, ssk.PubAllow)
 
 	// Bump template to v2.
 	_, _, err = s.templateService.UpdateTemplate(s.ctx, tpl.ID, UpdateTemplateRequest{
@@ -260,15 +260,15 @@ func (s *TemplateServiceTestSuite) TestBumpScopedKey_AppliesNewVersion() {
 	})
 	require.NoError(s.T(), err)
 
-	// SKK still on v1 until explicit bump.
-	stillOld, err := s.scopedKeyService.GetScopedSigningKey(s.ctx, skk.ID)
+	// SSK still on v1 until explicit bump.
+	stillOld, err := s.scopedKeyService.GetScopedSigningKey(s.ctx, ssk.ID)
 	require.NoError(s.T(), err)
 	require.NotNil(s.T(), stillOld.TemplateVersion)
 	assert.Equal(s.T(), 1, *stillOld.TemplateVersion, "templates must not auto-cascade")
 	assert.Equal(s.T(), []string{"v1.>"}, stillOld.PubAllow)
 
 	// Bump applies v2 snapshot.
-	bumped, err := s.scopedKeyService.BumpScopedKeyTemplate(s.ctx, skk.ID, 0)
+	bumped, err := s.scopedKeyService.BumpScopedKeyTemplate(s.ctx, ssk.ID, 0)
 	require.NoError(s.T(), err)
 	require.NotNil(s.T(), bumped.TemplateVersion)
 	assert.Equal(s.T(), 2, *bumped.TemplateVersion)
@@ -287,16 +287,16 @@ func (s *TemplateServiceTestSuite) TestDirectEdit_FlagsDrifted() {
 		PubAllow:   []string{">"},
 	})
 	require.NoError(s.T(), err)
-	skk, err := s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
+	ssk, err := s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
 		AccountID:   acc.ID,
 		Name:        "k",
 		TemplateRef: &TemplateRef{OperatorID: opID, TemplateName: "t"},
 	})
 	require.NoError(s.T(), err)
-	assert.False(s.T(), skk.TemplateDrifted)
+	assert.False(s.T(), ssk.TemplateDrifted)
 
-	// Direct permission edit on a templated SKK ⇒ drifted=true.
-	edited, err := s.scopedKeyService.UpdateScopedSigningKey(s.ctx, skk.ID, UpdateScopedSigningKeyRequest{
+	// Direct permission edit on a templated SSK ⇒ drifted=true.
+	edited, err := s.scopedKeyService.UpdateScopedSigningKey(s.ctx, ssk.ID, UpdateScopedSigningKeyRequest{
 		PubAllow: []string{">", "custom.>"},
 	})
 	require.NoError(s.T(), err)
@@ -323,7 +323,7 @@ func (s *TemplateServiceTestSuite) TestCreateScopedKey_CrossOperatorTemplateReje
 
 	_, err = s.scopedKeyService.CreateScopedSigningKey(s.ctx, CreateScopedSigningKeyRequest{
 		AccountID: accA.ID,
-		Name:      "a-skk",
+		Name:      "a-ssk",
 		TemplateRef: &TemplateRef{
 			OperatorID:   opB,
 			TemplateName: "b-template",

@@ -127,7 +127,7 @@ type ScopedSignerSpec struct {
 //
 // Returns the archive bytes plus the public keys of the signing keys
 // it generated, in the order (plain..., scoped...), so callers can map
-// each back to the SKK row they expect to find post-import.
+// each back to the SSK row they expect to find post-import.
 func BuildNSCArchiveWithSigningKeys(t *testing.T, operatorName, accountName, userName string, plainCount int, scoped []ScopedSignerSpec) ([]byte, []string, []string) {
 	t.Helper()
 
@@ -159,7 +159,7 @@ func BuildNSCArchiveWithSigningKeys(t *testing.T, operatorName, accountName, use
 	// (stored as nil values in the map → emitted as raw strings in the
 	// account JWT). The scoped ones are added via AddScopedSigner with a
 	// populated UserScope.Template; the import path should preserve
-	// these template fields verbatim on the resulting SKK row.
+	// these template fields verbatim on the resulting SSK row.
 	files := map[string][]byte{}
 	plainPubs := make([]string, 0, plainCount)
 	for i := 0; i < plainCount; i++ {

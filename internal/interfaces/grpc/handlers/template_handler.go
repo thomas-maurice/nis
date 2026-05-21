@@ -20,19 +20,19 @@ import (
 //
 // Permission shape: every read goes through CanReadTemplate, every
 // mutation through CanManageTemplate, and ApplyTemplateToScopedKey
-// additionally checks CanManageScopedKeys on the target SKK's account
+// additionally checks CanManageScopedKeys on the target SSK's account
 // (the apply operates on both the template's dependent set AND the
-// SKK's permission columns, so authority on either side is required).
+// SSK's permission columns, so authority on either side is required).
 type TemplateHandler struct {
 	service     *services.TemplateService
-	skkService  *services.ScopedSigningKeyService
+	sskService  *services.ScopedSigningKeyService
 	permService *services.PermissionService
 	factory     factoryForLookups
 }
 
 // factoryForLookups is the small slice of persistence.RepositoryFactory
 // the handler needs for cross-entity lookups (operator resolution from
-// template, account resolution from SKK). Keeping it narrow avoids
+// template, account resolution from SSK). Keeping it narrow avoids
 // growing the constructor surface.
 type factoryForLookups interface {
 	TemplateRepository() repositories.TemplateRepository
@@ -42,11 +42,11 @@ type factoryForLookups interface {
 
 func NewTemplateHandler(
 	service *services.TemplateService,
-	skkService *services.ScopedSigningKeyService,
+	sskService *services.ScopedSigningKeyService,
 	permService *services.PermissionService,
 	factory factoryForLookups,
 ) nisv1connect.TemplateServiceHandler {
-	return &TemplateHandler{service: service, skkService: skkService, permService: permService, factory: factory}
+	return &TemplateHandler{service: service, sskService: sskService, permService: permService, factory: factory}
 }
 
 func (h *TemplateHandler) CreateTemplate(ctx context.Context, req *connect.Request[pb.CreateTemplateRequest]) (*connect.Response[pb.CreateTemplateResponse], error) {
@@ -272,30 +272,30 @@ func (h *TemplateHandler) ListTemplateDependents(ctx context.Context, req *conne
 	if err := h.permService.CanReadTemplate(ctx, requestingUser, tpl.OperatorID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
-	skks, err := h.service.ListDependents(ctx, id)
+	ssks, err := h.service.ListDependents(ctx, id)
 	if err != nil {
 		return nil, repoErrToConnect(err)
 	}
-	// Denormalize for the UI. One per-SKK account lookup is fine — the
+	// Denormalize for the UI. One per-SSK account lookup is fine — the
 	// dependent list is bounded by accounts-per-operator in practice;
 	// when that grows we can switch to a JOIN.
-	deps := make([]*pb.ScopedSigningKeyRef, 0, len(skks))
-	for _, skk := range skks {
-		acct, err := h.factory.AccountRepository().GetByID(ctx, skk.AccountID)
+	deps := make([]*pb.ScopedSigningKeyRef, 0, len(ssks))
+	for _, ssk := range ssks {
+		acct, err := h.factory.AccountRepository().GetByID(ctx, ssk.AccountID)
 		if err != nil {
 			return nil, repoErrToConnect(err)
 		}
 		ver := int32(0)
-		if skk.TemplateVersion != nil {
-			ver = int32(*skk.TemplateVersion)
+		if ssk.TemplateVersion != nil {
+			ver = int32(*ssk.TemplateVersion)
 		}
 		deps = append(deps, &pb.ScopedSigningKeyRef{
-			ScopedSigningKeyId:   mappers.UUIDToString(skk.ID),
-			AccountId:            mappers.UUIDToString(skk.AccountID),
+			ScopedSigningKeyId:   mappers.UUIDToString(ssk.ID),
+			AccountId:            mappers.UUIDToString(ssk.AccountID),
 			AccountName:          acct.Name,
-			ScopedSigningKeyName: skk.Name,
+			ScopedSigningKeyName: ssk.Name,
 			PinnedVersion:        ver,
-			Drifted:              skk.TemplateDrifted,
+			Drifted:              ssk.TemplateDrifted,
 		})
 	}
 	return connect.NewResponse(&pb.ListTemplateDependentsResponse{Dependents: deps}), nil
@@ -306,18 +306,18 @@ func (h *TemplateHandler) ApplyTemplateToScopedKey(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	skkID, err := mappers.ParseUUID(req.Msg.ScopedSigningKeyId)
+	sskID, err := mappers.ParseUUID(req.Msg.ScopedSigningKeyId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	existing, err := h.factory.ScopedSigningKeyRepository().GetByID(ctx, skkID)
+	existing, err := h.factory.ScopedSigningKeyRepository().GetByID(ctx, sskID)
 	if err != nil {
 		return nil, repoErrToConnect(err)
 	}
 	if err := h.permService.CanManageScopedKeys(ctx, requestingUser, existing.AccountID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
-	updated, err := h.skkService.BumpScopedKeyTemplate(ctx, skkID, int(req.Msg.VersionNumber))
+	updated, err := h.sskService.BumpScopedKeyTemplate(ctx, sskID, int(req.Msg.VersionNumber))
 	if err != nil {
 		return nil, mapTemplateError(err)
 	}
