@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+// GetRunningConfigRequest is the (empty) request for the running-config RPC.
+message GetRunningConfigRequest {}
+
+// GetRunningConfigResponse carries the effective server configuration as
+// pretty-printed YAML with credential values redacted (key names preserved,
+// values replaced by "***REDACTED***").
+message GetRunningConfigResponse {
+  string yaml = 1;
+}
+
+// ConfigService exposes the server's effective runtime configuration to
+// admin users for diagnostics. Admin-only — config exposes the DB DSN,
+// S3 endpoint, OTLP endpoint, and other internal-network detail even
+// when secrets are redacted.
+service ConfigService {
+  rpc GetRunningConfig(GetRunningConfigRequest) returns (GetRunningConfigResponse);
+}

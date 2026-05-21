@@ -113,6 +113,12 @@
                   Background Jobs
                 </router-link>
               </li>
+              <li v-if="authStore.isAdmin">
+                <router-link class="dropdown-item" to="/config">
+                  <font-awesome-icon :icon="['fas', 'gears']" class="me-2" />
+                  Runtime Config
+                </router-link>
+              </li>
             </ul>
           </li>
 

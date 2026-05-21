@@ -107,6 +107,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true }
     },
     {
+      path: '/config',
+      name: 'config',
+      component: () => import('@/views/ConfigView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
       path: '/webhooks',
       name: 'webhooks',
       component: () => import('@/views/WebhooksView.vue'),

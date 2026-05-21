@@ -69,6 +69,7 @@ func NewServer(
 	permService *services.PermissionService,
 	jobService *services.JobService,
 	backupService *services.BackupService,
+	configService *services.ConfigService,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
 	mux := http.NewServeMux()
@@ -135,6 +136,9 @@ func NewServer(
 	// same address.
 	backupHandler := handlers.NewBackupHandler(backupService, operatorService, permService)
 	mux.Handle(nisv1connect.NewBackupServiceHandler(backupHandler, interceptorOption))
+
+	configHandler := handlers.NewConfigHandler(configService)
+	mux.Handle(nisv1connect.NewConfigServiceHandler(configHandler, interceptorOption))
 
 	// /livez — process is alive. Always 200. Use this for k8s liveness probes.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
@@ -238,6 +242,7 @@ func NewServer(
 		nisv1connect.TemplateServiceName,
 		nisv1connect.JobServiceName,
 		nisv1connect.BackupServiceName,
+		nisv1connect.ConfigServiceName,
 	)
 	reflectV1Path, reflectV1Handler := grpcreflect.NewHandlerV1(reflector)
 	reflectV1AlphaPath, reflectV1AlphaHandler := grpcreflect.NewHandlerV1Alpha(reflector)

@@ -156,6 +156,49 @@ ENCRYPTION_KEY="exactly-32-bytes-..............." \
 ./nis serve
 ```
 
+### Background-task intervals
+
+Every recurring server task runs on the A2 jobs substrate (or a small set of
+goroutines for tasks that pre-date it). All cadences are configurable in
+seconds via `config.yaml`, env vars (`<UPPER_KEY>` with dots → underscores),
+or — for the most commonly-tuned knobs — CLI flags. Defaults are sane for
+prod; CI/dev typically wants the cluster-health and retention sweeps cranked
+down.
+
+| Key | Default | Flag | What it controls |
+|---|---|---|---|
+| `jobs.poll_interval_seconds` | 0 (auto: 2s PG / 10s SQLite) | `--jobs-poll-interval-seconds` | Job runner poll cadence. |
+| `jobs.lease_duration_seconds` | 300 | `--jobs-lease-duration-seconds` | Per-claim lease; must exceed handler runtime. |
+| `jobs.retention_sweep_interval_seconds` | 86400 | `--jobs-retention-sweep-seconds` | How often the `jobs.retention_sweep` handler runs. |
+| `events.retention_sweep_interval_seconds` | 86400 | `--events-retention-sweep-seconds` | How often the `events.retention_sweep` handler runs. |
+| `cluster.health_check_interval_seconds` | 60 | `--cluster-health-check-seconds` | Cluster-health goroutine cadence. |
+| `cluster.health_check_initial_delay_seconds` | 5 | — | Initial delay before the first health check. |
+| `metrics.domain_gauge_refresh_seconds` | 60 | `--domain-gauge-refresh-seconds` | In-memory inventory cache refresh cadence. |
+| `jwt_policy.sweep_interval_seconds` | 3600 | — | `jwt.expiry_sweep` cadence. |
+| `jwt_policy.expiry_lease_seconds` | 900 | — | Per-handler lease for `jwt.expiry_sweep`. |
+| `backups.sweep_interval_seconds` | 3600 | — | `backup.sweep` cadence. |
+| `backups.execute_lease_seconds` | 900 | — | Per-row lease for `backup.execute`. |
+| `webhooks.delivery_timeout_seconds` | 10 | — | Per-POST HTTP timeout. |
+| `webhooks.backoff_base_seconds` | 10 | — | Exponential-backoff base interval. |
+| `webhooks.backoff_cap_seconds` | 600 | — | Exponential-backoff cap interval. |
+| `api_tokens.last_used_flush_interval_seconds` | 30 | — | Coalesce window for API-token `last_used_at` updates. |
+
+See `config.example.yaml` for the full reference with every recognised key.
+
+### Runtime configuration inspection (admin-only)
+
+The Admin UI at `/config` (visible under **Operations → Runtime Config** for
+the `admin` role) renders the server's effective configuration as YAML after
+the `flag > env > file > default` precedence chain has resolved. The same
+data is available over the API as `ConfigService/GetRunningConfig`.
+
+Credential values (`auth.jwt_secret`, `encryption.key`, `encryption.keys[].key`,
+`backups.s3.access_key_id`, `backups.s3.secret_access_key`, plus any leaf
+ending in `_secret`, `_password`, or `_access_key`) are replaced by
+`***REDACTED***`. Key names stay intact so an admin can confirm a secret IS
+configured without leaking its value. Env-only credentials (the documented
+prod path for `AUTH_JWT_SECRET` etc.) are visible-and-redacted, not absent.
+
 ## Use Cases
 
 **Multi-tenant SaaS** - Isolate customers with separate accounts
@@ -1090,11 +1133,11 @@ The interesting series:
 |---|---|---|---|
 | `rpc_server_duration_milliseconds` | histogram | `rpc_service`, `rpc_method`, `rpc_grpc_status_code` | Connect-RPC request latency. Emitted by `otelconnect` using OpenTelemetry semantic conventions. |
 | `nis_http_server_duration_seconds` | histogram | `path_class`, `method`, `status` | Non-RPC HTTP request latency. `path_class` is bucketed (`ui`/`other`/…) to bound cardinality. |
-| `nis_operators_total`, `nis_accounts_total`, `nis_users_total`, `nis_scoped_keys_total`, `nis_clusters_total` | gauge | — | Entity inventory. Refreshed every 60s, served from an in-memory cache (no live `COUNT(*)` per scrape). |
-| `nis_clusters_healthy` | gauge | — | Clusters last reported healthy by the 60s health-check loop. |
+| `nis_operators_total`, `nis_accounts_total`, `nis_users_total`, `nis_scoped_keys_total`, `nis_clusters_total` | gauge | — | Entity inventory. Refreshed on the `metrics.domain_gauge_refresh_seconds` cadence (default 60s), served from an in-memory cache (no live `COUNT(*)` per scrape). |
+| `nis_clusters_healthy` | gauge | — | Clusters last reported healthy by the cluster health-check loop (`cluster.health_check_interval_seconds`, default 60s). |
 | `nis_cluster_sync_duration_seconds` | histogram | `outcome` | Duration of `SyncCluster` operations. `outcome` is `ok` / `err`. |
 | `nis_cluster_sync_errors_total` | counter | `phase` | Sync errors broken down by where they happened (`open_cluster`, `list_accounts`, …). |
-| `nis_cluster_health_check_failures_total` | counter | — | 60s loop saw a cluster fail to connect or lack credentials. |
+| `nis_cluster_health_check_failures_total` | counter | — | Health-check loop saw a cluster fail to connect or lack credentials. |
 | `nis_encryption_failures_total` | counter | `op` | `op` is `encrypt` / `decrypt`. A decrypt-failure spike usually means a key-rotation problem — alert on this. |
 | `nis_auth_rejections_total` | counter | `reason` | RPC rejected by the auth interceptor. `reason` ∈ `missing_token`, `invalid_token`, `forbidden`, `invalid_api_token`. |
 | `nis_api_token_authentications_total` | counter | `status` | API-token auth outcomes. `status` ∈ `success`, `invalid`, `expired`, `revoked`. |

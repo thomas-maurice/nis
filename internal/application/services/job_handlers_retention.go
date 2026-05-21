@@ -36,8 +36,17 @@ type RetentionConfig struct {
 	// rows survive forever (operator audit).
 	JobRetentionDays int
 
-	// SweepInterval is how often the watchdog reschedules each sweep
-	// handler. Default 24h. Tests can shrink this.
+	// EventsSweepInterval is how often the watchdog reschedules the
+	// events.retention_sweep handler. Default 24h.
+	EventsSweepInterval time.Duration
+
+	// JobsSweepInterval is how often the watchdog reschedules the
+	// jobs.retention_sweep handler. Default 24h.
+	JobsSweepInterval time.Duration
+
+	// SweepInterval is a back-compat single knob: if set (>0) AND the
+	// per-handler fields above are unset, it applies to BOTH retention
+	// handlers. New callers should prefer the per-handler fields.
 	SweepInterval time.Duration
 }
 
@@ -51,8 +60,17 @@ func (c *RetentionConfig) applyDefaults() {
 	if c.JobRetentionDays == 0 {
 		c.JobRetentionDays = 30
 	}
-	if c.SweepInterval <= 0 {
-		c.SweepInterval = 24 * time.Hour
+	if c.EventsSweepInterval <= 0 {
+		c.EventsSweepInterval = c.SweepInterval
+	}
+	if c.JobsSweepInterval <= 0 {
+		c.JobsSweepInterval = c.SweepInterval
+	}
+	if c.EventsSweepInterval <= 0 {
+		c.EventsSweepInterval = 24 * time.Hour
+	}
+	if c.JobsSweepInterval <= 0 {
+		c.JobsSweepInterval = 24 * time.Hour
 	}
 }
 
@@ -79,13 +97,13 @@ func RegisterRetentionHandlers(runner *JobRunner, factory persistence.Repository
 		Handler:     eventsHandler.Run,
 		MaxAttempts: 3,
 		AuditPolicy: AuditFailuresOnly,
-		RecurEvery:  cfg.SweepInterval,
+		RecurEvery:  cfg.EventsSweepInterval,
 	})
 	runner.Register(JobTypeJobsRetentionSweep, HandlerSpec{
 		Handler:     jobsHandler.Run,
 		MaxAttempts: 3,
 		AuditPolicy: AuditFailuresOnly,
-		RecurEvery:  cfg.SweepInterval,
+		RecurEvery:  cfg.JobsSweepInterval,
 	})
 }
 

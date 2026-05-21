@@ -89,6 +89,15 @@ func init() {
 	serveCmd.Flags().Int("jobs-shutdown-timeout-seconds", 30, "graceful drain of in-flight jobs on SIGTERM")
 	serveCmd.Flags().Int("jobs-retention-days", 30, "retention for succeeded + cancelled job rows; dead-letter + failed survive forever")
 
+	// Recurring sweep cadences for the commonly-tuned background handlers.
+	// Lease durations + initial-delay knobs are config-file-only — operators
+	// rarely tune them, and adding flags for every interval would bloat
+	// `nis serve --help`.
+	serveCmd.Flags().Int("events-retention-sweep-seconds", 86400, "how often events.retention_sweep runs")
+	serveCmd.Flags().Int("jobs-retention-sweep-seconds", 86400, "how often jobs.retention_sweep runs")
+	serveCmd.Flags().Int("cluster-health-check-seconds", 60, "how often the cluster-health goroutine probes each cluster")
+	serveCmd.Flags().Int("domain-gauge-refresh-seconds", 60, "how often the domain-gauge cache is refreshed from the DB")
+
 	// Flags are wired into viper via applyFlagOverrides in runServe rather
 	// than viper.BindPFlag — see cmd/nis/commands/viper_overrides.go for why.
 	// Note: encryption-key and jwt-secret are NOT marked as required flags
@@ -129,6 +138,11 @@ var serveFlagMapping = map[string]string{
 	"jobs-lease-duration-seconds":   "jobs.lease_duration_seconds",
 	"jobs-shutdown-timeout-seconds": "jobs.shutdown_timeout_seconds",
 	"jobs-retention-days":           "jobs.retention_days",
+
+	"events-retention-sweep-seconds": "events.retention_sweep_interval_seconds",
+	"jobs-retention-sweep-seconds":   "jobs.retention_sweep_interval_seconds",
+	"cluster-health-check-seconds":   "cluster.health_check_interval_seconds",
+	"domain-gauge-refresh-seconds":   "metrics.domain_gauge_refresh_seconds",
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -300,6 +314,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// which executes work. Admin-only at the handler layer.
 	jobService := services.NewJobService(repoFactory)
 
+	// Running-config inspection (admin-only). Stateless — viper is the
+	// global source of truth so no constructor args are needed.
+	configService := services.NewConfigService()
+
 	// Scheduled backups (P12). Constructed iff `backups.enabled=true` AND
 	// the S3 client comes up cleanly (HeadBucket succeeds). Otherwise nil
 	// — the handler short-circuits with FailedPrecondition. Handlers are
@@ -396,6 +414,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		permissionService,
 		jobService,
 		backupService,
+		configService,
 		authMiddleware,
 	)
 	if metricsHandler != nil {
@@ -409,13 +428,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// Start cluster health check goroutine
+	// Start cluster health check goroutine. Cadence + initial-delay are
+	// configurable (cluster.health_check_*) so dev/CI can shrink them
+	// without rebuilding.
+	clusterHealthInterval := time.Duration(viper.GetInt("cluster.health_check_interval_seconds")) * time.Second
+	clusterHealthInitialDelay := time.Duration(viper.GetInt("cluster.health_check_initial_delay_seconds")) * time.Second
 	go func() {
-		ticker := time.NewTicker(60 * time.Second)
+		ticker := time.NewTicker(clusterHealthInterval)
 		defer ticker.Stop()
 
-		// Do an initial health check after 5 seconds
-		time.Sleep(5 * time.Second)
+		time.Sleep(clusterHealthInitialDelay)
 		if err := clusterService.CheckAllClustersHealth(ctx); err != nil {
 			logger.Error("health check error", "error", err)
 		}
@@ -432,9 +454,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start domain gauge refresh loop. Single goroutine, 60s cadence.
+	// Start domain gauge refresh loop. Single goroutine, configurable cadence.
+	domainGaugeInterval := time.Duration(viper.GetInt("metrics.domain_gauge_refresh_seconds")) * time.Second
 	if domainGauges != nil {
-		go domainGauges.RefreshLoop(ctx, 60*time.Second)
+		go domainGauges.RefreshLoop(ctx, domainGaugeInterval)
 	}
 
 	// Jobs substrate (A2). Replaces the dedicated EventsRetentionWorker
@@ -461,7 +484,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		EventRetentionDays:             viper.GetInt("events.retention_days"),
 		SucceededDeliveryRetentionDays: viper.GetInt("webhooks.succeeded_retention_days"),
 		JobRetentionDays:               viper.GetInt("jobs.retention_days"),
-		SweepInterval:                  24 * time.Hour,
+		EventsSweepInterval:            time.Duration(viper.GetInt("events.retention_sweep_interval_seconds")) * time.Second,
+		JobsSweepInterval:              time.Duration(viper.GetInt("jobs.retention_sweep_interval_seconds")) * time.Second,
 	})
 	// Webhook delivery (A16). Per-delivery jobs of type webhook.deliver;
 	// fanoutDeliveries in the events package enqueues one alongside each
@@ -480,17 +504,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if backupService != nil {
 		services.RegisterBackupHandlers(jobRunner, backupService, services.BackupHandlerConfig{
 			SweepInterval:        time.Duration(viper.GetInt("backups.sweep_interval_seconds")) * time.Second,
-			ExecuteLeaseDuration: 15 * time.Minute,
+			ExecuteLeaseDuration: time.Duration(viper.GetInt("backups.execute_lease_seconds")) * time.Second,
 		})
 	}
 	// JWT expiry sweeper (P2/A14). Off-by-default operator policy (TTL=0)
 	// means the handler is a cheap no-op until an operator opts in.
-	// LeaseDuration is 15m (handler-level override) because the
-	// auto-renew phase re-signs JWTs and pushes to N clusters; the
-	// global 5min default would be too tight on a large operator.
+	// LeaseDuration is configurable (default 15m) because the auto-renew
+	// phase re-signs JWTs and pushes to N clusters; the global 5min default
+	// would be too tight on a large operator.
 	services.RegisterJWTExpiryHandler(jobRunner, jwtExpirySweeper, services.JWTExpiryHandlerConfig{
 		SweepInterval: jwtSweepInterval,
-		LeaseDuration: 15 * time.Minute,
+		LeaseDuration: time.Duration(viper.GetInt("jwt_policy.expiry_lease_seconds")) * time.Second,
 	})
 	go func() { _ = jobRunner.Run(ctx) }()
 
@@ -513,7 +537,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	errChan := make(chan error, 1)
 	go func() {
 		logger.Info("starting NATS Identity Service",
-			"address", address, "health_check_interval", "60s")
+			"address", address,
+			"health_check_interval", clusterHealthInterval.String())
 		if err := server.Start(); err != nil {
 			errChan <- err
 		}

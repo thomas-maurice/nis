@@ -241,3 +241,14 @@ p, operator-admin, backup, create
 p, operator-admin, backup, read
 p, operator-admin, backup, update
 p, operator-admin, backup, delete
+
+
+# ============================================================
+# Running-config inspection — admin-only. extractResourceAndAction
+# maps ConfigService -> resource="config"; GetRunningConfig falls
+# through extractAction's default to "read". Exposes the effective
+# viper config (DB DSN, S3 endpoint, OTLP endpoint, etc.) even when
+# credentials are redacted, so the audience is the same as event/job
+# admin surfaces.
+# ============================================================
+p, admin, config, read

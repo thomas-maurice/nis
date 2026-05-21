@@ -43,7 +43,8 @@ auth:
   jwt_ttl: "24h"
 
 metrics:
-  enabled: true        # exposes Prometheus /metrics and records OTel metrics
+  enabled: true                       # exposes Prometheus /metrics and records OTel metrics
+  domain_gauge_refresh_seconds: 60    # cadence of the in-memory inventory cache feeding /metrics
 
 tracing:
   enabled: false                       # OTLP/gRPC exporter; off until a collector is reachable
@@ -53,6 +54,68 @@ tracing:
   service_name: "nis"                  # service.name resource attribute
 
 log_level: "info"      # debug, info, warn, error
+
+# --- Background tasks & job substrate (A2) ---
+#
+# Every recurring NIS task runs on the A2 jobs substrate, which polls the
+# jobs table, claims due rows, and dispatches them to registered handlers.
+# All cadences below are in SECONDS. The Admin UI at /jobs shows the live
+# schedule and per-handler outcomes; the Admin UI at /config dumps the
+# effective values for inspection (secrets redacted).
+
+jobs:
+  poll_interval_seconds: 0            # 0 = auto: 2s on Postgres, 10s on SQLite
+  claim_batch: 10                     # rows claimed per poll tick
+  lease_duration_seconds: 300         # how long a claim holds a row before a dead worker's row can be reclaimed
+  shutdown_timeout_seconds: 30        # graceful drain on SIGTERM
+  retention_days: 30                  # delete succeeded + cancelled rows after N days; dead-letter + failed survive forever
+  retention_sweep_interval_seconds: 86400   # how often the jobs.retention_sweep handler runs
+
+events:
+  retention_days: 30                  # delete events older than this many days; 0 disables cleanup
+  retention_sweep_interval_seconds: 86400   # how often the events.retention_sweep handler runs
+
+webhooks:
+  succeeded_retention_days: 7         # delete succeeded webhook_deliveries after this many days; dead-letter survives forever
+  delivery_timeout_seconds: 10        # per-POST HTTP timeout
+  max_attempts: 5                     # deliveries become dead_letter after this many failed attempts
+  backoff_base_seconds: 10            # exponential-backoff base interval
+  backoff_cap_seconds: 600            # exponential-backoff cap interval
+  # poll_interval_seconds + shutdown_timeout_seconds were retired in A16 (webhook delivery now runs on the jobs substrate).
+  # Use jobs.poll_interval_seconds and jobs.shutdown_timeout_seconds instead.
+
+jwt_policy:
+  sweep_interval_seconds: 3600        # how often the jwt.expiry_sweep handler runs (prune / expiring-soon / expired / auto-renew)
+  sweep_batch_limit: 500              # per-phase row cap for one tick
+  expiry_lease_seconds: 900           # per-handler lease for jwt.expiry_sweep; auto-renew re-signs JWTs + pushes to N clusters, may exceed the global 5min default
+
+api_tokens:
+  last_used_flush_interval_seconds: 30   # coalesce window for last_used_at updates from authenticated requests
+
+cluster:
+  health_check_interval_seconds: 60         # how often the cluster-health goroutine probes each cluster
+  health_check_initial_delay_seconds: 5     # initial delay before the first health check after startup
+
+# --- Scheduled backups (P12) ---
+#
+# Off by default at the NIS-wide level. When enabled, an S3-compatible
+# endpoint + bucket must be reachable at startup (HeadBucket succeeds) or
+# backups stay disabled this run with a logged warning. Per-operator opt-in
+# via OperatorService.EnableBackups governs which operators actually emit
+# backup jobs.
+backups:
+  enabled: false
+  sweep_interval_seconds: 3600           # how often backup.sweep runs (looks for operators due for a backup)
+  execute_lease_seconds: 900             # per-row lease for backup.execute (export → S3 upload → DB row → retention)
+  s3:
+    endpoint: ""                         # leave empty for AWS; set to e.g. "http://minio:9000" for MinIO
+    region: "us-east-1"
+    bucket: ""                           # must exist before NIS starts; NIS does NOT auto-create
+    access_key_id: ""                    # also settable via BACKUPS_S3_ACCESS_KEY_ID
+    secret_access_key: ""                # also settable via BACKUPS_S3_SECRET_ACCESS_KEY
+    use_path_style: true                 # required for MinIO; AWS is virtual-hosted style
+    use_ssl: false
+    object_prefix: ""                    # optional key prefix inside the bucket
 
 # --- Key rotation workflow (encryption.keys) ---
 # 1. Generate a new key:  openssl rand -base64 32

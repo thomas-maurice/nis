@@ -100,6 +100,7 @@ type harness struct {
 	templateCli nisv1connect.TemplateServiceClient
 	jobCli      nisv1connect.JobServiceClient
 	backupCli   nisv1connect.BackupServiceClient
+	configCli   nisv1connect.ConfigServiceClient
 }
 
 // startStack is the canonical entry point for a test. It boots NIS, bootstraps
@@ -275,6 +276,7 @@ func (h *harness) start(t *testing.T) {
 	h.templateCli = nisv1connect.NewTemplateServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.jobCli = nisv1connect.NewJobServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.backupCli = nisv1connect.NewBackupServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.configCli = nisv1connect.NewConfigServiceClient(h.httpClient, h.serverURL, authOpt)
 }
 
 // startMinIO boots a MinIO container, waits for the API to respond, and
@@ -552,6 +554,7 @@ type clientSet struct {
 	templateCli nisv1connect.TemplateServiceClient
 	jobCli      nisv1connect.JobServiceClient
 	backupCli   nisv1connect.BackupServiceClient
+	configCli   nisv1connect.ConfigServiceClient
 }
 
 // loginAs authenticates as username/password and returns a clientSet whose
@@ -584,6 +587,7 @@ func (h *harness) loginAs(t *testing.T, username, password string) clientSet {
 		templateCli: nisv1connect.NewTemplateServiceClient(h.httpClient, h.serverURL, authOpt),
 		jobCli:      nisv1connect.NewJobServiceClient(h.httpClient, h.serverURL, authOpt),
 		backupCli:   nisv1connect.NewBackupServiceClient(h.httpClient, h.serverURL, authOpt),
+		configCli:   nisv1connect.NewConfigServiceClient(h.httpClient, h.serverURL, authOpt),
 	}
 }
 

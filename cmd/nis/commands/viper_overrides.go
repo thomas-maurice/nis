@@ -60,6 +60,10 @@ func registerConfigDefaults() {
 	// per-phase row cap; 500 is a safe upper bound for one tick.
 	viper.SetDefault("jwt_policy.sweep_interval_seconds", 3600)
 	viper.SetDefault("jwt_policy.sweep_batch_limit", 500)
+	// Per-handler lease override (default 15m). Auto-renew re-signs JWTs and
+	// pushes to N clusters; the global jobs.lease_duration_seconds (5m) can
+	// be too tight on a large operator.
+	viper.SetDefault("jwt_policy.expiry_lease_seconds", 900)
 	// Jobs substrate (A2). poll_interval=0 means auto (2s Postgres, 10s
 	// SQLite); lease_duration must exceed any handler's expected runtime
 	// so a normal handler doesn't get its row reclaimed mid-execution.
@@ -68,12 +72,29 @@ func registerConfigDefaults() {
 	viper.SetDefault("jobs.lease_duration_seconds", 300)
 	viper.SetDefault("jobs.shutdown_timeout_seconds", 30)
 	viper.SetDefault("jobs.retention_days", 30)
+	// Recurring sweep cadences. Both retention handlers default to 24h —
+	// short enough that yesterday's noise is gone by morning, long enough
+	// that the COUNT(*) cost is negligible. Tunable independently per
+	// handler (the substrate watchdog reads the field at registration time).
+	viper.SetDefault("events.retention_sweep_interval_seconds", 86400)
+	viper.SetDefault("jobs.retention_sweep_interval_seconds", 86400)
+	// Cluster health-check goroutine cadence. Default 60s mirrors the
+	// historical hardcoded value; initial delay defers the first check
+	// until after startup races have settled.
+	viper.SetDefault("cluster.health_check_interval_seconds", 60)
+	viper.SetDefault("cluster.health_check_initial_delay_seconds", 5)
+	// Domain-gauge refresh loop. 60s stays well below Prometheus' typical
+	// scrape cadence so consecutive scrapes don't trigger live COUNT(*).
+	viper.SetDefault("metrics.domain_gauge_refresh_seconds", 60)
 	// Backups (P12). Default disabled at the NIS-wide level. When enabled,
 	// an S3-compatible endpoint + bucket must be configured; per-operator
 	// opt-in via OperatorService.EnableBackups governs which operators
 	// actually emit backup jobs.
 	viper.SetDefault("backups.enabled", false)
 	viper.SetDefault("backups.sweep_interval_seconds", 3600)
+	// Per-handler lease for backup.execute. A large operator (many accounts,
+	// slow S3) may legitimately exceed the global 5m default.
+	viper.SetDefault("backups.execute_lease_seconds", 900)
 	viper.SetDefault("backups.s3.endpoint", "")
 	viper.SetDefault("backups.s3.region", "us-east-1")
 	viper.SetDefault("backups.s3.bucket", "")
