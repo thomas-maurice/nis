@@ -171,6 +171,7 @@ down.
 | `jobs.lease_duration_seconds` | 300 | `--jobs-lease-duration-seconds` | Per-claim lease; must exceed handler runtime. |
 | `jobs.retention_sweep_interval_seconds` | 86400 | `--jobs-retention-sweep-seconds` | How often the `jobs.retention_sweep` handler runs. |
 | `events.retention_sweep_interval_seconds` | 86400 | `--events-retention-sweep-seconds` | How often the `events.retention_sweep` handler runs. |
+| `revocations.retention_sweep_interval_seconds` | 86400 | `--revocations-retention-sweep-seconds` | How often the `revocations.retention_sweep` handler runs. |
 | `cluster.health_check_interval_seconds` | 60 | `--cluster-health-check-seconds` | Cluster-health goroutine cadence. |
 | `cluster.health_check_initial_delay_seconds` | 5 | — | Initial delay before the first health check. |
 | `metrics.domain_gauge_refresh_seconds` | 60 | `--domain-gauge-refresh-seconds` | In-memory inventory cache refresh cadence. |
@@ -945,6 +946,7 @@ the two retention sweeps:
 |---|---|---|
 | `events.retention_sweep` | 24h | Deletes events older than `events.retention_days` (default 30d) and succeeded webhook deliveries older than `webhooks.succeeded_retention_days` (default 7d). Dead-letter deliveries are never auto-deleted. |
 | `jobs.retention_sweep`   | 24h | Deletes `succeeded` and `cancelled` job rows older than `jobs.retention_days` (default 30d). `failed` and `dead_lettered` rows survive forever — operator audit. |
+| `revocations.retention_sweep` | 24h | Hard-deletes `user_jwt_revocations` rows whose `pruned_at` is older than `revocations.retention_days` (default 90d). Active revocations (`pruned_at IS NULL`) are NEVER touched — they still belong in the parent account JWT's NATS `Revocations` map. Set `revocations.retention_days=0` to disable. Batch-capped at 500 rows per tick. |
 | `webhook.deliver`        | per-delivery, in-tx enqueue | Dispatches one webhook subscription POST per row. Inserted into the same tx as the `webhook_deliveries` row (atomic). Permanent failures (subscription disabled, decrypt error, malformed payload) signal `ErrPermanentJobFailure` and dead-letter the job immediately; transient (5xx, transport) retry with the substrate's backoff up to `webhooks.max_attempts`. `AuditNone` — per-delivery audit lives on the typed `webhook_deliveries` row. |
 | `backup.sweep` / `backup.execute` | sweep 1h, execute per due operator | Per-operator scheduled backups to S3. See "Scheduled backups (P12)" below. |
 | `jwt.expiry_sweep`       | `jwt_policy.sweep_interval_seconds` (default 1h) | Drives the four-phase JWT lifecycle sweeper (P2): prune past-exp revocations → expiring-soon alert → optional auto-renew → expired alert. `LeaseDuration` is 15m at the handler level (the auto-renew phase can re-sign and push N cluster JWTs per operator). `AuditFailuresOnly` — the sweeper emits its own per-user `user.cred.*` semantic events, so substrate audit would triple-emit. |
@@ -1003,6 +1005,8 @@ nisctl job cancel <id>    # only succeeds on pending rows
 | `jobs.lease_duration_seconds` | `300` | Must exceed any handler's expected runtime; a row whose lease expires gets reclaimed by the next worker. |
 | `jobs.shutdown_timeout_seconds` | `30` | Graceful in-flight drain on SIGTERM. |
 | `jobs.retention_days` | `30` | For `jobs.retention_sweep` — drops succeeded/cancelled rows older than this. |
+| `revocations.retention_days` | `90` | For `revocations.retention_sweep` — hard-deletes `user_jwt_revocations` rows soft-pruned more than this many days ago. Set to `0` to disable. Active (non-pruned) rows are never touched. |
+| `revocations.retention_sweep_interval_seconds` | `86400` | How often `revocations.retention_sweep` runs. Also tunable via `--revocations-retention-sweep-seconds`. |
 
 ## Scheduled backups (P12)
 
@@ -1152,6 +1156,7 @@ The interesting series:
 | `nis_jobs_enqueued_total` | counter | `type` | Background jobs enqueued, by type. EnsureScheduled inserts that lost the watchdog race do NOT count. |
 | `nis_jobs_completed_total` | counter | `type`, `outcome` | Background jobs reaching a terminal handler outcome. `outcome` ∈ `succeeded`, `failed`, `dead_lettered`. `failed` is a transient failure that will retry; `dead_lettered` is permanent. |
 | `nis_job_duration_seconds` | histogram | `type` | Per-handler-invocation runtime. No `worker_id` label — would explode cardinality in containers where pid varies. |
+| `nis_user_jwt_revocations_purged_total` | counter | — | Rows hard-deleted by `revocations.retention_sweep` (P14). Distinct from `_pruned_total`, which counts the soft-prune step (`MarkPruned`) performed by `jwt.expiry_sweep` — pruned rows still exist on disk; purged rows are gone. |
 
 Plus the standard `go_*` and `process_*` collectors (heap, goroutines, FDs, GC).
 

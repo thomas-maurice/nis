@@ -269,3 +269,88 @@ func (s *UserJWTRevocationRepoTestSuite) TestRevocationRepo_MarkPruned_EmptySlic
 	err := s.revRepo.MarkPruned(ctx, []uuid.UUID{}, time.Now())
 	assert.NoError(s.T(), err, "MarkPruned with empty slice must not error")
 }
+
+// TestRevocationRepo_DeletePrunedBefore_OnlyPrunedDeleted is the central P14
+// invariant: active rows (PrunedAt IS NULL) MUST survive a retention sweep no
+// matter how old they are. Those entries are still load-bearing for the
+// parent account JWT's NATS Revocations map.
+func (s *UserJWTRevocationRepoTestSuite) TestRevocationRepo_DeletePrunedBefore_OnlyPrunedDeleted() {
+	ctx := context.Background()
+	_, accID := s.makeOperatorAndAccount()
+
+	now := time.Now()
+
+	// Active (no PrunedAt) — must survive even though it was created long ago.
+	active := s.makeRevocation(accID, now.Add(24*time.Hour))
+
+	// Pruned long ago — must be deleted.
+	old := s.makeRevocation(accID, now.Add(-time.Hour))
+	require.NoError(s.T(), s.revRepo.MarkPruned(ctx, []uuid.UUID{old.ID}, now.Add(-100*24*time.Hour)))
+
+	// Pruned recently — must survive (within retention window).
+	recent := s.makeRevocation(accID, now.Add(-time.Hour))
+	require.NoError(s.T(), s.revRepo.MarkPruned(ctx, []uuid.UUID{recent.ID}, now.Add(-1*24*time.Hour)))
+
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	n, err := s.revRepo.DeletePrunedBefore(ctx, cutoff, 0)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(1), n, "exactly one row (the old pruned one) should be deleted")
+
+	// Active row survives.
+	_, err = s.revRepo.GetByID(ctx, active.ID)
+	assert.NoError(s.T(), err, "active revocation must survive retention sweep")
+
+	// Old pruned row is gone.
+	_, err = s.revRepo.GetByID(ctx, old.ID)
+	assert.ErrorIs(s.T(), err, repositories.ErrNotFound, "old pruned row must be hard-deleted")
+
+	// Recent pruned row survives (under cutoff).
+	_, err = s.revRepo.GetByID(ctx, recent.ID)
+	assert.NoError(s.T(), err, "recent pruned row must survive retention sweep")
+}
+
+// TestRevocationRepo_DeletePrunedBefore_RespectsLimit caps one sweep at the
+// supplied LIMIT so a large backlog doesn't lock the table on one tick. The
+// next tick picks up the remainder.
+func (s *UserJWTRevocationRepoTestSuite) TestRevocationRepo_DeletePrunedBefore_RespectsLimit() {
+	ctx := context.Background()
+	_, accID := s.makeOperatorAndAccount()
+
+	now := time.Now()
+	pastPrune := now.Add(-100 * 24 * time.Hour)
+
+	for i := 0; i < 5; i++ {
+		rev := s.makeRevocation(accID, now.Add(-time.Hour))
+		require.NoError(s.T(), s.revRepo.MarkPruned(ctx, []uuid.UUID{rev.ID}, pastPrune))
+	}
+
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	n, err := s.revRepo.DeletePrunedBefore(ctx, cutoff, 2)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(2), n, "limit must cap the delete count")
+
+	// Three rows remain — the next sweep would pick them up.
+	n, err = s.revRepo.DeletePrunedBefore(ctx, cutoff, 0)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(3), n, "remaining rows deleted in subsequent sweep")
+}
+
+// TestRevocationRepo_DeletePrunedBefore_Idempotent: running the sweep twice in
+// a row with no new pruning should be a no-op the second time.
+func (s *UserJWTRevocationRepoTestSuite) TestRevocationRepo_DeletePrunedBefore_Idempotent() {
+	ctx := context.Background()
+	_, accID := s.makeOperatorAndAccount()
+
+	now := time.Now()
+	rev := s.makeRevocation(accID, now.Add(-time.Hour))
+	require.NoError(s.T(), s.revRepo.MarkPruned(ctx, []uuid.UUID{rev.ID}, now.Add(-100*24*time.Hour)))
+
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	n, err := s.revRepo.DeletePrunedBefore(ctx, cutoff, 0)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(1), n)
+
+	n, err = s.revRepo.DeletePrunedBefore(ctx, cutoff, 0)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(0), n, "second sweep with no new pruning must be a no-op")
+}

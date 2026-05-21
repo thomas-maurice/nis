@@ -96,6 +96,7 @@ func init() {
 	// `nis serve --help`.
 	serveCmd.Flags().Int("events-retention-sweep-seconds", 86400, "how often events.retention_sweep runs")
 	serveCmd.Flags().Int("jobs-retention-sweep-seconds", 86400, "how often jobs.retention_sweep runs")
+	serveCmd.Flags().Int("revocations-retention-sweep-seconds", 86400, "how often revocations.retention_sweep runs")
 	serveCmd.Flags().Int("cluster-health-check-seconds", 60, "how often the cluster-health goroutine probes each cluster")
 	serveCmd.Flags().Int("domain-gauge-refresh-seconds", 60, "how often the domain-gauge cache is refreshed from the DB")
 
@@ -140,10 +141,11 @@ var serveFlagMapping = map[string]string{
 	"jobs-shutdown-timeout-seconds": "jobs.shutdown_timeout_seconds",
 	"jobs-retention-days":           "jobs.retention_days",
 
-	"events-retention-sweep-seconds": "events.retention_sweep_interval_seconds",
-	"jobs-retention-sweep-seconds":   "jobs.retention_sweep_interval_seconds",
-	"cluster-health-check-seconds":   "cluster.health_check_interval_seconds",
-	"domain-gauge-refresh-seconds":   "metrics.domain_gauge_refresh_seconds",
+	"events-retention-sweep-seconds":      "events.retention_sweep_interval_seconds",
+	"jobs-retention-sweep-seconds":        "jobs.retention_sweep_interval_seconds",
+	"revocations-retention-sweep-seconds": "revocations.retention_sweep_interval_seconds",
+	"cluster-health-check-seconds":        "cluster.health_check_interval_seconds",
+	"domain-gauge-refresh-seconds":        "metrics.domain_gauge_refresh_seconds",
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -491,8 +493,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		EventRetentionDays:             viper.GetInt("events.retention_days"),
 		SucceededDeliveryRetentionDays: viper.GetInt("webhooks.succeeded_retention_days"),
 		JobRetentionDays:               viper.GetInt("jobs.retention_days"),
+		RevocationRetentionDays:        viper.GetInt("revocations.retention_days"),
 		EventsSweepInterval:            time.Duration(viper.GetInt("events.retention_sweep_interval_seconds")) * time.Second,
 		JobsSweepInterval:              time.Duration(viper.GetInt("jobs.retention_sweep_interval_seconds")) * time.Second,
+		RevocationsSweepInterval:       time.Duration(viper.GetInt("revocations.retention_sweep_interval_seconds")) * time.Second,
 	})
 	// Webhook delivery (A16). Per-delivery jobs of type webhook.deliver;
 	// fanoutDeliveries in the events package enqueues one alongside each

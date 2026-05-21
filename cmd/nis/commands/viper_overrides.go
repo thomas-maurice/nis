@@ -72,12 +72,18 @@ func registerConfigDefaults() {
 	viper.SetDefault("jobs.lease_duration_seconds", 300)
 	viper.SetDefault("jobs.shutdown_timeout_seconds", 30)
 	viper.SetDefault("jobs.retention_days", 30)
-	// Recurring sweep cadences. Both retention handlers default to 24h —
+	// P14 — hard-delete pruned user_jwt_revocations rows after this many days.
+	// Default 90d: revocations are smaller-volume than events but carry audit
+	// value (proves a user JWT was once revoked), so the window is wider than
+	// events.retention_days (30d). Set to 0 to disable the handler entirely.
+	viper.SetDefault("revocations.retention_days", 90)
+	// Recurring sweep cadences. All retention handlers default to 24h —
 	// short enough that yesterday's noise is gone by morning, long enough
 	// that the COUNT(*) cost is negligible. Tunable independently per
 	// handler (the substrate watchdog reads the field at registration time).
 	viper.SetDefault("events.retention_sweep_interval_seconds", 86400)
 	viper.SetDefault("jobs.retention_sweep_interval_seconds", 86400)
+	viper.SetDefault("revocations.retention_sweep_interval_seconds", 86400)
 	// Cluster health-check goroutine cadence. Default 60s mirrors the
 	// historical hardcoded value; initial delay defers the first check
 	// until after startup races have settled.

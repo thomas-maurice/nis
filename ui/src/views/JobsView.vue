@@ -231,6 +231,7 @@ import { JobStatus } from '@/gen/nis/v1/job_pb'
 const KNOWN_JOB_TYPES = [
   'events.retention_sweep',
   'jobs.retention_sweep',
+  'revocations.retention_sweep',
   'webhook.deliver',
   'backup.sweep',
   'backup.execute',

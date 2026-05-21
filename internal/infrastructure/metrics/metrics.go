@@ -141,6 +141,7 @@ type Recorder struct {
 	// P2 — JWT lifecycle.
 	userJWTRevocations        metric.Int64Counter
 	userJWTRevocationsPruned  metric.Int64Counter
+	userJWTRevocationsPurged  metric.Int64Counter
 	userJWTExpiringSoonEvents metric.Int64Counter
 	userJWTExpiredEvents      metric.Int64Counter
 	userJWTAutoRenewals       metric.Int64Counter
@@ -240,6 +241,12 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 	); err != nil {
 		return nil, err
 	}
+	if r.userJWTRevocationsPurged, err = m.Int64Counter(
+		"nis_user_jwt_revocations_purged_total",
+		metric.WithDescription("Total revocation rows hard-deleted by the revocations.retention_sweep handler (P14)."),
+	); err != nil {
+		return nil, err
+	}
 	if r.userJWTExpiringSoonEvents, err = m.Int64Counter(
 		"nis_user_jwt_expiring_soon_events_total",
 		metric.WithDescription("Total user.cred.expiring_soon events emitted by the sweeper."),
@@ -320,12 +327,26 @@ func (r *Recorder) RecordUserJWTRevocation(ctx context.Context, status string) {
 }
 
 // RecordUserJWTRevocationPruned records the number of revocation entries
-// pruned in a single sweep batch.
+// soft-pruned in a single sweep batch — i.e. MarkPruned'd out of the parent
+// account JWT's NATS Revocations map once their JWTExp elapsed. The row
+// itself still exists. Counts the JWTExpirySweeper prune phase.
 func (r *Recorder) RecordUserJWTRevocationPruned(ctx context.Context, count int) {
 	if r == nil || count <= 0 {
 		return
 	}
 	r.userJWTRevocationsPruned.Add(ctx, int64(count))
+}
+
+// RecordUserJWTRevocationPurged records the number of revocation rows
+// hard-deleted by the revocations.retention_sweep handler (P14). Distinct
+// from RecordUserJWTRevocationPruned: pruned = removed from the account JWT,
+// row still present; purged = row hard-deleted from the table after the
+// configured retention window elapsed.
+func (r *Recorder) RecordUserJWTRevocationPurged(ctx context.Context, count int) {
+	if r == nil || count <= 0 {
+		return
+	}
+	r.userJWTRevocationsPurged.Add(ctx, int64(count))
 }
 
 // RecordUserJWTExpiringSoonEvent increments the expiring-soon emission counter.

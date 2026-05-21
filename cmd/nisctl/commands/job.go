@@ -17,8 +17,10 @@ var jobCmd = &cobra.Command{
 	Use:   "job",
 	Short: "Inspect and control background jobs (A2 substrate)",
 	Long: `Background jobs run on the JobRunner inside the NIS server.
-v1 handlers: events.retention_sweep and jobs.retention_sweep (24h recurring).
-Future scheduled work (P12 backups, A14 JWT sweeps) will land here.
+Shipped handlers: events.retention_sweep, jobs.retention_sweep,
+revocations.retention_sweep (24h recurring); webhook.deliver (per-delivery);
+backup.sweep + backup.execute (P12); jwt.expiry_sweep (P2);
+cluster.health.sweep + cluster.health_check (A15).
 
 Admin-only — operator-admin and account-admin get PermissionDenied.`,
 }

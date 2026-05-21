@@ -100,6 +100,36 @@ func (r *UserJWTRevocationRepo) ListPrunable(ctx context.Context, before time.Ti
 	return out, nil
 }
 
+func (r *UserJWTRevocationRepo) DeletePrunedBefore(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
+	cutoffUTC := cutoff.UTC()
+	// LIMIT on DELETE is not portable: SQLite needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT
+	// at build time, and Postgres doesn't support it at all. The
+	// `WHERE id IN (SELECT id ... LIMIT n)` form works on both.
+	if limit > 0 {
+		sub := r.db.WithContext(ctx).
+			Model(&UserJWTRevocationModel{}).
+			Select("id").
+			Where("pruned_at IS NOT NULL").
+			Where("pruned_at < ?", cutoffUTC).
+			Limit(limit)
+		result := r.db.WithContext(ctx).
+			Where("id IN (?)", sub).
+			Delete(&UserJWTRevocationModel{})
+		if result.Error != nil {
+			return 0, fmt.Errorf("failed to delete pruned user JWT revocations: %w", result.Error)
+		}
+		return result.RowsAffected, nil
+	}
+	result := r.db.WithContext(ctx).
+		Where("pruned_at IS NOT NULL").
+		Where("pruned_at < ?", cutoffUTC).
+		Delete(&UserJWTRevocationModel{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to delete pruned user JWT revocations: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
 func (r *UserJWTRevocationRepo) MarkPruned(ctx context.Context, ids []uuid.UUID, prunedAt time.Time) error {
 	if len(ids) == 0 {
 		return nil

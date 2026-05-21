@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	sqlpkg "github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
@@ -161,4 +162,103 @@ func TestRetention_DeletesSucceededDeliveries_PreservesDeadLetter(t *testing.T) 
 	// dead_letter@100d survives (only succeeded rows are auto-deleted).
 	_, err = factory.WebhookDeliveryRepository().GetByID(ctx, deadLetterOld.ID)
 	assert.NoError(t, err, "dead-letter delivery should never be auto-deleted")
+}
+
+// insertRevocationAccount returns an operator+account UUID pair via the
+// factory so the FK on user_jwt_revocations is satisfied.
+func insertRevocationAccount(t *testing.T, ctx context.Context, factory persistence.RepositoryFactory) uuid.UUID {
+	t.Helper()
+	opID := uuid.New()
+	require.NoError(t, factory.OperatorRepository().Create(ctx, &entities.Operator{
+		ID: opID, Name: "ret-op-" + opID.String()[:8], PublicKey: "O" + opID.String(),
+	}))
+	accID := uuid.New()
+	require.NoError(t, factory.AccountRepository().Create(ctx, &entities.Account{
+		ID: accID, OperatorID: opID,
+		Name: "ret-acc-" + accID.String()[:8], PublicKey: "A" + accID.String(),
+	}))
+	return accID
+}
+
+// insertPrunedRevocation creates a soft-pruned revocation row whose pruned_at
+// is set to the supplied time. The handler hard-deletes when pruned_at < cutoff.
+func insertPrunedRevocation(t *testing.T, ctx context.Context, factory persistence.RepositoryFactory, accID uuid.UUID, prunedAt time.Time) *entities.UserJWTRevocation {
+	t.Helper()
+	rev := &entities.UserJWTRevocation{
+		ID:            uuid.New(),
+		AccountID:     accID,
+		UserPublicKey: "U" + uuid.New().String(),
+		RevokedAt:     time.Now().UTC().Add(-365 * 24 * time.Hour),
+		JWTExp:        time.Now().UTC().Add(-180 * 24 * time.Hour),
+		CreatedAt:     time.Now().UTC(),
+	}
+	require.NoError(t, factory.UserJWTRevocationRepository().Create(ctx, rev))
+	require.NoError(t, factory.UserJWTRevocationRepository().MarkPruned(ctx, []uuid.UUID{rev.ID}, prunedAt))
+	return rev
+}
+
+// TestRetention_DeletesOldPrunedRevocations_PreservesActiveAndRecent pins the
+// central P14 invariant: the handler hard-deletes rows whose pruned_at is
+// strictly older than the cutoff, AND leaves active rows + recently-pruned
+// rows untouched. Active rows are NEVER eligible — they still belong in the
+// parent account JWT's NATS Revocations map until their own JWTExp elapses
+// and JWTExpirySweeper calls MarkPruned.
+func TestRetention_DeletesOldPrunedRevocations_PreservesActiveAndRecent(t *testing.T) {
+	ctx := context.Background()
+	_, factory := retentionTestDB(t)
+	accID := insertRevocationAccount(t, ctx, factory)
+
+	now := time.Now().UTC()
+
+	// Active row (no PrunedAt) — must survive even though it's old.
+	active := &entities.UserJWTRevocation{
+		ID:            uuid.New(),
+		AccountID:     accID,
+		UserPublicKey: "U-active-" + uuid.New().String()[:8],
+		RevokedAt:     now.Add(-365 * 24 * time.Hour),
+		JWTExp:        now.Add(24 * time.Hour),
+		CreatedAt:     now,
+	}
+	require.NoError(t, factory.UserJWTRevocationRepository().Create(ctx, active))
+
+	// Old pruned row — must be deleted.
+	old := insertPrunedRevocation(t, ctx, factory, accID, now.Add(-100*24*time.Hour))
+
+	// Recently-pruned row — must survive (within the 90d retention window).
+	recent := insertPrunedRevocation(t, ctx, factory, accID, now.Add(-1*24*time.Hour))
+
+	h := &revocationsRetentionHandler{factory: factory, revocationRetentionDays: 90}
+	require.NoError(t, h.Run(ctx, nil))
+
+	// Active row untouched.
+	_, err := factory.UserJWTRevocationRepository().GetByID(ctx, active.ID)
+	assert.NoError(t, err, "active revocation must never be auto-deleted")
+
+	// Old pruned row gone.
+	_, err = factory.UserJWTRevocationRepository().GetByID(ctx, old.ID)
+	assert.ErrorIs(t, err, repositories.ErrNotFound, "old pruned row should be hard-deleted")
+
+	// Recent pruned row survives.
+	_, err = factory.UserJWTRevocationRepository().GetByID(ctx, recent.ID)
+	assert.NoError(t, err, "recently-pruned row should survive")
+}
+
+// TestRetention_RevocationsDisabled checks that revocationRetentionDays<=0
+// short-circuits the handler. Necessary because the substrate's watchdog will
+// still enqueue the job every 24h — a disabled sweep MUST be a cheap no-op,
+// not an accidental purge.
+func TestRetention_RevocationsDisabled(t *testing.T) {
+	ctx := context.Background()
+	_, factory := retentionTestDB(t)
+	accID := insertRevocationAccount(t, ctx, factory)
+
+	now := time.Now().UTC()
+	old := insertPrunedRevocation(t, ctx, factory, accID, now.Add(-365*24*time.Hour))
+
+	h := &revocationsRetentionHandler{factory: factory, revocationRetentionDays: 0}
+	require.NoError(t, h.Run(ctx, nil))
+
+	// Disabled ⇒ ancient pruned row must still be present.
+	_, err := factory.UserJWTRevocationRepository().GetByID(ctx, old.ID)
+	assert.NoError(t, err, "handler disabled (retentionDays=0) must not delete anything")
 }

@@ -36,4 +36,12 @@ type UserJWTRevocationRepository interface {
 	// MarkPruned flags the rows identified by ids as pruned with the given
 	// timestamp. Called after the account JWT has been regenerated without them.
 	MarkPruned(ctx context.Context, ids []uuid.UUID, prunedAt time.Time) error
+
+	// DeletePrunedBefore hard-deletes pruned revocation rows whose pruned_at
+	// is strictly before cutoff. Rows with pruned_at IS NULL are never touched
+	// (those still belong in the parent account JWT's Revocations map). When
+	// limit > 0 the delete is capped at that many rows per call so one sweep
+	// tick stays cheap on large datasets; limit == 0 deletes all eligible
+	// rows. Returns the number of rows deleted.
+	DeletePrunedBefore(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 }
