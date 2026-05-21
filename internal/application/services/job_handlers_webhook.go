@@ -211,7 +211,7 @@ func buildWebhookDeliverJob(deliveryID uuid.UUID, maxAttempts int) (*entities.Jo
 func (h *webhookDeliverHandler) Run(ctx context.Context, payload []byte) error {
 	var p webhookDeliverPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
-		return fmt.Errorf("unmarshal payload: %v: %w", err, ErrPermanentJobFailure)
+		return fmt.Errorf("unmarshal payload: %w: %w", err, ErrPermanentJobFailure)
 	}
 	if p.DeliveryID == uuid.Nil {
 		return fmt.Errorf("payload missing delivery_id: %w", ErrPermanentJobFailure)

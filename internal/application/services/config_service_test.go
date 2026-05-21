@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -236,7 +237,7 @@ func TestGetRunningConfig_NonCredentialsRoundTrip(t *testing.T) {
 	registerTestDefaults()
 
 	svc := NewConfigService()
-	out, err := svc.GetRunningConfig(nil)
+	out, err := svc.GetRunningConfig(context.Background())
 	if err != nil {
 		t.Fatalf("GetRunningConfig: %v", err)
 	}

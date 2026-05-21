@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
@@ -428,31 +429,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// Start cluster health check goroutine. Cadence + initial-delay are
-	// configurable (cluster.health_check_*) so dev/CI can shrink them
-	// without rebuilding.
+	// Cluster health cadence is read here and reused below when registering
+	// the cluster.health.sweep handler on the jobs substrate (A15). The
+	// previous standalone goroutine + ticker was removed in favour of the
+	// substrate's per-row claim semantics, which give the multi-replica
+	// correctness A3 was filed to address — without needing process-level
+	// leader election.
 	clusterHealthInterval := time.Duration(viper.GetInt("cluster.health_check_interval_seconds")) * time.Second
 	clusterHealthInitialDelay := time.Duration(viper.GetInt("cluster.health_check_initial_delay_seconds")) * time.Second
-	go func() {
-		ticker := time.NewTicker(clusterHealthInterval)
-		defer ticker.Stop()
-
-		time.Sleep(clusterHealthInitialDelay)
-		if err := clusterService.CheckAllClustersHealth(ctx); err != nil {
-			logger.Error("health check error", "error", err)
-		}
-
-		for {
-			select {
-			case <-ticker.C:
-				if err := clusterService.CheckAllClustersHealth(ctx); err != nil {
-					logger.Error("health check error", "error", err)
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
 
 	// Start domain gauge refresh loop. Single goroutine, configurable cadence.
 	domainGaugeInterval := time.Duration(viper.GetInt("metrics.domain_gauge_refresh_seconds")) * time.Second
@@ -480,6 +464,29 @@ func runServe(cmd *cobra.Command, args []string) error {
 		LeaseDuration:   time.Duration(viper.GetInt("jobs.lease_duration_seconds")) * time.Second,
 		ShutdownTimeout: time.Duration(viper.GetInt("jobs.shutdown_timeout_seconds")) * time.Second,
 	})
+	// Cluster health (A15). Per-cluster jobs replace the in-process 60s
+	// goroutine. Wire the service so CreateCluster eagerly enqueues a
+	// cluster.health_check for fresh clusters — without this, a new cluster
+	// reads as Healthy=false in the UI until the next sweep tick.
+	clusterService.WithJobRunner(jobRunner)
+	services.RegisterClusterHealthHandlers(jobRunner, clusterService, services.ClusterHealthHandlerConfig{
+		Interval:      clusterHealthInterval,
+		LeaseDuration: 60 * time.Second,
+	})
+	// Prime the first sweep at now+InitialDelay so existing clusters get
+	// re-checked shortly after a process restart, rather than waiting one
+	// full cluster.health_check_interval for the watchdog's first
+	// re-schedule. The dedup key matches the watchdog's recur-<type>
+	// convention, so the watchdog's own EnsureScheduled at runner.Run start
+	// is a no-op until this row drains. (Note: cluster.health_check_initial_delay_seconds
+	// kept its original meaning — "delay between process start and first
+	// sweep" — even though the underlying mechanism changed.)
+	{
+		priming := clock.Now().Add(clusterHealthInitialDelay)
+		if _, err := jobRunner.EnsureScheduled(ctx, services.JobTypeClusterHealthSweep, nil, priming, "recur-"+services.JobTypeClusterHealthSweep); err != nil {
+			logger.Warn("cluster health: initial sweep enqueue failed", "error", err)
+		}
+	}
 	services.RegisterRetentionHandlers(jobRunner, repoFactory, services.RetentionConfig{
 		EventRetentionDays:             viper.GetInt("events.retention_days"),
 		SucceededDeliveryRetentionDays: viper.GetInt("webhooks.succeeded_retention_days"),

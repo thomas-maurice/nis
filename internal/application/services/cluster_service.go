@@ -29,6 +29,7 @@ type ClusterService struct {
 	encryptor     encryption.Encryptor
 	jwtService    *JWTService
 	factory       persistence.RepositoryFactory // optional; set via WithFactory for event emission
+	jobRunner     *JobRunner                    // optional; set via WithJobRunner for eager cluster.health_check enqueue on CreateCluster
 }
 
 // NewClusterService creates a new cluster service
@@ -58,6 +59,37 @@ func NewClusterService(
 func (s *ClusterService) WithFactory(f persistence.RepositoryFactory) *ClusterService {
 	s.factory = f
 	return s
+}
+
+// WithJobRunner attaches the jobs substrate to the service so CreateCluster
+// can enqueue an immediate cluster.health_check job. Without this wiring the
+// new cluster waits up to one sweep interval (default 60s) for its first
+// probe, which makes UI/CLI flows that depend on Healthy momentarily lie.
+// Tests that don't call this will silently skip the eager enqueue.
+func (s *ClusterService) WithJobRunner(r *JobRunner) *ClusterService {
+	s.jobRunner = r
+	return s
+}
+
+// enqueueImmediateHealthCheck schedules a one-shot cluster.health_check for
+// a freshly-created cluster. Dedup_key matches the sweep handler's, so a
+// concurrent sweep trying to enqueue for the same cluster is a no-op.
+// Failures are logged, not propagated — the next sweep tick catches up.
+func (s *ClusterService) enqueueImmediateHealthCheck(ctx context.Context, clusterID uuid.UUID) {
+	if s.jobRunner == nil {
+		return
+	}
+	payload := ClusterHealthCheckPayload{ClusterID: clusterID.String()}
+	if _, err := s.jobRunner.EnsureScheduled(
+		ctx,
+		JobTypeClusterHealthCheck,
+		payload,
+		clock.Now(),
+		clusterHealthCheckDedupKey(clusterID),
+	); err != nil {
+		logging.LogFromContext(ctx).Warn("cluster create: eager health-check enqueue failed",
+			"cluster_id", clusterID, "error", err)
+	}
 }
 
 // CreateClusterRequest contains the data needed to create a cluster
@@ -161,6 +193,8 @@ func (s *ClusterService) CreateCluster(ctx context.Context, req CreateClusterReq
 			return nil, fmt.Errorf("emit cluster.created: %w", err)
 		}
 	}
+
+	s.enqueueImmediateHealthCheck(ctx, cluster.ID)
 
 	return cluster, nil
 }
@@ -760,20 +794,11 @@ func (s *ClusterService) CheckClusterHealth(ctx context.Context, id uuid.UUID) e
 	return nil
 }
 
-// CheckAllClustersHealth checks health for all clusters
-func (s *ClusterService) CheckAllClustersHealth(ctx context.Context) error {
-	clusters, err := s.repo.List(ctx, repositories.ListOptions{
-		Limit:  1000, // TODO: Handle pagination
-		Offset: 0,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list clusters: %w", err)
-	}
-
-	for _, cluster := range clusters {
-		// Check each cluster's health (ignore errors for individual clusters)
-		_ = s.CheckClusterHealth(ctx, cluster.ID)
-	}
-
-	return nil
-}
+// Per-cluster health checks are now driven by the jobs substrate (A15):
+// JobTypeClusterHealthSweep enumerates clusters and enqueues one
+// JobTypeClusterHealthCheck per row. See
+// internal/application/services/job_handlers_cluster_health.go. The previous
+// in-process CheckAllClustersHealth ticker was removed because the substrate
+// already provides per-row leader election (partial unique index +
+// FOR UPDATE SKIP LOCKED claim) — a separate process-level singleton was
+// redundant for the multi-replica case and load-bearing only as the trigger.

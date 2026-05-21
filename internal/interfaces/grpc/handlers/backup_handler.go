@@ -197,7 +197,7 @@ func (h *BackupHandler) DownloadBackup(ctx context.Context, req *connect.Request
 	if err != nil {
 		return repoErrToConnect(err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if err := stream.Send(&nisv1.DownloadBackupResponse{
 		Payload: &nisv1.DownloadBackupResponse_Metadata{Metadata: operatorBackupToProto(row)},

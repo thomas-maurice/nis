@@ -154,7 +154,8 @@ func isNoSuchKey(err error) bool {
 	if err == nil {
 		return false
 	}
-	if er, ok := err.(minio.ErrorResponse); ok {
+	var er minio.ErrorResponse
+	if errors.As(err, &er) {
 		return er.Code == "NoSuchKey"
 	}
 	// minio-go sometimes wraps; fall back to string match for robustness.

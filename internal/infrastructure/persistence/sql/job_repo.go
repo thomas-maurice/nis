@@ -103,7 +103,7 @@ func (r *JobRepo) EnqueueIfAbsent(ctx context.Context, job *entities.Job) (bool,
 func (r *JobRepo) ClaimDue(ctx context.Context, workerID string, lease time.Duration, now time.Time, limit int) ([]*entities.Job, error) {
 	now = now.UTC()
 	leaseUntil := now.Add(lease).UTC()
-	dialect := r.db.Dialector.Name()
+	dialect := r.db.Name()
 
 	switch dialect {
 	case "postgres":

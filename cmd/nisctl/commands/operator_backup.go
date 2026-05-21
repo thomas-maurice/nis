@@ -21,11 +21,9 @@ import (
 // disaster-recovery story; the scheduled path is hands-off ops.
 
 var (
-	opBackupInterval     time.Duration
-	opBackupRetention    int
-	opBackupIntervalSet  bool
-	opBackupRetentionSet bool
-	opBackupOutput       string
+	opBackupInterval  time.Duration
+	opBackupRetention int
+	opBackupOutput    string
 )
 
 var operatorBackupCmd = &cobra.Command{
@@ -233,7 +231,7 @@ func runOperatorBackupDownload(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var total int64
 	for stream.Receive() {
 		msg := stream.Msg()

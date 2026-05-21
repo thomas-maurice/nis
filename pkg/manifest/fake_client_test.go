@@ -547,13 +547,6 @@ func (c *fakeClusterClient) ReconcileAccountOnCluster(_ context.Context, _ *conn
 
 type fakeTemplateClient struct{ f *fakePlannerClient }
 
-func (c *fakeTemplateClient) findOperatorIDByName(name string) string {
-	if op := c.f.findOperatorByName(name); op != nil {
-		return op.GetId()
-	}
-	return ""
-}
-
 func (c *fakeTemplateClient) CreateTemplate(_ context.Context, req *connect.Request[nisv1.CreateTemplateRequest]) (*connect.Response[nisv1.CreateTemplateResponse], error) {
 	c.f.recordCall("CreateTemplate")
 	t := &nisv1.Template{

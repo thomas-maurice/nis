@@ -141,11 +141,11 @@ func (h *backupExecuteHandler) Run(ctx context.Context, payload []byte) error {
 	}
 	var p BackupExecutePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
-		return fmt.Errorf("%w: unmarshal payload: %v", ErrPermanentJobFailure, err)
+		return fmt.Errorf("%w: unmarshal payload: %w", ErrPermanentJobFailure, err)
 	}
 	operatorID, err := uuid.Parse(p.OperatorID)
 	if err != nil {
-		return fmt.Errorf("%w: parse operator_id: %v", ErrPermanentJobFailure, err)
+		return fmt.Errorf("%w: parse operator_id: %w", ErrPermanentJobFailure, err)
 	}
 	trigger := p.Trigger
 	if trigger == "" {
@@ -154,7 +154,7 @@ func (h *backupExecuteHandler) Run(ctx context.Context, payload []byte) error {
 	_, err = h.svc.RunBackup(ctx, operatorID, trigger)
 	if err != nil {
 		if errors.Is(err, ErrBackupsDisabled) {
-			return fmt.Errorf("%w: %v", ErrPermanentJobFailure, err)
+			return fmt.Errorf("%w: %w", ErrPermanentJobFailure, err)
 		}
 		return err
 	}
