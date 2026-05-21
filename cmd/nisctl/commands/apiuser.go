@@ -133,7 +133,7 @@ func runAPIUserList(cmd *cobra.Command, args []string) error {
 			}
 
 			rows[i] = []string{
-				user.Id[:8] + "...",
+				client.APIUserID(user.Id),
 				user.Username,
 				createdAt,
 			}

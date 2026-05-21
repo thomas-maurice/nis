@@ -7,14 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thomas-maurice/nis/internal/client"
 	"github.com/thomas-maurice/nis/pkg/manifest"
-)
-
-const (
-	applyColorGreen = "\033[32m"
-	applyColorRed   = "\033[31m"
-	applyColorGray  = "\033[90m"
-	applyColorReset = "\033[0m"
 )
 
 var applyCmd = &cobra.Command{
@@ -145,8 +139,7 @@ func runApplyOrDiff(cmd *cobra.Command, files []string, dryRun bool) error {
 }
 
 func printApplyLine(prefix, verb string, obj manifest.Object, note string) {
-	green := colorFn(applyColorGreen)
-	label := green(fmt.Sprintf("%-8s", prefix))
+	label := client.Green(fmt.Sprintf("%-8s", prefix))
 	line := fmt.Sprintf("%s %s %s/%s%s", label, verb, obj.Kind, obj.Metadata.Name, applyParentSuffix(obj))
 	if note != "" {
 		line += " (" + note + ")"
@@ -155,8 +148,7 @@ func printApplyLine(prefix, verb string, obj manifest.Object, note string) {
 }
 
 func printApplyNoop(item manifest.ApplyItem) {
-	gray := colorFn(applyColorGray)
-	label := gray(fmt.Sprintf("%-8s", "[noop]"))
+	label := client.Gray(fmt.Sprintf("%-8s", "[noop]"))
 	line := fmt.Sprintf("%s %s/%s%s", label, item.Object.Kind, item.Object.Metadata.Name, applyParentSuffix(item.Object))
 	if item.Note != "" {
 		line += " (" + item.Note + ")"
@@ -165,8 +157,7 @@ func printApplyNoop(item manifest.ApplyItem) {
 }
 
 func printApplyFailed(item manifest.ApplyItem) {
-	red := colorFn(applyColorRed)
-	label := red(fmt.Sprintf("%-8s", "[failed]"))
+	label := client.Red(fmt.Sprintf("%-8s", "[failed]"))
 	line := fmt.Sprintf("%s %s/%s%s", label, item.Object.Kind, item.Object.Metadata.Name, applyParentSuffix(item.Object))
 	if item.Note != "" {
 		line += ": " + item.Note
@@ -186,12 +177,4 @@ func applyParentSuffix(obj manifest.Object) string {
 		return ""
 	}
 	return " (" + strings.Join(parts, ", ") + ")"
-}
-
-// colorFn returns a function that wraps s in an ANSI color when color is enabled.
-func colorFn(code string) func(string) string {
-	if noColor {
-		return func(s string) string { return s }
-	}
-	return func(s string) string { return code + s + applyColorReset }
 }

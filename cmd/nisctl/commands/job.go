@@ -97,25 +97,6 @@ func parseJobStatus(s string) (nisv1.JobStatus, error) {
 	}
 }
 
-func jobStatusLabel(s nisv1.JobStatus) string {
-	switch s {
-	case nisv1.JobStatus_JOB_STATUS_PENDING:
-		return "pending"
-	case nisv1.JobStatus_JOB_STATUS_RUNNING:
-		return "running"
-	case nisv1.JobStatus_JOB_STATUS_SUCCEEDED:
-		return "succeeded"
-	case nisv1.JobStatus_JOB_STATUS_FAILED:
-		return "failed"
-	case nisv1.JobStatus_JOB_STATUS_DEAD_LETTERED:
-		return "dead_lettered"
-	case nisv1.JobStatus_JOB_STATUS_CANCELLED:
-		return "cancelled"
-	default:
-		return "unknown"
-	}
-}
-
 func runJobList(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
@@ -158,10 +139,6 @@ func runJobList(cmd *cobra.Command, args []string) error {
 		headers := []string{"ID", "TYPE", "STATUS", "ATTEMPTS", "SCHEDULED", "LAST_ERROR"}
 		rows := make([][]string, len(resp.Msg.Jobs))
 		for i, j := range resp.Msg.Jobs {
-			id := j.Id
-			if len(id) > 8 {
-				id = id[:8]
-			}
 			sched := "-"
 			if j.ScheduledFor != nil {
 				// Time discipline (SKILL §2): storage is UTC; display in the
@@ -169,11 +146,13 @@ func runJobList(cmd *cobra.Command, args []string) error {
 				sched = j.ScheduledFor.AsTime().Local().Format(time.RFC3339)
 			}
 			attempts := fmt.Sprintf("%d/%d", j.Attempts, j.MaxAttempts)
+			// Error messages are long free text — truncate to keep the row
+			// readable. IDs and types render in full.
 			lastErr := j.LastError
-			if len(lastErr) > 50 {
-				lastErr = lastErr[:47] + "..."
+			if len(lastErr) > 60 {
+				lastErr = lastErr[:57] + "..."
 			}
-			rows[i] = []string{id, j.Type, jobStatusLabel(j.Status), attempts, sched, lastErr}
+			rows[i] = []string{client.JobID(j.Id), j.Type, client.JobStatusBadge(j.Status), attempts, sched, lastErr}
 		}
 		if err := printer.PrintTable(headers, rows); err != nil {
 			return err
@@ -227,27 +206,28 @@ func renderJob(j *nisv1.Job) error {
 		return t.AsTime().Local().Format(time.RFC3339)
 	}
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "ID:             %s\n", j.Id)
-	fmt.Fprintf(&sb, "Type:           %s\n", j.Type)
-	fmt.Fprintf(&sb, "Status:         %s\n", jobStatusLabel(j.Status))
-	fmt.Fprintf(&sb, "Attempts:       %d / %d\n", j.Attempts, j.MaxAttempts)
-	fmt.Fprintf(&sb, "Dedup key:      %s\n", emptyDash(j.DedupKey))
-	fmt.Fprintf(&sb, "Scheduled for:  %s\n", formatT(j.ScheduledFor))
-	fmt.Fprintf(&sb, "Started at:     %s\n", formatT(j.StartedAt))
-	fmt.Fprintf(&sb, "Completed at:   %s\n", formatT(j.CompletedAt))
-	fmt.Fprintf(&sb, "Created at:     %s\n", formatT(j.CreatedAt))
-	fmt.Fprintf(&sb, "Updated at:     %s\n", formatT(j.UpdatedAt))
-	fmt.Fprintf(&sb, "Locked by:      %s\n", emptyDash(j.LockedBy))
-	fmt.Fprintf(&sb, "Locked until:   %s\n", formatT(j.LockedUntil))
+	pairs := []client.KVPair{
+		{Key: "ID", Value: client.JobID(j.Id)},
+		{Key: "Type", Value: j.Type},
+		{Key: "Status", Value: client.JobStatusBadge(j.Status)},
+		{Key: "Attempts", Value: fmt.Sprintf("%d / %d", j.Attempts, j.MaxAttempts)},
+		{Key: "Dedup key", Value: emptyDash(j.DedupKey)},
+		{Key: "Scheduled for", Value: formatT(j.ScheduledFor)},
+		{Key: "Started at", Value: formatT(j.StartedAt)},
+		{Key: "Completed at", Value: formatT(j.CompletedAt)},
+		{Key: "Created at", Value: formatT(j.CreatedAt)},
+		{Key: "Updated at", Value: formatT(j.UpdatedAt)},
+		{Key: "Locked by", Value: emptyDash(j.LockedBy)},
+		{Key: "Locked until", Value: formatT(j.LockedUntil)},
+	}
 	if j.LastError != "" {
-		fmt.Fprintf(&sb, "Last error:\n  %s\n", j.LastError)
+		pairs = append(pairs, client.KVPair{Key: "Last error", Value: client.ErrorStyle().Render(j.LastError)})
 	}
 	if j.Payload != "" && j.Payload != "{}" {
-		fmt.Fprintf(&sb, "Payload:\n%s\n", prettyJSON(j.Payload))
+		pairs = append(pairs, client.KVPair{Key: "Payload", Value: prettyJSON(j.Payload)})
 	}
 
-	fmt.Print(sb.String())
+	fmt.Print(client.RenderKV(pairs))
 	return nil
 }
 

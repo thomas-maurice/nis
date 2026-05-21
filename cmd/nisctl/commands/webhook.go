@@ -161,19 +161,13 @@ func runWebhookList(cmd *cobra.Command, args []string) error {
 		headers := []string{"ID", "NAME", "URL", "ENABLED", "OPERATOR"}
 		rows := make([][]string, len(resp.Msg.Subscriptions))
 		for i, s := range resp.Msg.Subscriptions {
-			id := s.Id
-			if len(id) > 8 {
-				id = id[:8] + "..."
+			rows[i] = []string{
+				client.WebhookID(s.Id),
+				s.Name,
+				s.Url,
+				client.BoolBadge(s.Enabled, "enabled", "disabled"),
+				client.OperatorID(s.OperatorId),
 			}
-			enabled := "yes"
-			if !s.Enabled {
-				enabled = "no"
-			}
-			opID := s.OperatorId
-			if len(opID) > 8 {
-				opID = opID[:8] + "..."
-			}
-			rows[i] = []string{id, s.Name, s.Url, enabled, opID}
 		}
 		return printer.PrintTable(headers, rows)
 	}
@@ -291,15 +285,13 @@ func runWebhookDeliveries(cmd *cobra.Command, args []string) error {
 		headers := []string{"ID", "EVENT ID", "ATTEMPT", "STATUS", "RESPONSE CODE"}
 		rows := make([][]string, len(resp.Msg.Deliveries))
 		for i, d := range resp.Msg.Deliveries {
-			id := d.Id
-			if len(id) > 8 {
-				id = id[:8] + "..."
+			rows[i] = []string{
+				client.WebhookID(d.Id),
+				d.EventId,
+				fmt.Sprintf("%d", d.Attempt),
+				client.WebhookDeliveryStatusBadge(d.Status),
+				fmt.Sprintf("%d", d.LastResponseCode),
 			}
-			evtID := d.EventId
-			if len(evtID) > 8 {
-				evtID = evtID[:8] + "..."
-			}
-			rows[i] = []string{id, evtID, fmt.Sprintf("%d", d.Attempt), d.Status, fmt.Sprintf("%d", d.LastResponseCode)}
 		}
 		return printer.PrintTable(headers, rows)
 	}

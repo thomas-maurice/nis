@@ -142,21 +142,20 @@ func runTokenList(cmd *cobra.Command, args []string) error {
 		headers := []string{"ID", "NAME", "ROLE", "PREFIX", "LAST USED", "STATUS"}
 		rows := make([][]string, len(resp.Msg.Tokens))
 		for i, t := range resp.Msg.Tokens {
-			id := t.Id
-			if len(id) > 8 {
-				id = id[:8] + "..."
-			}
 			lastUsed := "—"
 			if t.LastUsedAt != nil {
-				lastUsed = t.LastUsedAt.AsTime().Format(time.RFC3339)
+				lastUsed = t.LastUsedAt.AsTime().Local().Format(time.RFC3339)
 			}
-			status := "active"
-			if t.RevokedAt != nil {
-				status = "revoked"
-			} else if t.ExpiresAt != nil && t.ExpiresAt.AsTime().Before(time.Now()) {
-				status = "expired"
+			revoked := t.RevokedAt != nil
+			expired := !revoked && t.ExpiresAt != nil && t.ExpiresAt.AsTime().Before(time.Now())
+			rows[i] = []string{
+				client.APITokenID(t.Id),
+				t.Name,
+				t.Role,
+				t.Prefix,
+				lastUsed,
+				client.APITokenStatusBadge(revoked, expired),
 			}
-			rows[i] = []string{id, t.Name, t.Role, t.Prefix, lastUsed, status}
 		}
 		return printer.PrintTable(headers, rows)
 	}

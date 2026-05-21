@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thomas-maurice/nis/internal/client"
 	"github.com/thomas-maurice/nis/pkg/manifest"
 )
 
@@ -61,12 +62,10 @@ func runDeleteManifest(cmd *cobra.Command, args []string) error {
 	fmt.Println("The following entities will be deleted (in reverse topo order):")
 	fmt.Println()
 	for _, obj := range refused {
-		gray := colorFn(applyColorGray)
-		fmt.Printf("  %s %s/%s%s\n", gray("[refused]"), obj.Kind, obj.Metadata.Name, applyParentSuffix(obj))
+		fmt.Printf("  %s %s/%s%s\n", client.Gray("[refused]"), obj.Kind, obj.Metadata.Name, applyParentSuffix(obj))
 	}
 	for _, obj := range deletable {
-		red := colorFn(applyColorRed)
-		fmt.Printf("  %s %s/%s%s\n", red("-"), obj.Kind, obj.Metadata.Name, applyParentSuffix(obj))
+		fmt.Printf("  %s %s/%s%s\n", client.Red("-"), obj.Kind, obj.Metadata.Name, applyParentSuffix(obj))
 	}
 	fmt.Println()
 
@@ -135,8 +134,7 @@ func isReserved(obj manifest.Object) bool {
 }
 
 func printDeleteLine(prefix, verb string, obj manifest.Object, note string) {
-	green := colorFn(applyColorGreen)
-	label := green(fmt.Sprintf("%-8s", prefix))
+	label := client.Green(fmt.Sprintf("%-8s", prefix))
 	line := fmt.Sprintf("%s %s %s/%s%s", label, verb, obj.Kind, obj.Metadata.Name, applyParentSuffix(obj))
 	if note != "" {
 		line += " (" + note + ")"
@@ -145,8 +143,7 @@ func printDeleteLine(prefix, verb string, obj manifest.Object, note string) {
 }
 
 func printDeleteNoop(item manifest.DeleteItem) {
-	gray := colorFn(applyColorGray)
-	label := gray(fmt.Sprintf("%-8s", "[noop]"))
+	label := client.Gray(fmt.Sprintf("%-8s", "[noop]"))
 	line := fmt.Sprintf("%s %s/%s%s", label, item.Object.Kind, item.Object.Metadata.Name, applyParentSuffix(item.Object))
 	if item.Note != "" {
 		line += " (" + item.Note + ")"
@@ -155,14 +152,12 @@ func printDeleteNoop(item manifest.DeleteItem) {
 }
 
 func printDeleteRefused(item manifest.DeleteItem) {
-	gray := colorFn(applyColorGray)
-	label := gray(fmt.Sprintf("%-10s", "[refused]"))
+	label := client.Gray(fmt.Sprintf("%-10s", "[refused]"))
 	fmt.Printf("%s %s/%s%s\n", label, item.Object.Kind, item.Object.Metadata.Name, applyParentSuffix(item.Object))
 }
 
 func printDeleteFailed(item manifest.DeleteItem) {
-	red := colorFn(applyColorRed)
-	label := red(fmt.Sprintf("%-8s", "[failed]"))
+	label := client.Red(fmt.Sprintf("%-8s", "[failed]"))
 	line := fmt.Sprintf("%s %s/%s%s", label, item.Object.Kind, item.Object.Metadata.Name, applyParentSuffix(item.Object))
 	if item.Note != "" {
 		line += ": " + item.Note

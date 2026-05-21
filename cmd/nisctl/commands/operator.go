@@ -165,7 +165,7 @@ func runOperatorList(cmd *cobra.Command, args []string) error {
 		for i, op := range resp.Msg.Operators {
 			systemAccount := "-"
 			if op.SystemAccountPubKey != "" {
-				systemAccount = op.SystemAccountPubKey[:12] + "..."
+				systemAccount = client.AccountKey(op.SystemAccountPubKey)
 			}
 
 			createdAt := "-"
@@ -174,7 +174,7 @@ func runOperatorList(cmd *cobra.Command, args []string) error {
 			}
 
 			rows[i] = []string{
-				op.Id[:8] + "...",
+				client.OperatorID(op.Id),
 				op.Name,
 				systemAccount,
 				createdAt,

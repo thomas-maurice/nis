@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"text/tabwriter"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,7 +35,14 @@ func NewPrinter(format string) *Printer {
 	}
 }
 
-// PrintTable prints data in table format
+// PrintTable prints data in table format.
+//
+// The default (table) format uses lipgloss/table for proper column alignment
+// and colored headers. Cell width is computed from content — no truncation —
+// so UUIDs and nkey public keys render in full. Non-TTY stdout strips ANSI
+// automatically (lipgloss renderer + termenv).
+//
+// JSON / YAML / quiet formats are unchanged and emit no styling.
 func (p *Printer) PrintTable(headers []string, rows [][]string) error {
 	if p.format == OutputFormatQuiet {
 		return nil
@@ -49,19 +56,31 @@ func (p *Printer) PrintTable(headers []string, rows [][]string) error {
 		return p.printYAML(convertTableToMap(headers, rows))
 	}
 
-	// Table format
-	w := tabwriter.NewWriter(p.writer, 0, 0, 2, ' ', 0)
-	defer func() { _ = w.Flush() }()
+	header := HeaderStyle()
+	cell := sNew().Padding(0, 1)
+	headerCell := header.Padding(0, 1)
+	border := MutedStyle()
 
-	// Print headers
-	_, _ = fmt.Fprintln(w, strings.Join(headers, "\t"))
-	_, _ = fmt.Fprintln(w, strings.Repeat("-", len(strings.Join(headers, "\t"))))
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(border).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderRow(false).
+		BorderColumn(false).
+		BorderHeader(true).
+		Headers(headers...).
+		Rows(rows...).
+		StyleFunc(func(row, _ int) lipgloss.Style {
+			if row == table.HeaderRow {
+				return headerCell
+			}
+			return cell
+		})
 
-	// Print rows
-	for _, row := range rows {
-		_, _ = fmt.Fprintln(w, strings.Join(row, "\t"))
-	}
-
+	_, _ = fmt.Fprintln(p.writer, t.Render())
 	return nil
 }
 
@@ -115,12 +134,12 @@ func (p *Printer) PrintSuccess(format string, args ...interface{}) {
 	if p.format == OutputFormatQuiet {
 		return
 	}
-	_, _ = fmt.Fprintf(p.writer, "✓ "+format+"\n", args...)
+	_, _ = fmt.Fprintf(p.writer, "%s "+format+"\n", append([]interface{}{SuccessStyle().Render("✓")}, args...)...)
 }
 
 // PrintError prints an error message
 func (p *Printer) PrintError(format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(os.Stderr, "✗ "+format+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stderr, "%s "+format+"\n", append([]interface{}{ErrorStyle().Render("✗")}, args...)...)
 }
 
 // PrintWarning prints a warning message
@@ -128,7 +147,7 @@ func (p *Printer) PrintWarning(format string, args ...interface{}) {
 	if p.format == OutputFormatQuiet {
 		return
 	}
-	_, _ = fmt.Fprintf(p.writer, "⚠ "+format+"\n", args...)
+	_, _ = fmt.Fprintf(p.writer, "%s "+format+"\n", append([]interface{}{WarningStyle().Render("⚠")}, args...)...)
 }
 
 // PrintID prints just an ID (useful for quiet mode scripts)

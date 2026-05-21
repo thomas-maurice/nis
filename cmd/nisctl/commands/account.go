@@ -148,7 +148,7 @@ func runAccountJetStreamUsage(cmd *cobra.Command, args []string) error {
 		for i, c := range resp.Msg.Clusters {
 			rows[i] = []string{
 				c.ClusterName,
-				probeStatusToString(c.Status),
+				client.JetStreamProbeBadge(c.Status),
 				formatUsageVsLimit(c.Usage.GetMemoryUsed(), limitOrZero(limits, "memory"), c.Status),
 				formatUsageVsLimit(c.Usage.GetStorageUsed(), limitOrZero(limits, "storage"), c.Status),
 				formatCountVsLimit(int64(c.Usage.GetStreams()), limitOrZero(limits, "streams"), c.Status),
@@ -160,25 +160,6 @@ func runAccountJetStreamUsage(cmd *cobra.Command, args []string) error {
 	}
 
 	return printer.PrintList(resp.Msg.Clusters)
-}
-
-func probeStatusToString(s nisv1.JetStreamProbeStatus) string {
-	switch s {
-	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_OK:
-		return "ok"
-	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_UNREACHABLE:
-		return "unreachable"
-	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NO_JETSTREAM:
-		return "no-jetstream"
-	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_ACCOUNT_NOT_FOUND:
-		return "account-not-found"
-	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_NOT_ACTIVATED:
-		return "not-activated"
-	case nisv1.JetStreamProbeStatus_JET_STREAM_PROBE_STATUS_ERROR:
-		return "error"
-	default:
-		return "unknown"
-	}
 }
 
 func limitOrZero(l *nisv1.JetStreamLimits, kind string) int64 {
@@ -326,9 +307,9 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 			}
 
 			rows[i] = []string{
-				acc.Id[:8] + "...",
+				client.AccountID(acc.Id),
 				acc.Name,
-				acc.OperatorId[:8] + "...",
+				client.OperatorID(acc.OperatorId),
 				createdAt,
 			}
 		}

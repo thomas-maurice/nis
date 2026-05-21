@@ -59,12 +59,21 @@ var templateGetCmd = &cobra.Command{
 }
 
 var templateUpdateCmd = &cobra.Command{
-	Use:   "update NAME",
-	Short: "Update template metadata or create a new version",
-	Long: `Description-only edits update in place. Permission edits create a
-new template_versions row and bump latest_version. Pinned SKKs are
-NOT touched — run 'nisctl signing-key bump-template ID' per SKK to
-roll forward.`,
+	Use:     "update NAME",
+	Aliases: []string{"edit"},
+	Short:   "Update template metadata or create a new version",
+	Long: `Partial update — only the flags you pass take effect. Description-only
+edits update in place. Permission edits (--pub-allow, --pub-deny,
+--sub-allow, --sub-deny, --response-max-msgs, --response-ttl) create a
+new template_versions row and bump latest_version. Pinned SKKs are NOT
+touched — run 'nisctl signing-key bump-template ID' per SKK to roll
+forward, or set track_latest on the SKK to opt into auto-apply.
+
+Permission edits are REPLACE-semantics relative to the latest version:
+this command fetches the latest version's permissions, overlays only
+the lists you named on the command line, and sends the resulting set
+as the candidate for the new version. Pass "--pub-allow ''" (empty
+value) to clear a list explicitly.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTemplateUpdate,
 }
@@ -198,7 +207,7 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 		headers := []string{"ID", "NAME", "LATEST VERSION", "DESCRIPTION"}
 		rows := make([][]string, len(resp.Msg.Templates))
 		for i, t := range resp.Msg.Templates {
-			rows[i] = []string{t.Id[:8] + "...", t.Name, fmt.Sprintf("%d", t.LatestVersion), t.Description}
+			rows[i] = []string{client.TemplateID(t.Id), t.Name, fmt.Sprintf("%d", t.LatestVersion), t.Description}
 		}
 		return printer.PrintTable(headers, rows)
 	}
@@ -235,35 +244,83 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Partial-set semantics: only attach the proto fields the caller
+	// actually named. Pre-2026-05-21 this function force-set every field —
+	// running `template update --change-note "..."` would clobber the
+	// description to "" and trigger a permission-compare on the server
+	// every time. cobra's Flags().Changed() is the source of truth.
+	metaChanged := cmd.Flags().Changed("description")
+	permsChanged := anyTplPermFlagSet(cmd)
+	if !metaChanged && !permsChanged {
+		return fmt.Errorf("nothing to do: pass --description for metadata, or --pub-allow / --pub-deny / --sub-allow / --sub-deny / --response-max-msgs / --response-ttl for permissions (creates a new version)")
+	}
+
+	// Fetch latest so we can overlay unset permission fields. Without this,
+	// "update --pub-allow foo" would clear sub_allow / sub_deny / pub_deny
+	// on the new version (the server replaces the whole permission set).
 	getResp, err := GetClient().Template.GetTemplateByName(context.Background(),
 		connect.NewRequest(&nisv1.GetTemplateByNameRequest{OperatorId: operatorID, Name: name}))
 	if err != nil {
 		return fmt.Errorf("template not found: %w", err)
 	}
-	ttl, err := parseTemplateTTL(tplResponseTTL)
-	if err != nil {
-		return err
-	}
-	// Mirror the SetJWTPolicy convention: send all the flags the caller
-	// passed. PermissionsProvided semantics are inferred server-side by
-	// looking at whether permissions/response_permission fields are set
-	// to non-nil pointers; we always pass them populated. Description is
-	// optional via the *string field.
+
 	req := &nisv1.UpdateTemplateRequest{
-		Id:          getResp.Msg.Template.Id,
-		Description: &tplDescription,
-		Permissions: &nisv1.UserPermissions{
-			PubAllow: tplPubAllow,
-			PubDeny:  tplPubDeny,
-			SubAllow: tplSubAllow,
-			SubDeny:  tplSubDeny,
-		},
-		ResponsePermission: &nisv1.ResponsePermission{
-			MaxMsgs: int32(tplResponseMaxMsgs),
-			Expires: ttl,
-		},
+		Id:         getResp.Msg.Template.Id,
 		ChangeNote: tplChangeNote,
 	}
+	if metaChanged {
+		req.Description = &tplDescription
+	}
+	if permsChanged {
+		// Permissions live on TemplateVersion, not on the Template envelope.
+		// GetTemplateByName returns the latest version when version_number=0.
+		curPerms := getResp.Msg.Version.GetPermissions()
+		curResp := getResp.Msg.Version.GetResponsePermission()
+
+		pubAllow := tplPubAllow
+		if !cmd.Flags().Changed("pub-allow") && curPerms != nil {
+			pubAllow = curPerms.PubAllow
+		}
+		pubDeny := tplPubDeny
+		if !cmd.Flags().Changed("pub-deny") && curPerms != nil {
+			pubDeny = curPerms.PubDeny
+		}
+		subAllow := tplSubAllow
+		if !cmd.Flags().Changed("sub-allow") && curPerms != nil {
+			subAllow = curPerms.SubAllow
+		}
+		subDeny := tplSubDeny
+		if !cmd.Flags().Changed("sub-deny") && curPerms != nil {
+			subDeny = curPerms.SubDeny
+		}
+		maxMsgs := int32(tplResponseMaxMsgs)
+		if !cmd.Flags().Changed("response-max-msgs") && curResp != nil {
+			maxMsgs = curResp.MaxMsgs
+		}
+		expires := int64(0)
+		if cmd.Flags().Changed("response-ttl") {
+			n, err := parseTemplateTTL(tplResponseTTL)
+			if err != nil {
+				return err
+			}
+			expires = n
+		} else if curResp != nil {
+			expires = curResp.Expires
+		}
+
+		req.Permissions = &nisv1.UserPermissions{
+			PubAllow: pubAllow,
+			PubDeny:  pubDeny,
+			SubAllow: subAllow,
+			SubDeny:  subDeny,
+		}
+		req.ResponsePermission = &nisv1.ResponsePermission{
+			MaxMsgs: maxMsgs,
+			Expires: expires,
+		}
+	}
+
 	resp, err := GetClient().Template.UpdateTemplate(context.Background(), connect.NewRequest(req))
 	if err != nil {
 		return fmt.Errorf("failed to update template: %w", err)
@@ -278,6 +335,18 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 		printer.PrintSuccess("Template '%s' updated (description only — no version bump)", resp.Msg.Template.Name)
 	}
 	return printer.PrintObject(resp.Msg.Template)
+}
+
+// anyTplPermFlagSet returns true iff any of the permission-shape flags
+// (pub/sub allow/deny + response caps) was passed on the command line.
+// Symmetric with anySSKPermFlagSet in signing_key.go.
+func anyTplPermFlagSet(cmd *cobra.Command) bool {
+	for _, name := range []string{"pub-allow", "pub-deny", "sub-allow", "sub-deny", "response-max-msgs", "response-ttl"} {
+		if cmd.Flags().Changed(name) {
+			return true
+		}
+	}
+	return false
 }
 
 func runTemplateDelete(cmd *cobra.Command, args []string) error {
@@ -372,7 +441,7 @@ func runTemplateDependents(cmd *cobra.Command, args []string) error {
 				drift = "YES"
 			}
 			rows[i] = []string{
-				d.ScopedSigningKeyId[:8] + "...",
+				client.ScopedKeyID(d.ScopedSigningKeyId),
 				d.AccountName,
 				d.ScopedSigningKeyName,
 				fmt.Sprintf("v%d", d.PinnedVersion),

@@ -70,12 +70,16 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return printer.PrintObject(resp.Msg)
 	}
 
-	// Table mode: print one section per non-empty kind.
+	// Table mode: print one section per non-empty kind. IDs and nkey public
+	// keys render in full — truncating them was hostile to copy-paste
+	// workflows ("nisctl ... <id>"). Each ID/key is rendered in the matching
+	// entity color so the kind is readable at a glance even when sections
+	// share a screen.
 	if len(resp.Msg.Operators) > 0 {
 		printer.PrintMessage("OPERATORS (%d)", len(resp.Msg.Operators))
 		rows := make([][]string, len(resp.Msg.Operators))
 		for i, o := range resp.Msg.Operators {
-			rows[i] = []string{o.Name, shortID(o.Id), shortKey(o.PublicKey), truncate(o.Description, 60)}
+			rows[i] = []string{o.Name, client.OperatorID(o.Id), client.OperatorKey(o.PublicKey), truncate(o.Description, 60)}
 		}
 		if err := printer.PrintTable([]string{"NAME", "ID", "PUBKEY", "DESCRIPTION"}, rows); err != nil {
 			return err
@@ -85,7 +89,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		printer.PrintMessage("ACCOUNTS (%d)", len(resp.Msg.Accounts))
 		rows := make([][]string, len(resp.Msg.Accounts))
 		for i, a := range resp.Msg.Accounts {
-			rows[i] = []string{a.Name, shortID(a.Id), shortID(a.OperatorId), shortKey(a.PublicKey), truncate(a.Description, 40)}
+			rows[i] = []string{a.Name, client.AccountID(a.Id), client.OperatorID(a.OperatorId), client.AccountKey(a.PublicKey), truncate(a.Description, 40)}
 		}
 		if err := printer.PrintTable([]string{"NAME", "ID", "OPERATOR", "PUBKEY", "DESCRIPTION"}, rows); err != nil {
 			return err
@@ -95,7 +99,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		printer.PrintMessage("USERS (%d)", len(resp.Msg.Users))
 		rows := make([][]string, len(resp.Msg.Users))
 		for i, u := range resp.Msg.Users {
-			rows[i] = []string{u.Name, shortID(u.Id), shortID(u.AccountId), shortKey(u.PublicKey), truncate(u.Description, 40)}
+			rows[i] = []string{u.Name, client.UserID(u.Id), client.AccountID(u.AccountId), client.UserKey(u.PublicKey), truncate(u.Description, 40)}
 		}
 		if err := printer.PrintTable([]string{"NAME", "ID", "ACCOUNT", "PUBKEY", "DESCRIPTION"}, rows); err != nil {
 			return err
@@ -105,7 +109,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		printer.PrintMessage("SCOPED SIGNING KEYS (%d)", len(resp.Msg.ScopedSigningKeys))
 		rows := make([][]string, len(resp.Msg.ScopedSigningKeys))
 		for i, k := range resp.Msg.ScopedSigningKeys {
-			rows[i] = []string{k.Name, shortID(k.Id), shortID(k.AccountId), shortKey(k.PublicKey), permsSummary(k)}
+			rows[i] = []string{k.Name, client.ScopedKeyID(k.Id), client.AccountID(k.AccountId), client.ScopedKeyKey(k.PublicKey), permsSummary(k)}
 		}
 		if err := printer.PrintTable([]string{"NAME", "ID", "ACCOUNT", "PUBKEY", "PERMISSIONS"}, rows); err != nil {
 			return err
@@ -115,7 +119,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		printer.PrintMessage("CLUSTERS (%d)", len(resp.Msg.Clusters))
 		rows := make([][]string, len(resp.Msg.Clusters))
 		for i, c := range resp.Msg.Clusters {
-			rows[i] = []string{c.Name, shortID(c.Id), shortID(c.OperatorId), strings.Join(c.ServerUrls, ", ")}
+			rows[i] = []string{c.Name, client.ClusterID(c.Id), client.OperatorID(c.OperatorId), strings.Join(c.ServerUrls, ", ")}
 		}
 		if err := printer.PrintTable([]string{"NAME", "ID", "OPERATOR", "URLS"}, rows); err != nil {
 			return err
@@ -150,20 +154,6 @@ func parseSearchKinds(in []string) ([]nisv1.SearchKind, error) {
 		}
 	}
 	return out, nil
-}
-
-func shortID(id string) string {
-	if len(id) <= 8 {
-		return id
-	}
-	return id[:8]
-}
-
-func shortKey(k string) string {
-	if len(k) <= 12 {
-		return k
-	}
-	return k[:8] + "..." + k[len(k)-4:]
 }
 
 func truncate(s string, n int) string {

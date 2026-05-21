@@ -827,12 +827,28 @@ nisctl template create service-reader --operator my-op \
   --sub-allow "events.>" --sub-allow "_INBOX.>" \
   --pub-deny ">"
 
-# Create an SKK from it. The SKK is pinned to the template's current
-# latest_version unless --template-version is set.
+# Create a standalone SKK with explicit permissions (no template).
+nisctl signing-key create reader-skk --operator my-op --account web \
+  --description "service reader role" \
+  --pub-allow "svc.>" --pub-deny "svc.admin.>" \
+  --sub-allow "svc.>" --sub-allow "_INBOX.>" \
+  --response-max-msgs 1 --response-ttl 2m
+
+# Or create an SKK from the template. The SKK is pinned to the template's
+# current latest_version unless --template-version is set. The perm
+# flags above are refused when --from-template is set — the template
+# wins.
 nisctl signing-key create reader-skk --operator my-op --account web \
   --from-template service-reader
 
+# Edit an SKK in place. Metadata flags (--name, --description) and
+# permission flags can be combined; only the flags you pass change.
+# Permission edits re-sign the parent account JWT and push to clusters.
+nisctl signing-key edit <SKK_ID> --description "narrowed scope"
+nisctl signing-key edit <SKK_ID> --pub-deny "svc.admin.>,svc.internal.>"
+
 # Update the template (new permissions ⇒ new version row + latest_version bump).
+# Description-only updates do NOT bump the version. `edit` is an alias.
 nisctl template update service-reader --operator my-op \
   --sub-allow "events.>" --sub-allow "metrics.>" --sub-allow "_INBOX.>" \
   --pub-deny ">" \

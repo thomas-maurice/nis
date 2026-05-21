@@ -204,7 +204,7 @@ func runClusterList(cmd *cobra.Command, args []string) error {
 			}
 
 			rows[i] = []string{
-				cluster.Id[:8] + "...",
+				client.ClusterID(cluster.Id),
 				cluster.Name,
 				description,
 				createdAt,
@@ -390,7 +390,7 @@ func runClusterResolverAccounts(cmd *cobra.Command, args []string) error {
 		headers := []string{"PUBLIC KEY"}
 		rows := make([][]string, len(resp.Msg.PublicKeys))
 		for i, pubKey := range resp.Msg.PublicKeys {
-			rows[i] = []string{pubKey}
+			rows[i] = []string{client.AccountKey(pubKey)}
 		}
 		return printer.PrintTable(headers, rows)
 	}
@@ -475,7 +475,7 @@ func runClusterDrift(cmd *cobra.Command, args []string) error {
 		for i, r := range resp.Msg.Rows {
 			rows[i] = []string{
 				r.AccountName,
-				driftStatusLabelFromProto(r.Status),
+				client.DriftStatusBadge(r.Status),
 				formatIATAsLocal(r.NisJwtIat),
 				formatIATAsLocal(r.ResolverJwtIat),
 				truncate(r.ErrorMessage, 60),
@@ -523,24 +523,6 @@ func runClusterReconcileAccount(cmd *cobra.Command, args []string) error {
 		printer.PrintSuccess("Pushed account %q to cluster", clusterReconcileAccount)
 	}
 	return nil
-}
-
-// driftStatusLabelFromProto mirrors the lowercase label set used in the
-// metrics counter so CLI output and Prometheus labels agree.
-func driftStatusLabelFromProto(s nisv1.DriftStatus) string {
-	switch s {
-	case nisv1.DriftStatus_DRIFT_STATUS_IN_SYNC:
-		return "in_sync"
-	case nisv1.DriftStatus_DRIFT_STATUS_DB_AHEAD:
-		return "db_ahead"
-	case nisv1.DriftStatus_DRIFT_STATUS_OUT_OF_BAND:
-		return "out_of_band"
-	case nisv1.DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER:
-		return "missing_on_resolver"
-	case nisv1.DriftStatus_DRIFT_STATUS_UNREACHABLE:
-		return "unreachable"
-	}
-	return "unspecified"
 }
 
 // formatIATAsLocal renders a Unix-seconds JWT IssuedAt in the viewer's local

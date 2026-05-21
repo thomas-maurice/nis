@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -100,23 +99,15 @@ func runEventList(cmd *cobra.Command, args []string) error {
 		for i, e := range resp.Msg.Events {
 			ts := "-"
 			if e.OccurredAt != nil {
-				ts = e.OccurredAt.AsTime().UTC().Format(time.RFC3339)
+				ts = e.OccurredAt.AsTime().Local().Format(time.RFC3339)
 			}
 			actor := "system"
 			if e.ActorId != "" {
-				prefix := e.ActorId
-				if len(prefix) > 8 {
-					prefix = prefix[:8]
-				}
-				actor = e.ActorType + ":" + prefix
-			}
-			resID := e.ResourceId
-			if len(resID) > 8 {
-				resID = resID[:8]
+				actor = e.ActorType + ":" + e.ActorId
 			}
 			resource := e.ResourceType
-			if resID != "" {
-				resource = e.ResourceType + "/" + resID
+			if e.ResourceId != "" {
+				resource = e.ResourceType + "/" + e.ResourceId
 			}
 			rows[i] = []string{ts, e.Type, actor, resource}
 		}
@@ -154,23 +145,23 @@ func runEventGet(cmd *cobra.Command, args []string) error {
 	e := resp.Msg.Event
 	ts := "-"
 	if e.OccurredAt != nil {
-		ts = e.OccurredAt.AsTime().UTC().Format(time.RFC3339)
+		ts = e.OccurredAt.AsTime().Local().Format(time.RFC3339)
 	}
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "ID:            %s\n", e.Id)
-	fmt.Fprintf(&sb, "Time:          %s\n", ts)
-	fmt.Fprintf(&sb, "Type:          %s\n", e.Type)
-	fmt.Fprintf(&sb, "Actor:         %s / %s\n", e.ActorType, e.ActorId)
-	fmt.Fprintf(&sb, "Operator:      %s\n", e.OperatorId)
-	fmt.Fprintf(&sb, "Account:       %s\n", e.AccountId)
-	fmt.Fprintf(&sb, "Resource:      %s / %s\n", e.ResourceType, e.ResourceId)
+	pairs := []client.KVPair{
+		{Key: "ID", Value: e.Id},
+		{Key: "Time", Value: ts},
+		{Key: "Type", Value: e.Type},
+		{Key: "Actor", Value: fmt.Sprintf("%s / %s", e.ActorType, e.ActorId)},
+		{Key: "Operator", Value: client.OperatorID(e.OperatorId)},
+		{Key: "Account", Value: client.AccountID(e.AccountId)},
+		{Key: "Resource", Value: fmt.Sprintf("%s / %s", e.ResourceType, e.ResourceId)},
+	}
 	if e.PayloadJson != "" {
-		pretty := prettyJSON(e.PayloadJson)
-		fmt.Fprintf(&sb, "Payload:\n%s\n", pretty)
+		pairs = append(pairs, client.KVPair{Key: "Payload", Value: prettyJSON(e.PayloadJson)})
 	}
 
-	fmt.Print(sb.String())
+	fmt.Print(client.RenderKV(pairs))
 	return nil
 }
 

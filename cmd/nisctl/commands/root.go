@@ -36,6 +36,11 @@ clusters, and API users through the NIS gRPC API.
 
 Before using nisctl, you must login to the NIS server using the 'login' command.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Propagate --no-color to the styling layer before any output. Also
+		// disable color when the output format is anything other than table,
+		// so json/yaml/quiet stream byte-clean even on a TTY.
+		client.DisableColor(noColor || GetOutputFormat() != "table")
+
 		// Skip client initialization for commands that don't need it
 		skipClientCommands := map[string]bool{
 			"login":      true,

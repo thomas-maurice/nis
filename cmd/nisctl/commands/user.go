@@ -224,21 +224,21 @@ func runUserList(cmd *cobra.Command, args []string) error {
 		headers := []string{"ID", "NAME", "ACCOUNT", "SCOPED KEY", "CREATED AT"}
 		rows := make([][]string, len(resp.Msg.Users))
 
-		for i, user := range resp.Msg.Users {
+		for i, u := range resp.Msg.Users {
 			scopedKey := "-"
-			if user.ScopedSigningKeyId != "" {
-				scopedKey = user.ScopedSigningKeyId[:8] + "..."
+			if u.ScopedSigningKeyId != "" {
+				scopedKey = client.ScopedKeyID(u.ScopedSigningKeyId)
 			}
 
 			createdAt := "-"
-			if user.CreatedAt != nil {
-				createdAt = user.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+			if u.CreatedAt != nil {
+				createdAt = u.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
 			}
 
 			rows[i] = []string{
-				user.Id[:8] + "...",
-				user.Name,
-				user.AccountId[:8] + "...",
+				client.UserID(u.Id),
+				u.Name,
+				client.AccountID(u.AccountId),
 				scopedKey,
 				createdAt,
 			}

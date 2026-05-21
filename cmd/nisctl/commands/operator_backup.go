@@ -192,11 +192,11 @@ func runOperatorBackupList(cmd *cobra.Command, args []string) error {
 				size = b.SizeBytes
 			}
 			rows[i] = []string{
-				b.Id[:8] + "...",
+				client.BackupID(b.Id),
 				created,
 				humanBytes(uint64(size)),
 				b.TriggerKind,
-				b.Sha256[:12] + "...",
+				b.Sha256,
 				b.ObjectKey,
 			}
 		}
