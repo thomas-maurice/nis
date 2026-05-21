@@ -19,12 +19,22 @@ import (
 
 // TestE2E_Jobs_AdminListShowsRetentionHandlers verifies the watchdog
 // primed the recurring schedules at startup. After the JobRunner spins
-// up, both retention handlers must have a pending row enqueued (their
+// up, every recurring handler must have a pending row enqueued (their
 // dedup key prevents duplicates from later ticks). This is the smoke test
 // that proves serve.go actually wires the runner.
+//
+// Asserts the three always-on recurring handlers: the two retention
+// sweeps plus jwt.expiry_sweep (A14). backup.sweep only registers when
+// the backup service is wired, so we don't assert it here.
 func TestE2E_Jobs_AdminListShowsRetentionHandlers(t *testing.T) {
 	h := startStack(t)
 	ctx := context.Background()
+
+	required := []string{
+		"events.retention_sweep",
+		"jobs.retention_sweep",
+		"jwt.expiry_sweep",
+	}
 
 	// The watchdog primes on the first tick. Give the runner up to a few
 	// poll intervals (10s in SQLite-dev mode) to fire its first tick.
@@ -41,12 +51,19 @@ func TestE2E_Jobs_AdminListShowsRetentionHandlers(t *testing.T) {
 		for _, j := range resp.Msg.Jobs {
 			seen[j.Type] = true
 		}
-		if seen["events.retention_sweep"] && seen["jobs.retention_sweep"] {
-			return // both handlers scheduled — substrate is live
+		allSeen := true
+		for _, jt := range required {
+			if !seen[jt] {
+				allSeen = false
+				break
+			}
+		}
+		if allSeen {
+			return
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	t.Fatalf("watchdog did not schedule the retention handlers within deadline. seen=%v", seen)
+	t.Fatalf("watchdog did not schedule all required recurring handlers within deadline. required=%v seen=%v", required, seen)
 }
 
 // TestE2E_Jobs_OperatorAdminDenied: the JobService is admin-only. An

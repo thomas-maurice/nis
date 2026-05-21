@@ -26,14 +26,17 @@
 //     credentials defeats the purpose of expiry. Holder must call
 //     RegenerateUserJWT explicitly.
 //
-// The sweeper runs single-replica today (same caveat as the cluster health
-// loop, A3). When the job substrate (A2) lands these phases become natural
-// queue consumers.
+// Scheduling: the recurring tick is driven by the A2 jobs substrate via
+// the jwt.expiry_sweep handler (RegisterJWTExpiryHandler). Tick is also
+// callable directly — OperatorHandler.RunJWTExpirySweep does so for the
+// admin out-of-band sweep RPC because that RPC's contract returns the
+// SweepResult counts inline. The struct's mu serialises those two
+// callers; the substrate's per-type dedup_key handles row-level
+// singleton in the queue.
 package services
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -56,30 +59,28 @@ type SweepResult struct {
 	AutoRenewed          int
 }
 
-// JWTExpirySweeper is the goroutine + Tick entry point.
+// JWTExpirySweeper holds the dependencies the four-phase Tick needs.
+// The recurring schedule is owned by the A2 job substrate; this struct
+// is purely the Tick entry point + state.
 type JWTExpirySweeper struct {
 	factory       persistence.RepositoryFactory
 	jwtService    *JWTService
 	revocationSvc *UserRevocationService
 	clusterPush   AccountJWTPusher
-	interval      time.Duration
 	batchLimit    int
-	mu            sync.Mutex // serialises Run+Tick so two ticks can't overlap
+	mu            sync.Mutex // serialises substrate tick vs admin out-of-band tick
 }
 
-// NewJWTExpirySweeper builds a sweeper. interval=0 picks a safe default (1h).
-// batchLimit caps how many rows a single phase processes per tick; 0 picks 500.
+// NewJWTExpirySweeper builds a sweeper. batchLimit caps how many rows
+// a single phase processes per tick; 0 picks 500. Scheduling is owned
+// by the A2 jobs substrate (see RegisterJWTExpiryHandler).
 func NewJWTExpirySweeper(
 	factory persistence.RepositoryFactory,
 	jwtService *JWTService,
 	revocationSvc *UserRevocationService,
 	clusterPush AccountJWTPusher,
-	interval time.Duration,
 	batchLimit int,
 ) *JWTExpirySweeper {
-	if interval <= 0 {
-		interval = time.Hour
-	}
 	if batchLimit <= 0 {
 		batchLimit = 500
 	}
@@ -88,37 +89,14 @@ func NewJWTExpirySweeper(
 		jwtService:    jwtService,
 		revocationSvc: revocationSvc,
 		clusterPush:   clusterPush,
-		interval:      interval,
 		batchLimit:    batchLimit,
 	}
 }
 
-// Run blocks until ctx is cancelled, ticking on the configured interval.
-func (w *JWTExpirySweeper) Run(ctx context.Context) {
-	log := logging.GetLogger()
-	log.Info("jwt expiry sweeper started", "interval", w.interval, "batch_limit", w.batchLimit)
-
-	if _, err := w.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Error("jwt expiry sweeper: initial tick failed", "error", err)
-	}
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if _, err := w.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Error("jwt expiry sweeper: tick failed", "error", err)
-			}
-		}
-	}
-}
-
-// Tick runs one sweep pass. Exported so tests and the admin RPC can force a
-// pass without waiting for the next tick. The mutex prevents accidental
-// overlap between the periodic ticker and an out-of-band trigger.
+// Tick runs one sweep pass. Called by the jwt.expiry_sweep job handler
+// on the configured schedule, and by OperatorHandler.RunJWTExpirySweep
+// for the admin out-of-band sweep RPC. The mutex serialises those two
+// callers.
 func (w *JWTExpirySweeper) Tick(ctx context.Context) (SweepResult, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

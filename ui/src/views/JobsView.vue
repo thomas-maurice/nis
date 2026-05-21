@@ -234,6 +234,7 @@ const KNOWN_JOB_TYPES = [
   'webhook.deliver',
   'backup.sweep',
   'backup.execute',
+  'jwt.expiry_sweep',
 ]
 
 // Hide JOB_STATUS_UNSPECIFIED from the picker (it's the proto zero-value

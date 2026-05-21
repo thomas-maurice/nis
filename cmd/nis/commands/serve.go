@@ -360,12 +360,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// JWT lifecycle (P2) wiring: revocation service composes user mutations +
 	// account JWT regen + cluster push; the sweeper drives prune / expiring-soon /
-	// expired / auto-renew on the configured interval (and on demand via
-	// OperatorService.RunJWTExpirySweep).
+	// expired / auto-renew. The recurring tick runs on the A2 jobs substrate
+	// via the jwt.expiry_sweep handler (registered below). OperatorHandler.
+	// RunJWTExpirySweep still calls Tick directly for the admin out-of-band
+	// sweep RPC — that contract returns SweepResult counts inline.
 	userRevocationService := services.NewUserRevocationService(repoFactory, jwtService, clusterService, encryptor)
 	jwtSweepInterval := time.Duration(viper.GetInt("jwt_policy.sweep_interval_seconds")) * time.Second
 	jwtSweepBatch := viper.GetInt("jwt_policy.sweep_batch_limit")
-	jwtExpirySweeper := services.NewJWTExpirySweeper(repoFactory, jwtService, userRevocationService, clusterService, jwtSweepInterval, jwtSweepBatch)
+	jwtExpirySweeper := services.NewJWTExpirySweeper(repoFactory, jwtService, userRevocationService, clusterService, jwtSweepBatch)
 
 	// Initialize gRPC server with auth middleware
 	server := grpcServer.NewServer(
@@ -481,6 +483,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 			ExecuteLeaseDuration: 15 * time.Minute,
 		})
 	}
+	// JWT expiry sweeper (P2/A14). Off-by-default operator policy (TTL=0)
+	// means the handler is a cheap no-op until an operator opts in.
+	// LeaseDuration is 15m (handler-level override) because the
+	// auto-renew phase re-signs JWTs and pushes to N clusters; the
+	// global 5min default would be too tight on a large operator.
+	services.RegisterJWTExpiryHandler(jobRunner, jwtExpirySweeper, services.JWTExpiryHandlerConfig{
+		SweepInterval: jwtSweepInterval,
+		LeaseDuration: 15 * time.Minute,
+	})
 	go func() { _ = jobRunner.Run(ctx) }()
 
 	// Catch up any non-terminal webhook_deliveries rows that don't already
@@ -494,12 +505,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 			logger.Error("webhook catch-up scan failed", "error", err)
 		}
 	}()
-
-	// JWT expiry sweeper (P2). Off-by-default behaviour comes from the per-
-	// operator policy (TTL=0 means the sweeper finds nothing to do). When an
-	// operator opts in, this loop emits expiring-soon/expired events, optionally
-	// auto-renews, and prunes the parent account's Revocations map.
-	go jwtExpirySweeper.Run(ctx)
 
 	apiTokenFlusher.Start(ctx)
 	defer apiTokenFlusher.Stop()

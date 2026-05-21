@@ -230,7 +230,7 @@ The Account detail page exposes an **Active JWT revocations** panel listing the 
 
 **Already-expired credentials are NEVER auto-renewed.** If NIS was down through a TTL window and user JWTs expired, the sweeper emits `user.cred.expired` and waits — silently re-signing dead credentials defeats the point of expiry. An operator must run `nisctl user regenerate-creds` (or hit "Regenerate" in the UI) to issue a fresh JWT.
 
-**Sweeper.** A single background goroutine runs every `jwt_policy.sweep_interval_seconds` (default `3600`). Phases per tick:
+**Sweeper.** Runs on the A2 jobs substrate as the `jwt.expiry_sweep` handler, ticking every `jwt_policy.sweep_interval_seconds` (default `3600`). Phases per tick:
 
 1. **Prune.** Revocations whose `jwt_exp` is past get marked `pruned_at` and the parent account JWT is regenerated without them, then pushed to all clusters. (NATS would reject the revoked JWT on `exp` anyway, so the entry would only bloat the account JWT.)
 2. **Expiring-soon alert.** One `user.cred.expiring_soon` event per `iat` (dedup survives sweeper restarts).
@@ -898,11 +898,12 @@ the two retention sweeps:
 | `events.retention_sweep` | 24h | Deletes events older than `events.retention_days` (default 30d) and succeeded webhook deliveries older than `webhooks.succeeded_retention_days` (default 7d). Dead-letter deliveries are never auto-deleted. |
 | `jobs.retention_sweep`   | 24h | Deletes `succeeded` and `cancelled` job rows older than `jobs.retention_days` (default 30d). `failed` and `dead_lettered` rows survive forever — operator audit. |
 | `webhook.deliver`        | per-delivery, in-tx enqueue | Dispatches one webhook subscription POST per row. Inserted into the same tx as the `webhook_deliveries` row (atomic). Permanent failures (subscription disabled, decrypt error, malformed payload) signal `ErrPermanentJobFailure` and dead-letter the job immediately; transient (5xx, transport) retry with the substrate's backoff up to `webhooks.max_attempts`. `AuditNone` — per-delivery audit lives on the typed `webhook_deliveries` row. |
+| `backup.sweep` / `backup.execute` | sweep 1h, execute per due operator | Per-operator scheduled backups to S3. See "Scheduled backups (P12)" below. |
+| `jwt.expiry_sweep`       | `jwt_policy.sweep_interval_seconds` (default 1h) | Drives the four-phase JWT lifecycle sweeper (P2): prune past-exp revocations → expiring-soon alert → optional auto-renew → expired alert. `LeaseDuration` is 15m at the handler level (the auto-renew phase can re-sign and push N cluster JWTs per operator). `AuditFailuresOnly` — the sweeper emits its own per-user `user.cred.*` semantic events, so substrate audit would triple-emit. |
 
-Future scheduled work — P12 (scheduled backup + restore-verify), A14
-(JWT expiry sweeper as a job), A15 (per-cluster health check as a job)
-— will plug onto this same runner. See [PROPOSALS.md](PROPOSALS.md)
-for the follow-up roadmap.
+Future scheduled work — A15 (per-cluster health check as a job) — will
+plug onto this same runner. See [PROPOSALS.md](PROPOSALS.md) for the
+follow-up roadmap.
 
 ### Admin surface
 

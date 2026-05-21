@@ -78,8 +78,7 @@ func (s *JWTExpirySweeperTestSuite) SetupSuite() {
 
 	noop := &sweeperNoop{}
 	s.revSvc = NewUserRevocationService(s.factory, s.jwtService, noop, s.encryptor)
-	// interval=0 → defaults to 1h, but we only ever call Tick directly so it doesn't matter.
-	s.sweeper = NewJWTExpirySweeper(s.factory, s.jwtService, s.revSvc, noop, 0, 500)
+	s.sweeper = NewJWTExpirySweeper(s.factory, s.jwtService, s.revSvc, noop, 500)
 }
 
 func (s *JWTExpirySweeperTestSuite) TearDownSuite() {
