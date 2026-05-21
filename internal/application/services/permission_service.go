@@ -498,6 +498,34 @@ func (s *PermissionService) CanReadTemplate(ctx context.Context, apiUser *entiti
 	return nil
 }
 
+// CanManageBackup: admin or operator-admin owning the operator
+// (account-admin denied). Backups expose the entire operator tree
+// including system account material; scoping below operator-admin
+// would be incoherent.
+func (s *PermissionService) CanManageBackup(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	if apiUser.Role == entities.RoleAccountAdmin {
+		return denyf("account admins cannot manage backups")
+	}
+	ok, err := s.ownsOperator(ctx, apiUser, operatorID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return denyf("cannot manage backups in operator %s", operatorID)
+	}
+	return nil
+}
+
+// CanReadBackup: same surface as CanManageBackup. Reading the metadata
+// of a backup is read of the operator tree's surface area; we mirror
+// CanManageBackup rather than splitting the permission.
+func (s *PermissionService) CanReadBackup(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	return s.CanManageBackup(ctx, apiUser, operatorID)
+}
+
 // CanManageScopedKeys: admin or operator-admin owning the account (account-admin not allowed).
 func (s *PermissionService) CanManageScopedKeys(ctx context.Context, apiUser *entities.APIUser, accountID uuid.UUID) error {
 	if apiUser == nil {

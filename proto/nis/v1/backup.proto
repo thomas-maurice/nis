@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "google/protobuf/timestamp.proto";
+
+// OperatorBackup is one row from the operator_backups table — metadata
+// about a backup artifact stored in S3. The actual bytes live in S3 at
+// `object_key`; clients fetch via DownloadBackup.
+message OperatorBackup {
+  string id = 1;
+  string operator_id = 2;
+  string object_key = 3;
+  int64 size_bytes = 4;
+  string sha256 = 5;
+  // trigger_kind is "scheduled" (sweep) or "manual" (admin / nisctl).
+  string trigger_kind = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// BackupSettings reflects the per-operator backup configuration. All
+// pointer-like fields are optional in the wire: an unset field on
+// UpdateOperatorBackupSettings means "no change", to support partial
+// updates without round-tripping a full settings struct.
+message BackupSettings {
+  bool enabled = 1;
+  // interval_seconds: gap between scheduled backups. 0 = no interval set
+  // (effectively disables the sweep regardless of `enabled`).
+  int64 interval_seconds = 2;
+  // retention_count: keep last N backups for this operator. 0 = keep
+  // forever (no retention enforcement).
+  int32 retention_count = 3;
+  google.protobuf.Timestamp last_backup_at = 4;
+}
+
+message UpdateOperatorBackupSettingsRequest {
+  string operator_id = 1;
+  // Pointer-equivalents using optional. Empty means "no change to this field".
+  optional bool enabled = 2;
+  optional int64 interval_seconds = 3;
+  optional int32 retention_count = 4;
+}
+
+message UpdateOperatorBackupSettingsResponse {
+  BackupSettings settings = 1;
+}
+
+message GetOperatorBackupSettingsRequest {
+  string operator_id = 1;
+}
+
+message GetOperatorBackupSettingsResponse {
+  BackupSettings settings = 1;
+}
+
+message RunOperatorBackupRequest {
+  string operator_id = 1;
+}
+
+message RunOperatorBackupResponse {
+  OperatorBackup backup = 1;
+}
+
+message ListOperatorBackupsRequest {
+  string operator_id = 1;
+}
+
+message ListOperatorBackupsResponse {
+  repeated OperatorBackup backups = 1;
+}
+
+message GetBackupRequest {
+  string id = 1;
+}
+
+message GetBackupResponse {
+  OperatorBackup backup = 1;
+}
+
+message DownloadBackupRequest {
+  string id = 1;
+}
+
+// DownloadBackupResponse is server-streamed; the first message carries
+// the metadata row, subsequent messages carry chunked bytes. Streaming
+// keeps memory bounded for large operators.
+message DownloadBackupResponse {
+  oneof payload {
+    OperatorBackup metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message DeleteBackupRequest {
+  string id = 1;
+}
+
+message DeleteBackupResponse {}
+
+// BackupService manages per-operator scheduled backups (P12). Admin and
+// operator-admin (scoped to own operator) can manage; account-admin has
+// no access.
+service BackupService {
+  rpc UpdateOperatorBackupSettings(UpdateOperatorBackupSettingsRequest) returns (UpdateOperatorBackupSettingsResponse);
+  rpc GetOperatorBackupSettings(GetOperatorBackupSettingsRequest) returns (GetOperatorBackupSettingsResponse);
+  rpc RunOperatorBackup(RunOperatorBackupRequest) returns (RunOperatorBackupResponse);
+  rpc ListOperatorBackups(ListOperatorBackupsRequest) returns (ListOperatorBackupsResponse);
+  rpc GetBackup(GetBackupRequest) returns (GetBackupResponse);
+  rpc DownloadBackup(DownloadBackupRequest) returns (stream DownloadBackupResponse);
+  rpc DeleteBackup(DeleteBackupRequest) returns (DeleteBackupResponse);
+}

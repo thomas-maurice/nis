@@ -220,3 +220,24 @@ p, operator-admin, template, delete
 p, admin, job, read
 p, admin, job, update
 p, admin, job, delete
+
+
+# ============================================================
+# Operator backups (P12) — admin or operator-admin (owning the
+# operator). account-admin denied: backups expose the entire
+# operator tree including system-account material. Action map:
+# RunOperatorBackup/UpdateOperatorBackupSettings -> "update";
+# Get*/List*/DownloadBackup -> "read"; DeleteBackup -> "delete";
+# extractAction needs to route "run"/"update"/"download"/"delete"
+# to the right verbs (the "run" prefix is added in auth.go).
+# Fine-grained per-operator scope lives in
+# PermissionService.CanManageBackup / CanReadBackup.
+# ============================================================
+p, admin,          backup, create
+p, admin,          backup, read
+p, admin,          backup, update
+p, admin,          backup, delete
+p, operator-admin, backup, create
+p, operator-admin, backup, read
+p, operator-admin, backup, update
+p, operator-admin, backup, delete

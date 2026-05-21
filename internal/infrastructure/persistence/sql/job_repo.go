@@ -272,6 +272,23 @@ func (r *JobRepo) MarkFailed(ctx context.Context, id uuid.UUID, lastError string
 	return nil
 }
 
+func (r *JobRepo) ExtendLease(ctx context.Context, id uuid.UUID, until time.Time) error {
+	untilUTC := until.UTC()
+	result := r.db.WithContext(ctx).Model(&JobModel{}).
+		Where("id = ? AND status = ?", id.String(), string(entities.JobStatusRunning)).
+		Updates(map[string]any{
+			"locked_until": untilUTC,
+			"updated_at":   clock.Now(),
+		})
+	if result.Error != nil {
+		return fmt.Errorf("ExtendLease: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return repositories.ErrJobInvalidStateTransition
+	}
+	return nil
+}
+
 func (r *JobRepo) Cancel(ctx context.Context, id uuid.UUID) error {
 	now := clock.Now()
 	result := r.db.WithContext(ctx).Model(&JobModel{}).

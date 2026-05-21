@@ -25,6 +25,7 @@ type RepositoryFactory interface {
 	TemplateRepository() repositories.TemplateRepository
 	TemplateVersionRepository() repositories.TemplateVersionRepository
 	JobRepository() repositories.JobRepository
+	OperatorBackupRepository() repositories.OperatorBackupRepository
 
 	// Database lifecycle methods
 	Connect(ctx context.Context) error

@@ -57,6 +57,8 @@ import {
   faCircleExclamation,
   faRotate,
   faClock,
+  faCloudArrowUp,
+  faCloudArrowDown,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -101,7 +103,9 @@ library.add(
   faLinkSlash,
   faCircleExclamation,
   faRotate,
-  faClock
+  faClock,
+  faCloudArrowUp,
+  faCloudArrowDown
 )
 
 const app = createApp(App)

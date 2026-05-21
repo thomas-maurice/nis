@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/nats-io/nats.go"
 
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
@@ -59,17 +61,28 @@ type harness struct {
 	// Empty string ⇒ fall back to the package-level encryptionKey constant.
 	encryptionKeyOverride string
 
-	nisPort      int
-	natsPort     int
-	natsMgmtPort int
+	nisPort       int
+	natsPort      int
+	natsMgmtPort  int
+	minioAPIPort  int
 
 	serverURL string
 	natsURL   string
+	minioURL  string
 
-	nisProcess    *exec.Cmd
-	nisLogPath    string
-	natsContainer string
-	natsStarted   bool
+	nisProcess     *exec.Cmd
+	nisLogPath     string
+	natsContainer  string
+	natsStarted    bool
+	minioContainer string
+	minioStarted   bool
+
+	// backupsBucket, when non-empty, makes start() boot MinIO BEFORE NIS,
+	// create the bucket, and pass BACKUPS_* env vars to the NIS process so
+	// the BackupService comes up wired and bucket-validated. Set this on the
+	// harness BEFORE calling start(). Backups-related tests use the
+	// startStackWithBackups entry point which does the right thing.
+	backupsBucket string
 
 	httpClient *http.Client
 	authToken  string
@@ -86,6 +99,7 @@ type harness struct {
 	searchCli   nisv1connect.SearchServiceClient
 	templateCli nisv1connect.TemplateServiceClient
 	jobCli      nisv1connect.JobServiceClient
+	backupCli   nisv1connect.BackupServiceClient
 }
 
 // startStack is the canonical entry point for a test. It boots NIS, bootstraps
@@ -142,8 +156,9 @@ func newHarness(t *testing.T) *harness {
 		natsPort:      pickFreePort(t),
 		natsMgmtPort:  pickFreePort(t),
 		nisLogPath:    filepath.Join(workDir, "nis.log"),
-		natsContainer: fmt.Sprintf("nis-e2e-%d", time.Now().UnixNano()),
-		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		natsContainer:  fmt.Sprintf("nis-e2e-%d", time.Now().UnixNano()),
+		minioContainer: fmt.Sprintf("nis-e2e-minio-%d", time.Now().UnixNano()),
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -151,6 +166,13 @@ func (h *harness) start(t *testing.T) {
 	t.Helper()
 	h.serverURL = fmt.Sprintf("http://127.0.0.1:%d", h.nisPort)
 	h.natsURL = fmt.Sprintf("nats://127.0.0.1:%d", h.natsPort)
+
+	// P12 backups: when a test set backupsBucket before calling start(), boot
+	// MinIO + create the bucket BEFORE NIS so the s3backup.New HeadBucket
+	// validation passes on startup.
+	if h.backupsBucket != "" {
+		h.startMinIO(t)
+	}
 
 	dbPath := filepath.Join(h.workDir, "nis.db")
 
@@ -175,13 +197,29 @@ func (h *harness) start(t *testing.T) {
 		"--webhooks-backoff-cap-seconds=10",
 	)
 	h.nisProcess.Dir = h.workDir
-	h.nisProcess.Env = append(os.Environ(),
-		"AUTH_JWT_SECRET="+jwtSecret,
-		"ENCRYPTION_KEY="+h.effectiveEncryptionKey(),
+	envVars := []string{
+		"AUTH_JWT_SECRET=" + jwtSecret,
+		"ENCRYPTION_KEY=" + h.effectiveEncryptionKey(),
 		"DATABASE_DRIVER=sqlite",
-		"DATABASE_DSN="+dbPath,
+		"DATABASE_DSN=" + dbPath,
 		"DATABASE_AUTO_MIGRATE=true",
-	)
+	}
+	if h.backupsBucket != "" {
+		// Pin the sweep interval short so tests can observe scheduled backups
+		// in seconds instead of hours. The minimum per-operator interval (1h)
+		// is enforced at the service layer — sweep cadence is independent.
+		envVars = append(envVars,
+			"BACKUPS_ENABLED=true",
+			"BACKUPS_SWEEP_INTERVAL_SECONDS=2",
+			"BACKUPS_S3_ENDPOINT="+h.minioURL,
+			"BACKUPS_S3_BUCKET="+h.backupsBucket,
+			"BACKUPS_S3_ACCESS_KEY_ID=minioadmin",
+			"BACKUPS_S3_SECRET_ACCESS_KEY=minioadmin",
+			"BACKUPS_S3_USE_PATH_STYLE=true",
+			"BACKUPS_S3_USE_SSL=false",
+		)
+	}
+	h.nisProcess.Env = append(os.Environ(), envVars...)
 	h.nisProcess.Stdout = logFile
 	h.nisProcess.Stderr = logFile
 	if err := h.nisProcess.Start(); err != nil {
@@ -236,6 +274,70 @@ func (h *harness) start(t *testing.T) {
 	h.searchCli = nisv1connect.NewSearchServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.templateCli = nisv1connect.NewTemplateServiceClient(h.httpClient, h.serverURL, authOpt)
 	h.jobCli = nisv1connect.NewJobServiceClient(h.httpClient, h.serverURL, authOpt)
+	h.backupCli = nisv1connect.NewBackupServiceClient(h.httpClient, h.serverURL, authOpt)
+}
+
+// startMinIO boots a MinIO container, waits for the API to respond, and
+// creates the bucket specified by h.backupsBucket. Called from start()
+// only when backupsBucket is set. Bucket creation goes through
+// minio-go directly — no second mc container.
+func (h *harness) startMinIO(t *testing.T) {
+	t.Helper()
+	h.minioAPIPort = pickFreePort(t)
+	h.minioURL = fmt.Sprintf("http://127.0.0.1:%d", h.minioAPIPort)
+
+	args := []string{
+		"run", "-d",
+		"--name", h.minioContainer,
+		"-p", fmt.Sprintf("127.0.0.1:%d:9000", h.minioAPIPort),
+		"-e", "MINIO_ROOT_USER=minioadmin",
+		"-e", "MINIO_ROOT_PASSWORD=minioadmin",
+		"minio/minio:RELEASE.2025-04-22T22-12-26Z",
+		"server", "/data",
+	}
+	if out, err := exec.Command("docker", args...).CombinedOutput(); err != nil {
+		t.Fatalf("start minio container: %v\n%s", err, out)
+	}
+	h.minioStarted = true
+
+	// Wait for the API. MinIO's /minio/health/live returns 200 once the
+	// server is accepting requests.
+	if err := waitForHTTP(h.minioURL+"/minio/health/live", natsReadyTimeout); err != nil {
+		dump, _ := exec.Command("docker", "logs", h.minioContainer).CombinedOutput()
+		t.Fatalf("minio did not become healthy: %v\nminio logs:\n%s", err, dump)
+	}
+
+	// Create the bucket via minio-go. The s3backup wrapper in production code
+	// uses the same library; using it here keeps the test free of a second
+	// container and exercises the same network path NIS will use.
+	mc, err := minio.New(fmt.Sprintf("127.0.0.1:%d", h.minioAPIPort), &minio.Options{
+		Creds:        credentials.NewStaticV4("minioadmin", "minioadmin", ""),
+		Secure:       false,
+		Region:       "us-east-1",
+		BucketLookup: minio.BucketLookupPath,
+	})
+	if err != nil {
+		t.Fatalf("construct minio client: %v", err)
+	}
+	bucketCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := mc.MakeBucket(bucketCtx, h.backupsBucket, minio.MakeBucketOptions{}); err != nil {
+		// "BucketAlreadyOwnedByYou" is fine; surface anything else.
+		if er, ok := err.(minio.ErrorResponse); !ok || (er.Code != "BucketAlreadyOwnedByYou" && er.Code != "BucketAlreadyExists") {
+			t.Fatalf("create bucket %q: %v", h.backupsBucket, err)
+		}
+	}
+}
+
+// startStackWithBackups is the canonical entry point for backup tests.
+// It sets backupsBucket, boots MinIO + NIS, and registers teardown.
+func startStackWithBackups(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t)
+	h.backupsBucket = "nis-e2e-backups"
+	t.Cleanup(h.teardown)
+	h.start(t)
+	return h
 }
 
 // startNATSForOperator pulls the NATS include config for operatorID from NIS,
@@ -449,6 +551,7 @@ type clientSet struct {
 	searchCli   nisv1connect.SearchServiceClient
 	templateCli nisv1connect.TemplateServiceClient
 	jobCli      nisv1connect.JobServiceClient
+	backupCli   nisv1connect.BackupServiceClient
 }
 
 // loginAs authenticates as username/password and returns a clientSet whose
@@ -480,6 +583,7 @@ func (h *harness) loginAs(t *testing.T, username, password string) clientSet {
 		searchCli:   nisv1connect.NewSearchServiceClient(h.httpClient, h.serverURL, authOpt),
 		templateCli: nisv1connect.NewTemplateServiceClient(h.httpClient, h.serverURL, authOpt),
 		jobCli:      nisv1connect.NewJobServiceClient(h.httpClient, h.serverURL, authOpt),
+		backupCli:   nisv1connect.NewBackupServiceClient(h.httpClient, h.serverURL, authOpt),
 	}
 }
 
@@ -490,6 +594,9 @@ func (h *harness) teardown() {
 	}
 	if h.natsStarted && h.natsContainer != "" {
 		_ = exec.Command("docker", "rm", "-f", h.natsContainer).Run()
+	}
+	if h.minioStarted && h.minioContainer != "" {
+		_ = exec.Command("docker", "rm", "-f", h.minioContainer).Run()
 	}
 	if h.t.Failed() {
 		if b, err := os.ReadFile(h.nisLogPath); err == nil {

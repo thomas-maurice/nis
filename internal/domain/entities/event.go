@@ -63,6 +63,17 @@ const (
 	EventTypeJobDeadLettered = "job.dead_lettered"
 	EventTypeJobCancelled    = "job.cancelled"
 	EventTypeJobRetried      = "job.retried"
+	// Backups (P12). Lifecycle + scheduled run audit. The substrate-level
+	// job.* events (job.started/succeeded/failed) are suppressed for the
+	// backup.execute handler (AuditFailuresOnly) so a daily run of N
+	// operators doesn't triple-flood the audit log; these semantic events
+	// are emitted by BackupService directly and carry the operator/object
+	// context.
+	EventTypeOperatorBackupEnabled   = "operator.backup.enabled"
+	EventTypeOperatorBackupDisabled  = "operator.backup.disabled"
+	EventTypeOperatorBackupSucceeded = "operator.backup.succeeded"
+	EventTypeOperatorBackupFailed    = "operator.backup.failed"
+	EventTypeOperatorBackupDeleted   = "operator.backup.deleted"
 )
 
 // Event is a single audit-log entry. Stored append-only in the events table.

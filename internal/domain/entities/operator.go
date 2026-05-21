@@ -32,6 +32,15 @@ type Operator struct {
 	JWTWarnWindow time.Duration
 	JWTAutoRenew  bool
 
+	// Backups (P12). Default disabled. BackupInterval is the gap between
+	// scheduled backups; nil means "no interval set". BackupRetention nil
+	// means "keep forever"; explicit N means "keep last N". LastBackupAt
+	// is updated by BackupService.RunBackup.
+	BackupEnabled   bool
+	BackupInterval  *time.Duration
+	BackupRetention *int
+	LastBackupAt    *time.Time
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

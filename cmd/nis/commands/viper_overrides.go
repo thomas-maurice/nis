@@ -68,4 +68,18 @@ func registerConfigDefaults() {
 	viper.SetDefault("jobs.lease_duration_seconds", 300)
 	viper.SetDefault("jobs.shutdown_timeout_seconds", 30)
 	viper.SetDefault("jobs.retention_days", 30)
+	// Backups (P12). Default disabled at the NIS-wide level. When enabled,
+	// an S3-compatible endpoint + bucket must be configured; per-operator
+	// opt-in via OperatorService.EnableBackups governs which operators
+	// actually emit backup jobs.
+	viper.SetDefault("backups.enabled", false)
+	viper.SetDefault("backups.sweep_interval_seconds", 3600)
+	viper.SetDefault("backups.s3.endpoint", "")
+	viper.SetDefault("backups.s3.region", "us-east-1")
+	viper.SetDefault("backups.s3.bucket", "")
+	viper.SetDefault("backups.s3.access_key_id", "")
+	viper.SetDefault("backups.s3.secret_access_key", "")
+	viper.SetDefault("backups.s3.use_path_style", true)
+	viper.SetDefault("backups.s3.use_ssl", false)
+	viper.SetDefault("backups.s3.object_prefix", "")
 }

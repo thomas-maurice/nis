@@ -45,6 +45,7 @@ type sqlRepositoryFactory struct {
 	templateRepo                repositories.TemplateRepository
 	templateVersionRepo         repositories.TemplateVersionRepository
 	jobRepo                     repositories.JobRepository
+	operatorBackupRepo          repositories.OperatorBackupRepository
 }
 
 func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
@@ -94,6 +95,7 @@ func (f *sqlRepositoryFactory) initRepos() {
 	f.templateRepo = sqlRepo.NewTemplateRepo(f.gormDB)
 	f.templateVersionRepo = sqlRepo.NewTemplateVersionRepo(f.gormDB)
 	f.jobRepo = sqlRepo.NewJobRepo(f.gormDB)
+	f.operatorBackupRepo = sqlRepo.NewOperatorBackupRepo(f.gormDB)
 }
 
 func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
@@ -423,6 +425,13 @@ func (f *sqlRepositoryFactory) JobRepository() repositories.JobRepository {
 		f.jobRepo = sqlRepo.NewJobRepo(f.gormDB)
 	}
 	return f.jobRepo
+}
+
+func (f *sqlRepositoryFactory) OperatorBackupRepository() repositories.OperatorBackupRepository {
+	if f.operatorBackupRepo == nil {
+		f.operatorBackupRepo = sqlRepo.NewOperatorBackupRepo(f.gormDB)
+	}
+	return f.operatorBackupRepo
 }
 
 // WithTx runs fn inside a GORM transaction. The factory passed to fn hands out

@@ -35,14 +35,23 @@ type OperatorModel struct {
 	// window. The entity layer is responsible for providing the value.
 	JWTWarnWindowSeconds int64     `gorm:"column:jwt_warn_window_seconds;type:bigint;not null"`
 	JWTAutoRenew         bool      `gorm:"column:jwt_auto_renew;type:boolean;not null;default:false"`
-	CreatedAt            time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt            time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	// Backups (P12). Default disabled. When BackupEnabled is true,
+	// BackupIntervalSeconds gates how often the sweep enqueues a backup.
+	// CHECK constraint enforces the minimum 1h interval at the DB level.
+	// BackupRetentionCount NULL means "keep forever"; explicit N enforces
+	// keep-last-N. LastBackupAt is updated by BackupService.RunBackup.
+	BackupEnabled         bool       `gorm:"column:backup_enabled;type:boolean;not null;default:false"`
+	BackupIntervalSeconds *int64     `gorm:"column:backup_interval_seconds;type:bigint;check:backup_interval_seconds IS NULL OR backup_interval_seconds >= 3600"`
+	BackupRetentionCount  *int       `gorm:"column:backup_retention_count;type:int"`
+	LastBackupAt          *time.Time `gorm:"column:last_backup_at;type:timestamp"`
+	CreatedAt             time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt             time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (OperatorModel) TableName() string { return "operators" }
 
 func (m *OperatorModel) ToEntity() *entities.Operator {
-	return &entities.Operator{
+	op := &entities.Operator{
 		ID:                  uuid.MustParse(m.ID),
 		Name:                m.Name,
 		Description:         m.Description,
@@ -54,13 +63,21 @@ func (m *OperatorModel) ToEntity() *entities.Operator {
 		AccountJWTTTL:       time.Duration(m.AccountJWTTTLSeconds) * time.Second,
 		JWTWarnWindow:       time.Duration(m.JWTWarnWindowSeconds) * time.Second,
 		JWTAutoRenew:        m.JWTAutoRenew,
+		BackupEnabled:       m.BackupEnabled,
+		BackupRetention:     m.BackupRetentionCount,
+		LastBackupAt:        m.LastBackupAt,
 		CreatedAt:           m.CreatedAt,
 		UpdatedAt:           m.UpdatedAt,
 	}
+	if m.BackupIntervalSeconds != nil {
+		d := time.Duration(*m.BackupIntervalSeconds) * time.Second
+		op.BackupInterval = &d
+	}
+	return op
 }
 
 func OperatorModelFromEntity(e *entities.Operator) *OperatorModel {
-	return &OperatorModel{
+	m := &OperatorModel{
 		ID:                   e.ID.String(),
 		Name:                 e.Name,
 		Description:          e.Description,
@@ -72,9 +89,17 @@ func OperatorModelFromEntity(e *entities.Operator) *OperatorModel {
 		AccountJWTTTLSeconds: int64(e.AccountJWTTTL.Seconds()),
 		JWTWarnWindowSeconds: int64(e.JWTWarnWindow.Seconds()),
 		JWTAutoRenew:         e.JWTAutoRenew,
+		BackupEnabled:        e.BackupEnabled,
+		BackupRetentionCount: e.BackupRetention,
+		LastBackupAt:         e.LastBackupAt,
 		CreatedAt:            e.CreatedAt,
 		UpdatedAt:            e.UpdatedAt,
 	}
+	if e.BackupInterval != nil {
+		s := int64(e.BackupInterval.Seconds())
+		m.BackupIntervalSeconds = &s
+	}
+	return m
 }
 
 // AccountModel — accounts table.
@@ -971,4 +996,48 @@ func JobModelFromEntity(e *entities.Job) *JobModel {
 		m.Payload = "{}"
 	}
 	return m
+}
+
+// OperatorBackupModel — operator_backups table (P12 scheduled backups).
+// One row per uploaded backup artifact. FK CASCADE on operator delete
+// drops the rows; the S3 objects are NOT auto-removed (FK CASCADE
+// bypasses the service layer, mirroring the A6 "audit-cascade gap"
+// caveat). Operators reaching for "delete operator" should expect to
+// either delete backups explicitly first or run a manual S3 cleanup.
+// Documented as a v1 limitation.
+type OperatorBackupModel struct {
+	ID          string         `gorm:"primaryKey;type:text;not null"`
+	OperatorID  string         `gorm:"type:text;not null;index:idx_operator_backups_operator_id"`
+	Operator    *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	ObjectKey   string         `gorm:"type:text;not null;uniqueIndex:idx_operator_backups_object_key"`
+	SizeBytes   int64          `gorm:"type:bigint;not null"`
+	Sha256      string         `gorm:"type:text;not null"`
+	TriggerKind string         `gorm:"column:trigger_kind;type:text;not null"`
+	CreatedAt   time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (OperatorBackupModel) TableName() string { return "operator_backups" }
+
+func (m *OperatorBackupModel) ToEntity() *entities.OperatorBackup {
+	return &entities.OperatorBackup{
+		ID:          uuid.MustParse(m.ID),
+		OperatorID:  uuid.MustParse(m.OperatorID),
+		ObjectKey:   m.ObjectKey,
+		SizeBytes:   m.SizeBytes,
+		Sha256:      m.Sha256,
+		TriggerKind: entities.BackupTriggerKind(m.TriggerKind),
+		CreatedAt:   m.CreatedAt,
+	}
+}
+
+func OperatorBackupModelFromEntity(e *entities.OperatorBackup) *OperatorBackupModel {
+	return &OperatorBackupModel{
+		ID:          e.ID.String(),
+		OperatorID:  e.OperatorID.String(),
+		ObjectKey:   e.ObjectKey,
+		SizeBytes:   e.SizeBytes,
+		Sha256:      e.Sha256,
+		TriggerKind: string(e.TriggerKind),
+		CreatedAt:   e.CreatedAt,
+	}
 }

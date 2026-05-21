@@ -242,13 +242,17 @@ func extractAction(method string) string {
 		// a job without the ability to remove it.
 		return "delete"
 	}
-	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") {
+	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") {
 		// P6 template ops: applying a template version, bumping an SKK to
 		// a new version, detaching from a template, or toggling
 		// track_latest all mutate the SKK's binding/perm columns and
 		// (for bump/apply) the parent account JWT. Same authority as a
 		// plain "update". Without this, the default would fall through
 		// to "read" and silently bypass Casbin's mutation rows.
+		//
+		// P12 RunOperatorBackup → "update": triggering a backup mints an
+		// S3 object + DB row; gating it on Casbin's `backup.update` rather
+		// than `read` matches its actual blast radius.
 		return "update"
 	}
 	if strings.HasPrefix(method, "get") || strings.HasPrefix(method, "list") {

@@ -178,6 +178,120 @@
         </div>
       </div>
 
+      <!-- Backups Card -->
+      <div v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="row mt-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">
+                <font-awesome-icon :icon="['fas', 'cloud-arrow-up']" class="me-2" />
+                Backups
+              </h5>
+            </div>
+            <div class="card-body">
+              <!-- NIS-wide disabled sentinel alert -->
+              <div v-if="backupsGloballyDisabled" class="alert alert-warning mb-3">
+                Scheduled backups are disabled at the NIS-wide level. Ask an administrator to enable
+                <code>BACKUPS_ENABLED</code> in the NIS server config.
+              </div>
+
+              <!-- Settings summary -->
+              <div class="mb-3">
+                <span v-if="backupSettings && backupSettings.enabled" class="badge bg-success me-2">Enabled</span>
+                <span v-else class="badge bg-secondary me-2">Disabled</span>
+                <template v-if="backupSettings && backupSettings.enabled">
+                  Interval: {{ formatIntervalSeconds(backupSettings.intervalSeconds) }}
+                  &bull; Retention: {{ backupSettings.retentionCount ? backupSettings.retentionCount : 'unlimited' }}
+                  &bull; Last backup:
+                  <span v-if="backupSettings.lastBackupAt">{{ formatDate(backupSettings.lastBackupAt.toDate()) }}</span>
+                  <span v-else class="text-muted">never</span>
+                </template>
+              </div>
+
+              <!-- Action buttons -->
+              <div class="d-flex gap-2 mb-3">
+                <button
+                  class="btn btn-outline-primary btn-sm"
+                  :disabled="backupsGloballyDisabled"
+                  @click="openBackupConfigModal"
+                >
+                  <font-awesome-icon :icon="['fas', 'edit']" class="me-1" />
+                  Configure
+                </button>
+                <button
+                  class="btn btn-outline-success btn-sm"
+                  :disabled="backupsGloballyDisabled || runningBackup"
+                  @click="runBackupNow"
+                >
+                  <span v-if="runningBackup" class="spinner-border spinner-border-sm me-1"></span>
+                  <font-awesome-icon v-else :icon="['fas', 'cloud-arrow-up']" class="me-1" />
+                  Run now
+                </button>
+                <button
+                  class="btn btn-outline-secondary btn-sm"
+                  :disabled="loadingBackups"
+                  @click="loadBackups"
+                >
+                  <span v-if="loadingBackups" class="spinner-border spinner-border-sm me-1"></span>
+                  <font-awesome-icon v-else :icon="['fas', 'sync']" class="me-1" />
+                  Refresh
+                </button>
+              </div>
+
+              <div v-if="backupError" class="alert alert-danger mb-3">{{ backupError }}</div>
+
+              <!-- Backups table -->
+              <div v-if="backups.length === 0 && !loadingBackups" class="text-muted small">No backups yet.</div>
+              <div v-else class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Created</th>
+                      <th>Size</th>
+                      <th>Trigger</th>
+                      <th>SHA256</th>
+                      <th>Object key</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="bk in backups" :key="bk.id">
+                      <td>{{ bk.createdAt ? formatDate(bk.createdAt.toDate()) : '-' }}</td>
+                      <td>{{ formatBytes(bk.sizeBytes) }}</td>
+                      <td>
+                        <span :class="bk.triggerKind === 'scheduled' ? 'badge bg-secondary' : 'badge bg-info text-dark'">
+                          {{ bk.triggerKind || 'unknown' }}
+                        </span>
+                      </td>
+                      <td><code class="text-break">{{ bk.sha256 || '-' }}</code></td>
+                      <td><code class="text-break">{{ bk.objectKey }}</code></td>
+                      <td class="text-end" style="white-space: nowrap;">
+                        <button
+                          class="btn btn-sm btn-outline-primary me-1"
+                          :disabled="downloadingBackupId === bk.id"
+                          @click="downloadBackup(bk)"
+                          title="Download"
+                        >
+                          <span v-if="downloadingBackupId === bk.id" class="spinner-border spinner-border-sm"></span>
+                          <font-awesome-icon v-else :icon="['fas', 'cloud-arrow-down']" />
+                        </button>
+                        <button
+                          class="btn btn-sm btn-outline-danger"
+                          @click="deleteBackup(bk)"
+                          title="Delete"
+                        >
+                          <font-awesome-icon :icon="['fas', 'trash']" />
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="config" class="row mt-4">
         <div class="col-12">
           <div class="card">
@@ -267,6 +381,63 @@
       </div>
     </div>
 
+    <!-- Backup Configure Modal -->
+    <div v-if="showBackupConfigModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Configure Backups</h5>
+            <button type="button" class="btn-close" @click="closeBackupConfigModal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input
+                  id="backupEnabled"
+                  v-model="backupConfigForm.enabled"
+                  class="form-check-input"
+                  type="checkbox"
+                  role="switch"
+                />
+                <label class="form-check-label" for="backupEnabled">Enabled</label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="backupInterval">Interval</label>
+              <select id="backupInterval" v-model.number="backupConfigForm.intervalSeconds" class="form-select">
+                <option :value="3600">1h</option>
+                <option :value="21600">6h</option>
+                <option :value="43200">12h</option>
+                <option :value="86400">24h</option>
+                <option :value="172800">48h</option>
+                <option :value="604800">7d</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="backupRetention">Retention</label>
+              <input
+                id="backupRetention"
+                v-model.number="backupConfigForm.retentionCount"
+                type="number"
+                min="0"
+                class="form-control"
+                placeholder="0 = keep all"
+              />
+              <div class="form-text">Keep at most N most recent backups (0 = keep all).</div>
+            </div>
+            <div v-if="backupConfigError" class="alert alert-danger">{{ backupConfigError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeBackupConfigModal">Cancel</button>
+            <button type="button" class="btn btn-primary" :disabled="savingBackupConfig" @click="saveBackupConfig">
+              <span v-if="savingBackupConfig" class="spinner-border spinner-border-sm me-2"></span>
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Backup Modal -->
     <div v-if="showExportModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
       <div class="modal-dialog">
@@ -340,6 +511,8 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
+import { backupClient } from '@/utils/clients'
+import { ConnectError, Code } from '@connectrpc/connect'
 import CodeBlock from '@/components/CodeBlock.vue'
 import ClickablePubKey from '@/components/ClickablePubKey.vue'
 
@@ -372,6 +545,21 @@ const sweepRunning = ref(false)
 const sweepResult = ref(null)
 const sweepError = ref('')
 
+// Backup state
+const backupSettings = ref(null)
+const backups = ref([])
+const loadingBackups = ref(false)
+const runningBackup = ref(false)
+const backupError = ref('')
+const backupsGloballyDisabled = ref(false)
+const downloadingBackupId = ref(null)
+
+// Backup Configure modal state
+const showBackupConfigModal = ref(false)
+const backupConfigForm = ref({ enabled: false, intervalSeconds: 86400, retentionCount: 0 })
+const savingBackupConfig = ref(false)
+const backupConfigError = ref('')
+
 const loadOperator = async () => {
   loading.value = true
   error.value = ''
@@ -386,6 +574,10 @@ const loadOperator = async () => {
     await loadClusters()
     // Check for admin account
     await checkAdminAccount()
+    // Load backup settings and list (non-fatal if not available)
+    if (authStore.isAdmin || authStore.isOperatorAdmin) {
+      await Promise.all([loadBackupSettings(), loadBackups()])
+    }
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load operator'
   } finally {
@@ -632,6 +824,170 @@ const runSweep = async () => {
     sweepError.value = err.response?.data?.message || 'Sweep failed'
   } finally {
     sweepRunning.value = false
+  }
+}
+
+// Backup helpers
+const isBackupsGloballyDisabled = (err) => {
+  if (err instanceof ConnectError) {
+    if (err.code === Code.FailedPrecondition) return true
+    if (err.message && err.message.includes('backups are disabled at the NIS-wide level')) return true
+  }
+  if (err && err.message && err.message.includes('backups are disabled at the NIS-wide level')) return true
+  return false
+}
+
+const formatIntervalSeconds = (secs) => {
+  const n = Number(secs)
+  if (!n) return '-'
+  if (n < 3600) return `${Math.round(n / 60)}m`
+  if (n < 86400) return `${Math.round(n / 3600)}h`
+  if (n < 604800) return `${Math.round(n / 86400)}d`
+  return `${Math.round(n / 604800)}w`
+}
+
+const formatBytes = (bytesVal) => {
+  const n = Number(bytesVal)
+  if (!n) return '0 B'
+  if (n < 1024) return `${n} B`
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`
+  return `${(n / 1073741824).toFixed(2)} GB`
+}
+
+const loadBackupSettings = async () => {
+  if (!operator.value) return
+  try {
+    const resp = await backupClient.getOperatorBackupSettings({ operatorId: operator.value.id })
+    backupSettings.value = resp.settings || null
+    backupsGloballyDisabled.value = false
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+    }
+    // non-fatal — settings panel still renders
+  }
+}
+
+const loadBackups = async () => {
+  if (!operator.value) return
+  loadingBackups.value = true
+  backupError.value = ''
+  try {
+    const resp = await backupClient.listOperatorBackups({ operatorId: operator.value.id })
+    backups.value = resp.backups || []
+    backupsGloballyDisabled.value = false
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+    } else {
+      backupError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to load backups'
+    }
+  } finally {
+    loadingBackups.value = false
+  }
+}
+
+const runBackupNow = async () => {
+  runningBackup.value = true
+  backupError.value = ''
+  try {
+    await backupClient.runOperatorBackup({ operatorId: operator.value.id })
+    await Promise.all([loadBackupSettings(), loadBackups()])
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+    } else {
+      backupError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to run backup'
+    }
+  } finally {
+    runningBackup.value = false
+  }
+}
+
+const downloadBackup = async (bk) => {
+  downloadingBackupId.value = bk.id
+  backupError.value = ''
+  try {
+    const chunks = []
+    for await (const msg of backupClient.downloadBackup({ id: bk.id })) {
+      if (msg.payload.case === 'chunk') {
+        chunks.push(msg.payload.value)
+      }
+    }
+    const totalLen = chunks.reduce((s, c) => s + c.length, 0)
+    const merged = new Uint8Array(totalLen)
+    let offset = 0
+    for (const c of chunks) {
+      merged.set(c, offset)
+      offset += c.length
+    }
+    const blob = new Blob([merged], { type: 'application/yaml' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${bk.id}.yaml`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  } catch (err) {
+    backupError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Download failed'
+  } finally {
+    downloadingBackupId.value = null
+  }
+}
+
+const deleteBackup = async (bk) => {
+  if (!window.confirm(`Delete backup ${bk.id.slice(0, 8)}...? This cannot be undone.`)) return
+  backupError.value = ''
+  try {
+    await backupClient.deleteBackup({ id: bk.id })
+    await loadBackups()
+  } catch (err) {
+    backupError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to delete backup'
+  }
+}
+
+const openBackupConfigModal = () => {
+  const s = backupSettings.value
+  backupConfigForm.value = {
+    enabled: s ? s.enabled : false,
+    intervalSeconds: s && Number(s.intervalSeconds) ? Number(s.intervalSeconds) : 86400,
+    retentionCount: s ? s.retentionCount : 0,
+  }
+  backupConfigError.value = ''
+  showBackupConfigModal.value = true
+}
+
+const closeBackupConfigModal = () => {
+  showBackupConfigModal.value = false
+  backupConfigError.value = ''
+}
+
+const saveBackupConfig = async () => {
+  savingBackupConfig.value = true
+  backupConfigError.value = ''
+  try {
+    const f = backupConfigForm.value
+    const resp = await backupClient.updateOperatorBackupSettings({
+      operatorId: operator.value.id,
+      enabled: f.enabled,
+      intervalSeconds: BigInt(f.intervalSeconds),
+      retentionCount: f.retentionCount,
+    })
+    backupSettings.value = resp.settings || null
+    await loadBackups()
+    closeBackupConfigModal()
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+      closeBackupConfigModal()
+    } else {
+      backupConfigError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to save backup settings'
+    }
+  } finally {
+    savingBackupConfig.value = false
   }
 }
 

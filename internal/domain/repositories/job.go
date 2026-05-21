@@ -80,6 +80,13 @@ type JobRepository interface {
 	// In both cases the lease is cleared and last_error is set.
 	MarkFailed(ctx context.Context, id uuid.UUID, lastError string, retryAfter *time.Time) error
 
+	// ExtendLease pushes the row's locked_until to `until`, leaving status,
+	// attempts, and worker untouched. Used by the runner when a HandlerSpec
+	// opts into a longer lease than the global default (e.g. backup uploads
+	// that may exceed 5min). Returns ErrJobInvalidStateTransition if the row
+	// isn't currently 'running'.
+	ExtendLease(ctx context.Context, id uuid.UUID, until time.Time) error
+
 	// Cancel transitions a 'pending' row to 'cancelled'. Returns
 	// ErrJobInvalidStateTransition if the row is already running, finished,
 	// or cancelled.

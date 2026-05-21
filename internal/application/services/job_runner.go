@@ -68,6 +68,15 @@ type HandlerSpec struct {
 	BackoffCap  time.Duration // 0 = use JobRunnerConfig.BackoffCap
 	AuditPolicy AuditPolicy
 	RecurEvery  time.Duration // 0 = one-shot only; non-zero = recurring schedule
+
+	// LeaseDuration, when > JobRunnerConfig.LeaseDuration, extends the
+	// claim's locked_until immediately after ClaimDue. Use for handlers
+	// that legitimately exceed the global lease (e.g. large S3 uploads).
+	// Zero = use the global lease. The extend is best-effort: an
+	// ExtendLease error logs and proceeds — the global lease still
+	// applies as a floor and the existing dead-worker reclaim path
+	// covers genuine stuck handlers.
+	LeaseDuration time.Duration
 }
 
 // JobRunnerConfig tunes the runner's polling + retry behavior.
@@ -437,6 +446,14 @@ func (r *JobRunner) processOne(ctx context.Context, j *entities.Job) {
 
 	if spec.AuditPolicy == AuditAll {
 		r.emitJobEvent(writeCtx, j, entities.EventTypeJobStarted, nil)
+	}
+
+	if spec.LeaseDuration > r.cfg.LeaseDuration {
+		until := clock.Now().Add(spec.LeaseDuration)
+		if err := r.factory.JobRepository().ExtendLease(writeCtx, j.ID, until); err != nil {
+			log.Warn("job runner: ExtendLease failed (continuing with global lease)",
+				"job_id", j.ID, "type", j.Type, "error", err)
+		}
 	}
 
 	start := time.Now() // duration measurement only

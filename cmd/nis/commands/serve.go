@@ -19,6 +19,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
+	"github.com/thomas-maurice/nis/internal/infrastructure/s3backup"
 	"github.com/thomas-maurice/nis/internal/infrastructure/tracing"
 	grpcServer "github.com/thomas-maurice/nis/internal/interfaces/grpc"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
@@ -299,6 +300,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// which executes work. Admin-only at the handler layer.
 	jobService := services.NewJobService(repoFactory)
 
+	// Scheduled backups (P12). Constructed iff `backups.enabled=true` AND
+	// the S3 client comes up cleanly (HeadBucket succeeds). Otherwise nil
+	// — the handler short-circuits with FailedPrecondition. Handlers are
+	// registered later, alongside the jobRunner.
+	var backupService *services.BackupService
+	if viper.GetBool("backups.enabled") {
+		s3client, err := s3backup.New(ctx, s3backup.Config{
+			Endpoint:        viper.GetString("backups.s3.endpoint"),
+			Region:          viper.GetString("backups.s3.region"),
+			Bucket:          viper.GetString("backups.s3.bucket"),
+			AccessKeyID:     viper.GetString("backups.s3.access_key_id"),
+			SecretAccessKey: viper.GetString("backups.s3.secret_access_key"),
+			UsePathStyle:    viper.GetBool("backups.s3.use_path_style"),
+			UseSSL:          viper.GetBool("backups.s3.use_ssl"),
+			ObjectPrefix:    viper.GetString("backups.s3.object_prefix"),
+		})
+		if err != nil {
+			logger.Error("backups: S3 client init failed; backups disabled this run", "error", err)
+		} else {
+			backupService = services.NewBackupService(repoFactory, exportService, s3client)
+			logger.Info("backups enabled", "bucket", viper.GetString("backups.s3.bucket"), "endpoint", viper.GetString("backups.s3.endpoint"))
+		}
+	}
+
 	webhookService := services.NewWebhookService(repoFactory, encryptor)
 
 	apiTokenService := services.NewAPITokenService(repoFactory)
@@ -368,6 +393,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		templateService,
 		permissionService,
 		jobService,
+		backupService,
 		authMiddleware,
 	)
 	if metricsHandler != nil {
@@ -448,6 +474,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if viper.GetInt("webhooks.poll_interval_seconds") != 0 ||
 		viper.GetInt("webhooks.shutdown_timeout_seconds") != 30 {
 		logger.Info("webhook delivery now runs on jobs substrate; webhooks.poll_interval_seconds and webhooks.shutdown_timeout_seconds are ignored (use jobs.poll_interval_seconds and jobs.shutdown_timeout_seconds instead)")
+	}
+	if backupService != nil {
+		services.RegisterBackupHandlers(jobRunner, backupService, services.BackupHandlerConfig{
+			SweepInterval:        time.Duration(viper.GetInt("backups.sweep_interval_seconds")) * time.Second,
+			ExecuteLeaseDuration: 15 * time.Minute,
+		})
 	}
 	go func() { _ = jobRunner.Run(ctx) }()
 

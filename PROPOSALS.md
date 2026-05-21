@@ -135,9 +135,11 @@ JetStream limits are set but unused capacity is invisible. This uses NIS's clust
 
 Today's search is per-list. To find "which scoped key allows pub on `metrics.>`", you click through every account → every key. This adds a top-bar search across names, public keys, permission subjects, descriptions. Small (DB LIKE queries) initially; can grow into FTS.
 
-### P12. Scheduled backup + restore-verify — M
+### P12. Scheduled backup — DONE (2026-05-20)
 
-`nisctl export operator` exists but backups are someone's homework. This adds config-driven cron, encrypted blob to S3-compatible storage, retention policy, and a `verify` command that boots a shadow NIS in a tmpdir and imports the backup to confirm it works. Backup encryption key must be separate from data key.
+Per-operator scheduled backups to any S3-compatible object store on the A2 jobs substrate. Off by default at both the NIS-wide layer (`backups.enabled`) and the per-operator layer (`backup_enabled`). Two new tables: `operator_backups` (metadata + sha256 + trigger kind) and new columns on `operators` (interval, retention, last_backup_at) with a CHECK constraint enforcing 1h minimum interval. `BackupService` (RPC + service layer) drives Update/Run/List/Get/Download (server-streaming)/Delete + emits operator.backup.{enabled,disabled,succeeded,failed,deleted} events. New job handlers `backup.sweep` (recurring, AuditFailuresOnly) + `backup.execute` (per-operator, MaxAttempts=3, LeaseDuration=15min). MinIO pinned in docker-compose for dev (the OSS minio/minio server repo was archived 2026-04-25 but the image still functions; minio-go client SDK is NOT archived and is the chosen Go dep). Backup format is the existing operator YAML export in `SecretsEncrypted` mode (restore requires the same data encryption key — known DR limitation). Reviewer-driven adjustments incorporated: retention DELETE order S3-first then DB; HeadBucket fail-fast at startup (never CreateBucket); `extractAction` extended with `run` prefix → `update`; logging middleware now forwards `http.Flusher` / `http.Hijacker` so server-streaming RPCs work (and any future streaming RPC inherits the fix). Verify command intentionally NOT shipped — operator instruction was "no shadow NIS"; the existing `nisctl restore -f` covers ad-hoc restore-validation.
+
+Deferred to v1.1: per-org / per-operator S3 routing; plaintext-secrets scheduled backups + envelope encryption with a backup-specific key; per-operator scheduling (current sweep enumerates all operators in one pass); restore-from-backup-ID RPC (download bytes + `nisctl restore -f` covers it).
 
 ### P13. Surface NATS-side revocations honestly in the UI — S
 
@@ -174,6 +176,49 @@ Per-row cost is small (one indexed insert), but unbounded growth on a long-lived
 - Tying revocations retention to events retention as one knob: they protect different audit surfaces and may warrant different windows (events frequently 30d, revocations more naturally 90d+).
 
 **Related.** P13 (the panel that surfaces active revocations); P1 (audit log) — when both retentions exist, document their interplay in one place.
+
+### P15. Encrypt scheduled-backup artifacts at rest — M / High
+
+**Problem.** P12 ships scheduled backups in `SecretsEncrypted` mode: NKey seeds inside the YAML are stored as `encrypted:<keyid>:<ciphertext>` references protected by NIS's data encryption key, but the rest of the artifact — operator/account/user names, descriptions, public keys, scoped-signing-key permissions, cluster URLs, the identity tree shape — lands in S3 as plaintext YAML. A bucket leak (misconfigured IAM, S3 bucket-policy misstep, compromised access key, MinIO/AIStor side breach) exposes everything except the raw seed material. That's a non-trivial information leak: an attacker learns which subjects each user can pub/sub, which accounts exist, which clusters they back, and the entire operator-account-user hierarchy — enough to plan a targeted attack and impersonate any restored credential the moment they can reach the data encryption key.
+
+The README "v1 limitations" section names this explicitly ("No envelope encryption on the uploaded artifact itself"). The skill mentions bucket-level SSE as the recommended workaround. Both are stopgaps — operators rightly expect the artifact itself to be encrypted, regardless of where it's stored.
+
+**Design space.** Three plausible directions; no decision yet — file this proposal so the design conversation has a home, not because one option is already preferred.
+
+1. **Bucket-level SSE (server-side encryption).** Configure SSE-S3, SSE-KMS, or SSE-C on the bucket; the S3 backend handles encryption transparently. Cheap on the NIS side — zero crypto code, zero new deps, leverage the cloud provider's KMS audit trail.
+   - Pro: tested infra, key rotation handled by the KMS, no decrypt complexity at restore time.
+   - Con: trust boundary stays at the bucket — a stolen key (or a misconfigured ACL) defeats it; the artifact itself is unencrypted on disk inside the storage backend; SSE-C requires per-request key material which NIS would have to manage anyway; only works against backends that support SSE (MinIO OSS does; AIStor does; some self-hosted alternatives don't).
+   - Posture: depends entirely on cloud-side controls; outside NIS's authority.
+
+2. **age envelope encryption (`filippo.io/age`).** Encrypt the YAML in-process before upload with one or more recipient public keys (X25519 or ssh-ed25519). The plaintext never leaves NIS. The operator configures recipient pubkeys in NIS config; the decryption keys live wherever the operator chooses (yubikey, hardware token, encrypted disk, secret manager). Restore reads age-encrypted bytes, prompts for or reads the identity, decrypts, then runs the existing import.
+   - Pro: client-side encryption (the bucket can't see plaintext); multi-recipient natively (encrypt to ops team + DR account simultaneously); small dep (`filippo.io/age` is ~2k LOC, vetted); no KMS dependency; works against any storage backend.
+   - Con: NIS holds the recipient pubkeys (fine — public) but the restore-side identity (private key) is the operator's problem; key rotation requires re-encrypting historical backups; no native HSM integration without the age-plugin-* ecosystem.
+   - Posture: cryptographic boundary at the operator's key — strong by default, but the operator must run their own key custody.
+
+3. **AWS KMS / Vault Transit / GCP KMS envelope encryption.** Generate a per-backup data-encryption-key (DEK), wrap with a KEK stored in the KMS, prepend the wrapped DEK to the artifact. Restore unwraps via the KMS before decrypting.
+   - Pro: KEK never leaves the KMS; audit trail on every unwrap operation; well-understood pattern; matches A4's design for at-rest data.
+   - Con: heavy dep (AWS SDK, GCP SDK, or Vault client); restore requires KMS connectivity (DR scenario: if the KMS is gone, so are your backups); per-cloud abstraction layer needed; SSE-KMS often gives you 80% of this for less code.
+
+Realistically a v1 implementation should pick ONE of these and document why. Mixing them (e.g. "SSE by default, age as an opt-in") doubles the test surface and creates a "which mode is this backup in?" UX problem.
+
+**Constraints / non-negotiables for whatever path wins:**
+
+- **Restore via `nisctl restore -f` must still work.** Either `restore` learns the decryption format and asks for the key, OR a separate `nisctl backup decrypt <file>` produces a plain YAML that the existing `restore` consumes. The latter is the lower-risk path.
+- **Multi-recipient.** Operators with HA need to be able to decrypt from a DR location without sharing primary keys. age has this built-in; SSE-KMS via multiple grant principals; SSE-S3 doesn't.
+- **Key rotation story.** Either documented (rotate recipient pubkeys, leave old artifacts decryptable by old keys until they age out of retention) or built-in (KMS rotation).
+- **Don't reuse the data encryption key.** That's a single point of failure already; tying backup encryption to it means losing the data key kills backups too. Whatever path wins, the backup key must be independently configurable.
+- **e2e coverage** of an encrypt → upload → download → decrypt → restore round-trip, including the wrong-key failure mode (currently `import_backup_test.go` covers wrong-encryption-key for the synchronous local export; the scheduled-backup path needs the same belt-and-suspenders).
+- **README + SKILL.md must explicitly call out** what's protected, what isn't, and how to recover when the key is lost (which is: "you can't, that's the whole point").
+
+**Out of scope for the first iteration:**
+
+- Per-backup or per-operator key selection (every backup uses the configured recipient list).
+- Backup-side compression (orthogonal — can layer cleanly).
+- Encrypting the metadata row in the `operator_backups` table itself (object_key + size + sha256 + trigger). The sha256 is the integrity check on the encrypted blob, so it stays plaintext; the rest is low-signal.
+
+**Related.** A4 (envelope encryption + KMS) — if A4 lands first with a Vault/KMS-backed `Encryptor` interface, P15 should reuse it rather than introduce a parallel crypto layer. Conversely, if P15 lands first with age, A4 may want to mirror that choice rather than diverge. Pick the order deliberately.
+
+**Filed** 2026-05-20 by user after P12 shipped. The exact mechanism (SSE vs age vs KMS vs something else) is explicitly undecided; this entry exists to make sure the decision happens before the first incident does.
 
 ---
 

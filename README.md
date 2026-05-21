@@ -20,8 +20,9 @@ The fastest path from a clean checkout to a working stack. Requires Docker and G
 
 ```bash
 make run
-# Builds NIS, starts Postgres + NATS in Docker, runs NIS on the host pointing at
-# both, creates an admin user. UI at http://localhost:8080 (admin / admin123).
+# Builds NIS, starts Postgres + NATS + MinIO in Docker, runs NIS on the host
+# pointing at all three, creates an admin user, writes .envrc with mc/aws-cli
+# credentials for the local MinIO. UI at http://localhost:8080 (admin / admin123).
 
 make run-demo
 # Same as above, plus: creates a demo operator, restarts NATS with JWT auth on,
@@ -33,13 +34,15 @@ nats --creds=.run/app-user.creds --server=nats://localhost:4222 rtt
 Lifecycle:
 
 ```bash
-make run-status   # show what's running
-make run-logs     # tail NIS server log (run-logs-nats / run-logs-pg for the containers)
-make run-stop     # stop server + remove containers (keeps Postgres data volume)
-make run-clean    # full wipe (containers + Postgres volume + ./.run/)
+make run-status      # show what's running
+make run-logs        # tail NIS server log (run-logs-nats / run-logs-pg / run-logs-minio for containers)
+make run-stop        # stop server + remove containers (keeps Postgres + MinIO data volumes)
+make run-clean       # full wipe (containers + volumes + ./.run/ + .envrc)
 ```
 
-Local state (pid file, server log, generated NATS config, resolver/jetstream dirs, creds) lives in `./.run/` and is gitignored. Postgres data lives in the Docker volume `nis_dev_pg_data`. Override defaults via env: `RUN_PG_PORT`, `RUN_PG_PASS`, `RUN_JWT_SECRET`, `RUN_ENC_KEY` (see `Makefile`).
+Local state (pid file, server log, generated NATS config, resolver/jetstream dirs, creds) lives in `./.run/` and is gitignored. Postgres data lives in the Docker volume `nis_dev_pg_data`; MinIO data in `nis_dev_minio_data`. Override defaults via env: `RUN_PG_PORT`, `RUN_PG_PASS`, `RUN_JWT_SECRET`, `RUN_ENC_KEY`, `RUN_MINIO_API_PORT`, `RUN_MINIO_USER`, `RUN_MINIO_PASS`, `RUN_MINIO_BUCKET` (see `Makefile`).
+
+The NIS process started by `make run` has `BACKUPS_ENABLED=true` pointed at the local MinIO — scheduled backups work out of the box. A `.envrc` is written to the repo root (gitignored) with `MC_HOST_nis_dev=http://...@localhost:9000` and the matching `AWS_*` vars; source it (`source .envrc` or `direnv allow`) to use `mc ls nis_dev/nis-backups` or `aws --endpoint-url=$AWS_ENDPOINT_URL_S3 s3 ls s3://nis-backups` against the dev bucket. The alias is `nis_dev` (underscore), not `nis-dev` — `MC_HOST_<alias>` is read by `mc` from an env var, and env var names must be shell identifiers, which can't contain hyphens.
 
 ### Docker Compose (all-in-Docker, SQLite)
 
@@ -422,7 +425,7 @@ Convenience targets:
 
 | Target | What it does |
 |---|---|
-| `make run` | Full dev stack: Postgres + NATS (Docker) + NIS (host) + admin user |
+| `make run` | Full dev stack: Postgres + NATS + MinIO (Docker) + NIS (host) + admin user + `.envrc` |
 | `make run-demo` | `run` + JWT bootstrap (operator, demo cluster/account/user, creds file) |
 | `make run-stop` / `run-clean` | Stop / wipe the dev stack |
 | `make serve-local` | Legacy host-only server, SQLite, hardcoded dev secrets |
@@ -935,6 +938,108 @@ nisctl job cancel <id>    # only succeeds on pending rows
 | `jobs.lease_duration_seconds` | `300` | Must exceed any handler's expected runtime; a row whose lease expires gets reclaimed by the next worker. |
 | `jobs.shutdown_timeout_seconds` | `30` | Graceful in-flight drain on SIGTERM. |
 | `jobs.retention_days` | `30` | For `jobs.retention_sweep` — drops succeeded/cancelled rows older than this. |
+
+## Scheduled backups (P12)
+
+NIS can upload per-operator backups to any S3-compatible object store on a
+configurable cadence. The bytes are produced by the same export path that
+backs `nisctl backup operator` and are restorable via `nisctl restore -f`.
+
+**Two layers of opt-in.** Backups are disabled by default at the
+NIS-wide level (`backups.enabled=false`). When enabled, individual operators
+still need an explicit `nisctl operator backup enable <name>` before the
+sweep starts producing artifacts for them. Both gates are independent — flip
+either off to stop scheduled backups for that scope.
+
+### NIS-wide configuration
+
+| Config key | Default | Notes |
+|---|---|---|
+| `backups.enabled` | `false` | Master switch. When false, BackupService RPCs return `FailedPrecondition`. |
+| `backups.sweep_interval_seconds` | `3600` | How often the sweep enumerates due operators. Each operator's `interval_seconds` is independent. |
+| `backups.s3.endpoint` | `""` | S3-compatible endpoint, e.g. `http://minio:9000` or `s3.us-east-1.amazonaws.com`. Required when `enabled=true`. |
+| `backups.s3.region` | `us-east-1` | S3 region. |
+| `backups.s3.bucket` | `""` | Bucket name. Required when `enabled=true`. NIS calls HeadBucket at startup and fails-fast on a missing bucket — never creates one. |
+| `backups.s3.access_key_id` | `""` | Bearer credential. Keep this out of committed config. |
+| `backups.s3.secret_access_key` | `""` | Same. |
+| `backups.s3.use_path_style` | `true` | Required for MinIO / Garage. AWS S3 supports both; virtual-hosted-style is the default for AWS but path-style works there too. |
+| `backups.s3.use_ssl` | `false` | true = https, false = http. Dev MinIO is plain http. |
+| `backups.s3.object_prefix` | `""` | Optional path prefix prepended to every object key, e.g. `prod/` to share a bucket across environments. |
+
+### Per-operator commands
+
+```bash
+nisctl operator backup enable  <name> --interval 24h --retain 30
+nisctl operator backup disable <name>
+nisctl operator backup run     <name>          # manual one-shot
+nisctl operator backup list    <name>
+nisctl operator backup download <BACKUP_ID> -o backup.yaml
+nisctl operator backup delete  <BACKUP_ID>
+nisctl operator backup settings <name>         # show current config
+```
+
+The UI surfaces the same controls on the operator detail page under a
+"Backups" card.
+
+### docker-compose dev setup
+
+`docker-compose.yml` includes a MinIO service and a one-shot `minio-setup`
+container that creates the `nis-backups` bucket. NIS is configured to point
+at it. **The pinned MinIO image is `RELEASE.2025-04-22T22-12-26Z` — the
+last image from the OSS `minio/minio` repo before it was archived on
+2026-04-25.** It still works for dev/CI but receives no further updates.
+Production deployments should target an actively-maintained S3-compatible
+backend: AWS S3, Cloudflare R2, Backblaze B2, [Garage](https://garagehq.deuxfleurs.fr/),
+or MinIO's commercial AIStor. NIS uses only the standard S3 API surface
+(PutObject / GetObject / HeadObject / ListObjects / RemoveObject /
+HeadBucket); any compliant backend works.
+
+### Restore path
+
+Backup artifacts are restorable with the existing `nisctl restore`
+command:
+
+```bash
+nisctl operator backup download <BACKUP_ID> -o backup.yaml
+nisctl restore -f backup.yaml
+```
+
+The `restore` command auto-detects YAML vs JSON. Restoring to a different
+NIS instance requires that instance to hold the same `ENCRYPTION_KEY` —
+the seeds inside the backup are stored as `encrypted:keyid:<ciphertext>`
+references resolved against the data encryption key. If you need
+key-independent disaster recovery, use `nisctl backup operator <name>
+--plaintext-secrets` for that one-off export instead; scheduled backups
+do not currently support plaintext-secret mode.
+
+### v1 limitations
+
+- Single global S3 backend across all operators. Per-operator (or per-org)
+  S3 routing is a v1.1 design call.
+- Backups use `SecretsEncrypted` mode. Lose the data encryption key, lose
+  your scheduled backups. Pair with a separately-managed key escrow or
+  occasional `--plaintext-secrets` one-shot exports if your DR plan needs
+  to survive key loss.
+- No envelope encryption on the uploaded artifact itself. Bucket-level SSE
+  (SSE-S3 / SSE-KMS) is the recommended way to add at-rest encryption to
+  the metadata that's not already covered by the per-row seed encryption.
+- The sweeper enumerates operators every `sweep_interval_seconds` in a
+  single pass. With thousands of opt-in operators on a single NIS this
+  may become a hot loop; per-operator scheduling is a v1.1 ask.
+- Per-handler lease for `backup.execute` is 15 minutes. An operator
+  whose backup legitimately exceeds that gets reclaimed by another
+  worker and produces a duplicate S3 object, which retention eventually
+  trims. Multi-GB operators may want to tune the substrate lease via a
+  PR — file an issue if you hit this in practice.
+
+### Metrics
+
+- `nis_backups_succeeded_total{trigger=scheduled|manual}` — counter of
+  successful uploads.
+- `nis_backups_failed_total{trigger}` — counter of failures at any phase
+  (export / S3 upload / DB write).
+- `nis_backup_duration_seconds{trigger}` — histogram of end-to-end time
+  per backup.
 
 ## Observability
 

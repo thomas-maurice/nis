@@ -153,6 +153,11 @@ type Recorder struct {
 	jobsEnqueued  metric.Int64Counter
 	jobsCompleted metric.Int64Counter
 	jobDuration   metric.Float64Histogram
+
+	// P12 — scheduled backups.
+	backupsSucceeded metric.Int64Counter
+	backupsFailed    metric.Int64Counter
+	backupDuration   metric.Float64Histogram
 }
 
 func newRecorder(m metric.Meter) (*Recorder, error) {
@@ -281,6 +286,25 @@ func newRecorder(m metric.Meter) (*Recorder, error) {
 	if r.clusterDriftResults, err = m.Int64Counter(
 		"nis_cluster_drift_results_total",
 		metric.WithDescription("Total per-account drift classifications produced by scans, labelled by status. No cluster_id/account_id labels — cardinality is bounded by the status enum."),
+	); err != nil {
+		return nil, err
+	}
+	if r.backupsSucceeded, err = m.Int64Counter(
+		"nis_backups_succeeded_total",
+		metric.WithDescription("Total operator backups that uploaded successfully, labelled by trigger (scheduled/manual). No operator_id label — cardinality control."),
+	); err != nil {
+		return nil, err
+	}
+	if r.backupsFailed, err = m.Int64Counter(
+		"nis_backups_failed_total",
+		metric.WithDescription("Total operator backups that failed at any phase (export/upload/db-insert), labelled by trigger."),
+	); err != nil {
+		return nil, err
+	}
+	if r.backupDuration, err = m.Float64Histogram(
+		"nis_backup_duration_seconds",
+		metric.WithUnit("s"),
+		metric.WithDescription("End-to-end time for one operator backup, from export start to row insert."),
 	); err != nil {
 		return nil, err
 	}
@@ -461,4 +485,23 @@ func (r *Recorder) RecordClusterDriftResult(ctx context.Context, status string) 
 		return
 	}
 	r.clusterDriftResults.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
+}
+
+// RecordBackupSucceeded increments the success counter and records the
+// end-to-end duration. trigger is "scheduled" or "manual".
+func (r *Recorder) RecordBackupSucceeded(trigger string, seconds float64) {
+	if r == nil {
+		return
+	}
+	r.backupsSucceeded.Add(context.Background(), 1, metric.WithAttributes(attribute.String("trigger", trigger)))
+	r.backupDuration.Record(context.Background(), seconds, metric.WithAttributes(attribute.String("trigger", trigger)))
+}
+
+// RecordBackupFailed increments the failure counter. trigger is "scheduled"
+// or "manual".
+func (r *Recorder) RecordBackupFailed(trigger string) {
+	if r == nil {
+		return
+	}
+	r.backupsFailed.Add(context.Background(), 1, metric.WithAttributes(attribute.String("trigger", trigger)))
 }

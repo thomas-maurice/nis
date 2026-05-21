@@ -68,6 +68,7 @@ func NewServer(
 	templateService *services.TemplateService,
 	permService *services.PermissionService,
 	jobService *services.JobService,
+	backupService *services.BackupService,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
 	mux := http.NewServeMux()
@@ -126,6 +127,14 @@ func NewServer(
 
 	jobHandler := handlers.NewJobHandler(jobService)
 	mux.Handle(nisv1connect.NewJobServiceHandler(jobHandler, interceptorOption))
+
+	// BackupHandler is wired unconditionally — when backupService is nil
+	// (backups.enabled=false) the handler short-circuits every RPC with
+	// FailedPrecondition. Keeping the route registered means a config flip
+	// doesn't require a restart for clients to start succeeding on the
+	// same address.
+	backupHandler := handlers.NewBackupHandler(backupService, operatorService, permService)
+	mux.Handle(nisv1connect.NewBackupServiceHandler(backupHandler, interceptorOption))
 
 	// /livez — process is alive. Always 200. Use this for k8s liveness probes.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
@@ -228,6 +237,7 @@ func NewServer(
 		nisv1connect.SearchServiceName,
 		nisv1connect.TemplateServiceName,
 		nisv1connect.JobServiceName,
+		nisv1connect.BackupServiceName,
 	)
 	reflectV1Path, reflectV1Handler := grpcreflect.NewHandlerV1(reflector)
 	reflectV1AlphaPath, reflectV1AlphaHandler := grpcreflect.NewHandlerV1Alpha(reflector)

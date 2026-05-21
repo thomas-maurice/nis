@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"time"
 )
@@ -21,6 +23,25 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.written += int64(n)
 	return n, err
+}
+
+// Flush delegates to the underlying writer when it supports http.Flusher.
+// Server-streaming RPCs (Connect's bidi-streaming reflection, the P12
+// BackupService.DownloadBackup) need Flush to push chunks before the
+// handler returns. Without this pass-through the connection would buffer
+// until close, breaking streaming semantics. Hijacker is forwarded for
+// the same reason — WebSocket-style upgrades depend on it.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // RequestLoggingMiddleware is an HTTP middleware that logs requests like Gin does

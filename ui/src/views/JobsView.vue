@@ -232,6 +232,8 @@ const KNOWN_JOB_TYPES = [
   'events.retention_sweep',
   'jobs.retention_sweep',
   'webhook.deliver',
+  'backup.sweep',
+  'backup.execute',
 ]
 
 // Hide JOB_STATUS_UNSPECIFIED from the picker (it's the proto zero-value
