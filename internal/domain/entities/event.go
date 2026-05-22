@@ -34,6 +34,14 @@ const (
 	EventTypeScopedKeyCreated     = "scoped_key.created"
 	EventTypeScopedKeyUpdated     = "scoped_key.updated"
 	EventTypeScopedKeyDeleted     = "scoped_key.deleted"
+	// EventTypeScopedKeyRotated is emitted by ScopedSigningKeyService.RotateScopedSigningKey
+	// after the rotation tx commits. Payload carries old/new public keys,
+	// the count of affected users, and the list of user public keys whose
+	// old JWTs were added to the parent account's revocation map. Per-user
+	// user.revoked events are also emitted (with payload.triggered_by =
+	// "ssk_rotation") so webhook subscribers filtering on user.revoked see
+	// rotation-induced revocations without resubscribing.
+	EventTypeScopedKeyRotated = "scoped_key.rotated"
 	EventTypeClusterCreated       = "cluster.created"
 	EventTypeClusterUpdated       = "cluster.updated"
 	EventTypeClusterDeleted       = "cluster.deleted"

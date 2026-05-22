@@ -254,11 +254,36 @@ run: build-all
 	@DATABASE_DRIVER=postgres DATABASE_DSN="$(RUN_PG_DSN)" \
 		./bin/nis user create admin --password admin123 --role admin >/dev/null 2>&1 \
 		|| echo "    (admin already exists)"
+	@echo "==> Checking for existing operator (auto-attach NATS to JWT mode if found)..."
+	@./bin/nisctl login http://localhost:8080 -u admin -p admin123 >/dev/null 2>&1 || true
+	@OP_NAME=$$(./bin/nisctl operator list -o json 2>/dev/null | grep '"name"' | head -1 | sed -E 's/.*"name": *"([^"]+)".*/\1/'); \
+	if [ -n "$$OP_NAME" ]; then \
+		echo "    found operator '$$OP_NAME' — restarting NATS in JWT mode"; \
+		./bin/nisctl operator generate-include "$$OP_NAME" > $(RUN_NATS_CONF); \
+		docker rm -f $(RUN_NATS_CONTAINER) >/dev/null 2>&1 || true; \
+		mkdir -p $(RUN_NATS_RESOLVER) $(RUN_NATS_JETSTREAM); \
+		docker run -d --name $(RUN_NATS_CONTAINER) \
+			-p 4222:4222 -p 8222:8222 \
+			-v $(abspath $(RUN_NATS_RESOLVER)):/resolver \
+			-v $(abspath $(RUN_NATS_JETSTREAM)):/data/jetstream \
+			-v $(abspath $(RUN_NATS_CONF)):/nats-server.conf:ro \
+			nats:2.10-alpine -c /nats-server.conf -m 8222 >/dev/null; \
+		until curl -sf http://localhost:8222/healthz >/dev/null 2>&1; do sleep 1; done; \
+		echo "    NATS now in JWT mode against operator '$$OP_NAME'"; \
+		echo "$$OP_NAME" > $(RUN_DIR)/operator_name; \
+	else \
+		echo "    no operator yet — NATS staying in open mode"; \
+		rm -f $(RUN_DIR)/operator_name; \
+	fi
 	@echo ""
 	@echo "✓ NIS dev stack ready"
 	@echo "  UI / API:  http://localhost:8080   (login: admin / admin123)"
 	@echo "  Postgres:  localhost:$(RUN_PG_PORT)  user=$(RUN_PG_USER) db=$(RUN_PG_DB)"
-	@echo "  NATS:      localhost:4222 (monitoring :8222)   JWT auth: DISABLED"
+	@if [ -s $(RUN_DIR)/operator_name ]; then \
+		echo "  NATS:      localhost:4222 (monitoring :8222)   JWT auth: ENABLED (operator $$(cat $(RUN_DIR)/operator_name))"; \
+	else \
+		echo "  NATS:      localhost:4222 (monitoring :8222)   JWT auth: DISABLED (run 'make run-demo' to bootstrap)"; \
+	fi
 	@echo "  MinIO:     localhost:$(RUN_MINIO_API_PORT) (console :$(RUN_MINIO_UI_PORT))   bucket=$(RUN_MINIO_BUCKET) user=$(RUN_MINIO_USER) pass=$(RUN_MINIO_PASS)"
 	@echo "  mc envrc:  $(RUN_ENVRC)   (source .envrc; mc ls nis_dev/$(RUN_MINIO_BUCKET))"
 	@echo "  Logs:      $(RUN_NIS_LOG)   (tail with: make run-logs)"
@@ -286,7 +311,7 @@ run-demo: run
 	@echo "==> Registering demo-cluster, app-account, app-user (idempotent)..."
 	@./bin/nisctl cluster create demo-cluster --operator demo-operator --urls nats://localhost:4222 >/dev/null 2>&1 || echo "    (cluster already exists)"
 	@./bin/nisctl account create app-account --operator demo-operator >/dev/null 2>&1 || echo "    (account already exists)"
-	@./bin/nisctl user create app-user --operator demo-operator --account app-account >/dev/null 2>&1 || echo "    (user already exists)"
+	@./bin/nisctl user create app-user --operator demo-operator --account app-account --scoped-key default >/dev/null 2>&1 || echo "    (user already exists)"
 	@./bin/nisctl cluster sync demo-cluster
 	@./bin/nisctl user creds app-user --operator demo-operator --account app-account > $(RUN_DEMO_CREDS)
 	@echo ""

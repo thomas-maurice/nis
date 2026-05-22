@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/internal/client"
@@ -160,11 +161,31 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("account not found: %w", err)
 	}
 
+	// Resolve --scoped-key: accept either a UUID (passed through) or a
+	// name (resolved via GetScopedSigningKeyByName). Names are the common
+	// case ("default" is auto-created per account) — requiring a UUID
+	// here made the demo's `nisctl user create ... --scoped-key default`
+	// fail with a parse error.
+	sskID := userScopedKeyID
+	if sskID != "" {
+		if _, err := uuid.Parse(sskID); err != nil {
+			lookup, err := GetClient().ScopedSigningKey.GetScopedSigningKeyByName(context.Background(),
+				connect.NewRequest(&nisv1.GetScopedSigningKeyByNameRequest{
+					AccountId: accountResp.Msg.Account.Id,
+					Name:      userScopedKeyID,
+				}))
+			if err != nil {
+				return fmt.Errorf("scoped signing key %q not found on account %q: %w", userScopedKeyID, userAccountID, err)
+			}
+			sskID = lookup.Msg.Key.Id
+		}
+	}
+
 	req := connect.NewRequest(&nisv1.CreateUserRequest{
 		AccountId:          accountResp.Msg.Account.Id,
 		Name:               name,
 		Description:        userDescription,
-		ScopedSigningKeyId: userScopedKeyID,
+		ScopedSigningKeyId: sskID,
 	})
 
 	// Note: Permissions are defined in the scoped signing key, not directly on the user

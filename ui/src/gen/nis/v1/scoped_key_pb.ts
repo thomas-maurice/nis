@@ -989,3 +989,192 @@ export class SetTrackLatestResponse extends Message<SetTrackLatestResponse> {
   }
 }
 
+/**
+ * RotateScopedSigningKeyRequest rotates the NKey material on an existing
+ * SSK. The SSK row keeps its ID/name/permissions/template binding; only
+ * public_key + the underlying seed change. Every active dependent user
+ * JWT is re-minted under the new key in the same tx, and the user's
+ * public key is added to the parent account JWT's revocation map so the
+ * old user JWTs are rejected by NATS. Plain-signer SSKs (NSC imports)
+ * are refused — NIS does not own those users' permissions and re-minting
+ * would over-permission them.
+ *
+ * @generated from message nis.v1.RotateScopedSigningKeyRequest
+ */
+export class RotateScopedSigningKeyRequest extends Message<RotateScopedSigningKeyRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * Free-text reason captured on each revocation row (prefixed with
+   * "ssk_rotation:<ssk_id>:"). Surfaces in the audit log + the P13
+   * Active JWT revocations panel.
+   *
+   * @generated from field: string reason = 2;
+   */
+  reason = "";
+
+  constructor(data?: PartialMessage<RotateScopedSigningKeyRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RotateScopedSigningKeyRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RotateScopedSigningKeyRequest {
+    return new RotateScopedSigningKeyRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RotateScopedSigningKeyRequest {
+    return new RotateScopedSigningKeyRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RotateScopedSigningKeyRequest {
+    return new RotateScopedSigningKeyRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RotateScopedSigningKeyRequest | PlainMessage<RotateScopedSigningKeyRequest> | undefined, b: RotateScopedSigningKeyRequest | PlainMessage<RotateScopedSigningKeyRequest> | undefined): boolean {
+    return proto3.util.equals(RotateScopedSigningKeyRequest, a, b);
+  }
+}
+
+/**
+ * ClusterPushOutcome reports whether the post-commit account-JWT push
+ * landed on a particular cluster. The rotation tx already committed, so
+ * a failed push leaves NIS-side state ahead of the resolver — the
+ * operator must re-sync (the drift dashboard also surfaces this).
+ *
+ * @generated from message nis.v1.ClusterPushOutcome
+ */
+export class ClusterPushOutcome extends Message<ClusterPushOutcome> {
+  /**
+   * @generated from field: string cluster_id = 1;
+   */
+  clusterId = "";
+
+  /**
+   * @generated from field: string cluster_name = 2;
+   */
+  clusterName = "";
+
+  /**
+   * @generated from field: bool ok = 3;
+   */
+  ok = false;
+
+  /**
+   * @generated from field: string error_message = 4;
+   */
+  errorMessage = "";
+
+  constructor(data?: PartialMessage<ClusterPushOutcome>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ClusterPushOutcome";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "cluster_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "cluster_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "ok", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ClusterPushOutcome {
+    return new ClusterPushOutcome().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ClusterPushOutcome {
+    return new ClusterPushOutcome().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ClusterPushOutcome {
+    return new ClusterPushOutcome().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ClusterPushOutcome | PlainMessage<ClusterPushOutcome> | undefined, b: ClusterPushOutcome | PlainMessage<ClusterPushOutcome> | undefined): boolean {
+    return proto3.util.equals(ClusterPushOutcome, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.RotateScopedSigningKeyResponse
+ */
+export class RotateScopedSigningKeyResponse extends Message<RotateScopedSigningKeyResponse> {
+  /**
+   * The SSK after rotation (new public_key + updated_at).
+   *
+   * @generated from field: nis.v1.ScopedSigningKey key = 1;
+   */
+  key?: ScopedSigningKey;
+
+  /**
+   * Public key of the SSK BEFORE rotation. Useful for audit + UI.
+   *
+   * @generated from field: string old_public_key = 2;
+   */
+  oldPublicKey = "";
+
+  /**
+   * Number of active users that had their JWTs re-minted under the
+   * new key.
+   *
+   * @generated from field: int32 affected_users = 3;
+   */
+  affectedUsers = 0;
+
+  /**
+   * Public keys of the users whose old JWTs were added to the parent
+   * account JWT's revocation map.
+   *
+   * @generated from field: repeated string revoked_user_public_keys = 4;
+   */
+  revokedUserPublicKeys: string[] = [];
+
+  /**
+   * Per-cluster outcome of the post-commit push. Order is unspecified.
+   *
+   * @generated from field: repeated nis.v1.ClusterPushOutcome push_outcomes = 5;
+   */
+  pushOutcomes: ClusterPushOutcome[] = [];
+
+  constructor(data?: PartialMessage<RotateScopedSigningKeyResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RotateScopedSigningKeyResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "key", kind: "message", T: ScopedSigningKey },
+    { no: 2, name: "old_public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "affected_users", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 4, name: "revoked_user_public_keys", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 5, name: "push_outcomes", kind: "message", T: ClusterPushOutcome, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RotateScopedSigningKeyResponse {
+    return new RotateScopedSigningKeyResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RotateScopedSigningKeyResponse {
+    return new RotateScopedSigningKeyResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RotateScopedSigningKeyResponse {
+    return new RotateScopedSigningKeyResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RotateScopedSigningKeyResponse | PlainMessage<RotateScopedSigningKeyResponse> | undefined, b: RotateScopedSigningKeyResponse | PlainMessage<RotateScopedSigningKeyResponse> | undefined): boolean {
+    return proto3.util.equals(RotateScopedSigningKeyResponse, a, b);
+  }
+}
+

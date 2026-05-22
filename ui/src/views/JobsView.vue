@@ -182,14 +182,12 @@
               <dd class="col-sm-9">{{ formatExact(selectedJob.lockedUntil) }}</dd>
             </dl>
 
-            <div v-if="selectedJob.lastError">
-              <label class="form-label fw-bold text-danger">Last error</label>
-              <pre class="bg-light p-3 rounded small">{{ selectedJob.lastError }}</pre>
+            <div v-if="selectedJob.lastError" class="mb-3">
+              <CodeBlock :content="selectedJob.lastError" label="Last error" :can-copy="true" />
             </div>
 
             <div v-if="selectedJob.payload && selectedJob.payload !== '{}'">
-              <label class="form-label fw-bold">Payload</label>
-              <pre class="bg-light p-3 rounded small">{{ prettyPayload(selectedJob.payload) }}</pre>
+              <CodeBlock :content="prettyPayload(selectedJob.payload)" label="Payload" :can-copy="true" />
             </div>
           </div>
           <div class="modal-footer">
@@ -224,6 +222,7 @@ import { ref, onMounted } from 'vue'
 import { jobClient } from '@/utils/clients'
 import { Timestamp } from '@bufbuild/protobuf'
 import { JobStatus } from '@/gen/nis/v1/job_pb'
+import CodeBlock from '@/components/CodeBlock.vue'
 
 // Keep this list in sync with services/job_handlers_retention.go +
 // future handler registrations. Used only to populate the filter

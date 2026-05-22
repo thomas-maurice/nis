@@ -465,6 +465,15 @@ func (c *fakeSSKClient) SetTrackLatest(_ context.Context, req *connect.Request[n
 	return nil, connect.NewError(connect.CodeNotFound, nil)
 }
 
+// RotateScopedSigningKey is unused by the manifest pipeline (rotation is
+// an explicit operator action, not a declarative apply target) — stub
+// returns Unimplemented so the interface contract is satisfied without
+// inventing fake behaviour the planner tests would never trigger.
+func (c *fakeSSKClient) RotateScopedSigningKey(_ context.Context, _ *connect.Request[nisv1.RotateScopedSigningKeyRequest]) (*connect.Response[nisv1.RotateScopedSigningKeyResponse], error) {
+	c.f.recordCall("RotateScopedSigningKey")
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
 // ---- cluster client ----
 
 type fakeClusterClient struct{ f *fakePlannerClient }

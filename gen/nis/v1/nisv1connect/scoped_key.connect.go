@@ -60,6 +60,9 @@ const (
 	// ScopedSigningKeyServiceSetTrackLatestProcedure is the fully-qualified name of the
 	// ScopedSigningKeyService's SetTrackLatest RPC.
 	ScopedSigningKeyServiceSetTrackLatestProcedure = "/nis.v1.ScopedSigningKeyService/SetTrackLatest"
+	// ScopedSigningKeyServiceRotateScopedSigningKeyProcedure is the fully-qualified name of the
+	// ScopedSigningKeyService's RotateScopedSigningKey RPC.
+	ScopedSigningKeyServiceRotateScopedSigningKeyProcedure = "/nis.v1.ScopedSigningKeyService/RotateScopedSigningKey"
 )
 
 // ScopedSigningKeyServiceClient is a client for the nis.v1.ScopedSigningKeyService service.
@@ -73,6 +76,7 @@ type ScopedSigningKeyServiceClient interface {
 	DeleteScopedSigningKey(context.Context, *connect.Request[v1.DeleteScopedSigningKeyRequest]) (*connect.Response[v1.DeleteScopedSigningKeyResponse], error)
 	DetachFromTemplate(context.Context, *connect.Request[v1.DetachFromTemplateRequest]) (*connect.Response[v1.DetachFromTemplateResponse], error)
 	SetTrackLatest(context.Context, *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error)
+	RotateScopedSigningKey(context.Context, *connect.Request[v1.RotateScopedSigningKeyRequest]) (*connect.Response[v1.RotateScopedSigningKeyResponse], error)
 }
 
 // NewScopedSigningKeyServiceClient constructs a client for the nis.v1.ScopedSigningKeyService
@@ -140,6 +144,12 @@ func NewScopedSigningKeyServiceClient(httpClient connect.HTTPClient, baseURL str
 			connect.WithSchema(scopedSigningKeyServiceMethods.ByName("SetTrackLatest")),
 			connect.WithClientOptions(opts...),
 		),
+		rotateScopedSigningKey: connect.NewClient[v1.RotateScopedSigningKeyRequest, v1.RotateScopedSigningKeyResponse](
+			httpClient,
+			baseURL+ScopedSigningKeyServiceRotateScopedSigningKeyProcedure,
+			connect.WithSchema(scopedSigningKeyServiceMethods.ByName("RotateScopedSigningKey")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -154,6 +164,7 @@ type scopedSigningKeyServiceClient struct {
 	deleteScopedSigningKey    *connect.Client[v1.DeleteScopedSigningKeyRequest, v1.DeleteScopedSigningKeyResponse]
 	detachFromTemplate        *connect.Client[v1.DetachFromTemplateRequest, v1.DetachFromTemplateResponse]
 	setTrackLatest            *connect.Client[v1.SetTrackLatestRequest, v1.SetTrackLatestResponse]
+	rotateScopedSigningKey    *connect.Client[v1.RotateScopedSigningKeyRequest, v1.RotateScopedSigningKeyResponse]
 }
 
 // CreateScopedSigningKey calls nis.v1.ScopedSigningKeyService.CreateScopedSigningKey.
@@ -201,6 +212,11 @@ func (c *scopedSigningKeyServiceClient) SetTrackLatest(ctx context.Context, req 
 	return c.setTrackLatest.CallUnary(ctx, req)
 }
 
+// RotateScopedSigningKey calls nis.v1.ScopedSigningKeyService.RotateScopedSigningKey.
+func (c *scopedSigningKeyServiceClient) RotateScopedSigningKey(ctx context.Context, req *connect.Request[v1.RotateScopedSigningKeyRequest]) (*connect.Response[v1.RotateScopedSigningKeyResponse], error) {
+	return c.rotateScopedSigningKey.CallUnary(ctx, req)
+}
+
 // ScopedSigningKeyServiceHandler is an implementation of the nis.v1.ScopedSigningKeyService
 // service.
 type ScopedSigningKeyServiceHandler interface {
@@ -213,6 +229,7 @@ type ScopedSigningKeyServiceHandler interface {
 	DeleteScopedSigningKey(context.Context, *connect.Request[v1.DeleteScopedSigningKeyRequest]) (*connect.Response[v1.DeleteScopedSigningKeyResponse], error)
 	DetachFromTemplate(context.Context, *connect.Request[v1.DetachFromTemplateRequest]) (*connect.Response[v1.DetachFromTemplateResponse], error)
 	SetTrackLatest(context.Context, *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error)
+	RotateScopedSigningKey(context.Context, *connect.Request[v1.RotateScopedSigningKeyRequest]) (*connect.Response[v1.RotateScopedSigningKeyResponse], error)
 }
 
 // NewScopedSigningKeyServiceHandler builds an HTTP handler from the service implementation. It
@@ -276,6 +293,12 @@ func NewScopedSigningKeyServiceHandler(svc ScopedSigningKeyServiceHandler, opts 
 		connect.WithSchema(scopedSigningKeyServiceMethods.ByName("SetTrackLatest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	scopedSigningKeyServiceRotateScopedSigningKeyHandler := connect.NewUnaryHandler(
+		ScopedSigningKeyServiceRotateScopedSigningKeyProcedure,
+		svc.RotateScopedSigningKey,
+		connect.WithSchema(scopedSigningKeyServiceMethods.ByName("RotateScopedSigningKey")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.ScopedSigningKeyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ScopedSigningKeyServiceCreateScopedSigningKeyProcedure:
@@ -296,6 +319,8 @@ func NewScopedSigningKeyServiceHandler(svc ScopedSigningKeyServiceHandler, opts 
 			scopedSigningKeyServiceDetachFromTemplateHandler.ServeHTTP(w, r)
 		case ScopedSigningKeyServiceSetTrackLatestProcedure:
 			scopedSigningKeyServiceSetTrackLatestHandler.ServeHTTP(w, r)
+		case ScopedSigningKeyServiceRotateScopedSigningKeyProcedure:
+			scopedSigningKeyServiceRotateScopedSigningKeyHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -339,4 +364,8 @@ func (UnimplementedScopedSigningKeyServiceHandler) DetachFromTemplate(context.Co
 
 func (UnimplementedScopedSigningKeyServiceHandler) SetTrackLatest(context.Context, *connect.Request[v1.SetTrackLatestRequest]) (*connect.Response[v1.SetTrackLatestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ScopedSigningKeyService.SetTrackLatest is not implemented"))
+}
+
+func (UnimplementedScopedSigningKeyServiceHandler) RotateScopedSigningKey(context.Context, *connect.Request[v1.RotateScopedSigningKeyRequest]) (*connect.Response[v1.RotateScopedSigningKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.ScopedSigningKeyService.RotateScopedSigningKey is not implemented"))
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -531,6 +532,124 @@ func (s *ClusterService) PushAccountToAllClusters(ctx context.Context, operatorI
 		}
 	}
 	return errs
+}
+
+// ClusterPushOutcome carries a per-cluster outcome for PushAccountToAllClustersDetailed.
+// OK=true means the account JWT was successfully pushed to that cluster. OK=false
+// + non-empty ErrorMessage means the push attempt failed (cluster open, decrypt,
+// or NATS publish error). OK=false + empty ErrorMessage means the push was skipped
+// (cluster has no system credentials configured). The DB is the source of truth;
+// callers surface these outcomes so operators see partial-success state in the
+// triggering RPC's response (rather than only in the drift dashboard).
+type ClusterPushOutcome struct {
+	ClusterID    uuid.UUID
+	ClusterName  string
+	OK           bool
+	ErrorMessage string
+}
+
+// PushAccountToAllClustersDetailed pushes the account JWT to every cluster
+// attached to the operator and returns one structured outcome per cluster.
+// Same semantics as PushAccountToAllClusters (per-cluster failures do not
+// short-circuit), but the caller gets a per-cluster verdict instead of just
+// the failures.
+//
+// Used by RotateScopedSigningKey (P3) so the operator sees lagging clusters
+// inline in the rotation response instead of having to cross-reference the
+// drift dashboard.
+//
+// Confirmed-unhealthy clusters (LastHealthCheck != nil && !Healthy) are
+// short-circuited with the last health-check error attached — mirrors the
+// P9/P10 pattern. The fresh-cluster window (Healthy=false but never
+// health-checked yet) is NOT short-circuited; those get an actual push
+// attempt.
+func (s *ClusterService) PushAccountToAllClustersDetailed(ctx context.Context, operatorID uuid.UUID, account *entities.Account) []ClusterPushOutcome {
+	if account == nil || account.JWT == "" {
+		return nil
+	}
+	clusters, err := s.repo.ListByOperator(ctx, operatorID, repositories.ListOptions{Limit: 1000})
+	if err != nil {
+		// One synthetic outcome carrying the list error. Operator sees
+		// "couldn't enumerate clusters" instead of an empty result that
+		// would (wrongly) imply "no clusters attached".
+		return []ClusterPushOutcome{{
+			ErrorMessage: fmt.Sprintf("list clusters for operator %s: %v", operatorID, err),
+		}}
+	}
+	outcomes := make([]ClusterPushOutcome, 0, len(clusters))
+	for _, cluster := range clusters {
+		if cluster.EncryptedCreds == "" {
+			outcomes = append(outcomes, ClusterPushOutcome{
+				ClusterID:    cluster.ID,
+				ClusterName:  cluster.Name,
+				OK:           false,
+				ErrorMessage: "cluster has no system credentials configured; set creds first",
+			})
+			continue
+		}
+		// Confirmed-unhealthy short-circuit — same gate the P9 drift
+		// scan uses. A cluster whose last health probe failed will
+		// almost certainly fail this push for the same underlying
+		// reason (resolver not configured, network unreachable, stale
+		// creds). Skip with the last health-check error so the
+		// operator immediately sees "this is a pre-existing cluster
+		// problem, not a rotation problem."
+		if cluster.LastHealthCheck != nil && !cluster.Healthy {
+			msg := "cluster is unhealthy; resolve cluster connectivity first (`nisctl cluster get`)"
+			if cluster.HealthCheckError != "" {
+				msg = fmt.Sprintf("cluster is unhealthy: %s", cluster.HealthCheckError)
+			}
+			outcomes = append(outcomes, ClusterPushOutcome{
+				ClusterID:    cluster.ID,
+				ClusterName:  cluster.Name,
+				OK:           false,
+				ErrorMessage: msg,
+			})
+			continue
+		}
+		natsClient, _, openErr := s.openManagedCluster(ctx, cluster.ID)
+		if openErr != nil {
+			outcomes = append(outcomes, ClusterPushOutcome{
+				ClusterID:    cluster.ID,
+				ClusterName:  cluster.Name,
+				OK:           false,
+				ErrorMessage: fmt.Sprintf("open cluster: %v", openErr),
+			})
+			continue
+		}
+		pushErr := natsClient.PushAccountJWT(ctx, account)
+		_ = natsClient.Close()
+		if pushErr != nil {
+			outcomes = append(outcomes, ClusterPushOutcome{
+				ClusterID:    cluster.ID,
+				ClusterName:  cluster.Name,
+				OK:           false,
+				ErrorMessage: friendlyPushError(pushErr),
+			})
+			continue
+		}
+		outcomes = append(outcomes, ClusterPushOutcome{
+			ClusterID:   cluster.ID,
+			ClusterName: cluster.Name,
+			OK:          true,
+		})
+	}
+	return outcomes
+}
+
+// friendlyPushError wraps the raw NATS push error with operator-actionable
+// context for the common gotchas. The most confusing one is `nats: no
+// responders available for request` against `$SYS.REQ.CLAIMS.UPDATE` —
+// that's almost always "NATS is running but it's not configured as a JWT
+// resolver" (e.g. open-mode dev container, missing `resolver: full` block
+// in nats-server.conf). Without this hint the operator stares at a
+// generic NATS protocol error.
+func friendlyPushError(err error) string {
+	raw := err.Error()
+	if strings.Contains(raw, "no responders available") {
+		return "push account JWT: " + raw + " — NATS responded but no resolver was listening on $SYS.REQ.CLAIMS.UPDATE; the cluster is likely running without a JWT resolver block in its config. Regenerate with `nisctl operator generate-include` and restart NATS with that config."
+	}
+	return "push account JWT: " + raw
 }
 
 // openManagedCluster fetches a cluster, decrypts its system credentials, and opens a NATS

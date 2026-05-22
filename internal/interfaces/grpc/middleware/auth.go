@@ -242,7 +242,7 @@ func extractAction(method string) string {
 		// a job without the ability to remove it.
 		return "delete"
 	}
-	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") {
+	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") || strings.HasPrefix(method, "rotate") {
 		// P6 template ops: applying a template version, bumping an SSK to
 		// a new version, detaching from a template, or toggling
 		// track_latest all mutate the SSK's binding/perm columns and
@@ -253,6 +253,12 @@ func extractAction(method string) string {
 		// P12 RunOperatorBackup → "update": triggering a backup mints an
 		// S3 object + DB row; gating it on Casbin's `backup.update` rather
 		// than `read` matches its actual blast radius.
+		//
+		// P3 RotateScopedSigningKey → "update": rotation replaces an SSK's
+		// key material + re-mints every dependent user JWT + adds revocations
+		// to the parent account JWT. Without this prefix, "rotate*" falls
+		// through to "read" and every role that can read the SSK could
+		// rotate it — silent privilege escalation.
 		return "update"
 	}
 	if strings.HasPrefix(method, "get") || strings.HasPrefix(method, "list") {

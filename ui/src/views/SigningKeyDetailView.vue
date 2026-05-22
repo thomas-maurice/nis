@@ -166,6 +166,129 @@
           </div>
         </div>
       </div>
+
+      <!-- P3 — Key rotation. The "danger zone" panel sits at the bottom
+           so it doesn't compete with the regular metadata. Hidden for
+           plain-signer SSKs (NSC imports) because the service refuses
+           to rotate those in v1. -->
+      <div v-if="!signingKey.isPlainSigner" class="card border-danger mt-4">
+        <div class="card-header bg-danger text-white d-flex align-items-center">
+          <font-awesome-icon :icon="['fas', 'circle-exclamation']" class="me-2" />
+          <h5 class="mb-0">Rotate key (incident response)</h5>
+        </div>
+        <div class="card-body">
+          <p class="mb-2">
+            Replace this SSK's NKey material. All dependent users get re-issued
+            JWTs under the new key, and the OLD JWTs are added to the parent
+            account's revocation map.
+          </p>
+          <p class="text-danger small mb-3">
+            <strong>Every existing .creds for users under this SSK stops working immediately.</strong>
+            Dependent services must be reissued credentials (use the User detail
+            page's "Get credentials" link for each).
+          </p>
+          <button
+            class="btn btn-danger"
+            :disabled="rotating"
+            @click="openRotateModal"
+          >
+            <font-awesome-icon :icon="['fas', 'rotate']" class="me-1" />
+            {{ rotating ? 'Rotating...' : 'Rotate this signing key' }}
+          </button>
+
+          <!-- Result panel — surfaces post-rotation lag explicitly so
+               the operator sees which clusters need a manual sync. -->
+          <div v-if="rotateResult" class="mt-3 alert alert-success" role="alert">
+            <h6 class="mb-2">Rotation complete</h6>
+            <dl class="row mb-2">
+              <dt class="col-sm-4">Old public key:</dt>
+              <dd class="col-sm-8"><code>{{ rotateResult.oldPublicKey }}</code></dd>
+              <dt class="col-sm-4">New public key:</dt>
+              <dd class="col-sm-8"><code>{{ rotateResult.key.publicKey }}</code></dd>
+            </dl>
+            <div v-if="rotateResult.affectedUsers > 0" class="mb-2">
+              <strong>{{ rotateResult.affectedUsers }} user JWT(s) re-issued under the new key:</strong>
+              <ul class="small mb-0 mt-1">
+                <li v-for="pk in rotateResult.revokedUserPublicKeys" :key="pk">
+                  <code>{{ pk }}</code>
+                </li>
+              </ul>
+            </div>
+            <div v-else class="mb-2 small">
+              <strong>No user JWTs were re-issued</strong> — no users on this account are bound to
+              this SSK. Users created without an explicit <code>--scoped-key</code> are signed by
+              the account's main key directly and aren't affected by SSK rotation.
+            </div>
+            <div v-if="laggingClusters.length > 0" class="alert alert-warning mt-2 mb-0">
+              <font-awesome-icon :icon="['fas', 'circle-exclamation']" class="me-1" />
+              <strong>{{ laggingClusters.length }} cluster(s) didn't receive the push.</strong>
+              Old credentials still work against:
+              <ul class="mb-0 mt-1">
+                <li v-for="c in laggingClusters" :key="c.clusterId">
+                  {{ c.clusterName || c.clusterId }}<span v-if="c.errorMessage"> — {{ c.errorMessage }}</span>
+                </li>
+              </ul>
+              <p class="mb-0 mt-2 small">
+                Re-sync each cluster (Cluster detail → Sync) to reconcile.
+              </p>
+            </div>
+            <div
+              v-else-if="rotateResult.pushOutcomes && rotateResult.pushOutcomes.length > 0"
+              class="small text-muted mt-2"
+            >
+              All {{ rotateResult.pushOutcomes.length }} cluster(s) received the new account JWT.
+            </div>
+          </div>
+          <div v-if="rotateError" class="mt-3 alert alert-danger" role="alert">
+            <strong>Rotation failed:</strong> {{ rotateError }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Rotation confirmation modal -->
+      <div v-if="rotateModalOpen" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+              <h5 class="modal-title">
+                <font-awesome-icon :icon="['fas', 'circle-exclamation']" class="me-2" />
+                Confirm SSK rotation
+              </h5>
+              <button type="button" class="btn-close btn-close-white" @click="closeRotateModal" :disabled="rotating"></button>
+            </div>
+            <div class="modal-body">
+              <p>
+                You are about to rotate <strong>{{ signingKey.name }}</strong>.
+                Every dependent user .creds will stop working immediately.
+              </p>
+              <div class="mb-3">
+                <label for="rotateReason" class="form-label">Reason (optional)</label>
+                <textarea
+                  id="rotateReason"
+                  v-model="rotateReason"
+                  class="form-control"
+                  rows="2"
+                  placeholder="e.g. suspected key leak via repo commit 2026-05-22"
+                ></textarea>
+                <div class="form-text">Captured on each revocation row and the audit event.</div>
+              </div>
+              <p class="text-muted small mb-0">
+                This action cannot be undone. Operators must distribute new
+                credentials to every dependent service.
+              </p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeRotateModal" :disabled="rotating">
+                Cancel
+              </button>
+              <button type="button" class="btn btn-danger" @click="handleRotate" :disabled="rotating">
+                <font-awesome-icon :icon="['fas', 'rotate']" class="me-1" />
+                {{ rotating ? 'Rotating...' : 'Rotate now' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -199,6 +322,52 @@ const detaching = ref(false)
 const trackToggling = ref(false)
 const loading = ref(false)
 const error = ref('')
+
+// P3 rotation state.
+const rotateModalOpen = ref(false)
+const rotateReason = ref('')
+const rotating = ref(false)
+const rotateResult = ref(null)
+const rotateError = ref('')
+
+const laggingClusters = computed(() => {
+  return (rotateResult.value?.pushOutcomes || []).filter((po) => !po.ok)
+})
+
+const openRotateModal = () => {
+  rotateReason.value = ''
+  rotateError.value = ''
+  rotateModalOpen.value = true
+}
+
+const closeRotateModal = () => {
+  if (rotating.value) return
+  rotateModalOpen.value = false
+}
+
+const handleRotate = async () => {
+  if (!signingKey.value?.id) return
+  rotating.value = true
+  rotateError.value = ''
+  try {
+    const resp = await apiClient.post('/nis.v1.ScopedSigningKeyService/RotateScopedSigningKey', {
+      id: signingKey.value.id,
+      reason: rotateReason.value,
+    })
+    rotateResult.value = resp.data
+    // The SSK row now carries the new pubkey + updated_at — refresh
+    // the detail view's primary record so the page header and key
+    // fields stay in sync with reality.
+    if (resp.data?.key) {
+      signingKey.value = resp.data.key
+    }
+    rotateModalOpen.value = false
+  } catch (err) {
+    rotateError.value = err.response?.data?.message || err.message || 'Failed to rotate signing key'
+  } finally {
+    rotating.value = false
+  }
+}
 
 const templateOutdated = computed(() => {
   if (!template.value || !signingKey.value?.templateVersion) return false

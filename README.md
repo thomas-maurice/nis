@@ -303,6 +303,59 @@ jwt_policy:
   sweep_batch_limit: 500
 ```
 
+### Scoped signing key rotation (P3)
+
+When a scoped signing key (SSK) is suspected compromised — leaked seed,
+operator turnover, audit finding — rotate its NKey material in one shot.
+Rotation:
+
+1. Generates a new NKey pair for the SSK; the SSK row keeps its ID, name,
+   permissions, template binding, and any drift flags. Only `public_key`
+   and the encrypted seed change.
+2. Re-mints every active dependent user's JWT under the new key.
+3. Adds each dependent user's NATS public key to the parent account JWT's
+   `Revocations` map with `revoked_at = now - 1s`, so the freshly-minted
+   user JWTs (iat ≥ now) are accepted while the OLD JWTs are rejected.
+   *(The 1-second backdate is mandatory because jwt v2's revocation check
+   is `iat >= revoked_at` — without it, mints inside the same Unix second
+   as the revocation moment would be born-revoked.)*
+4. Re-signs the parent account JWT, pushing it to every attached cluster.
+
+After rotation completes, **every existing `.creds` for users under the
+rotated SSK stops working immediately**. Operators must distribute fresh
+`.creds` (`nisctl user creds NAME ...`).
+
+```bash
+nisctl signing-key rotate KEY_ID --reason "leaked-in-repo-2026-05-22"
+# UI: Signing keys → <key> → "Rotate key" card → confirm.
+```
+
+The RPC response (and CLI output) includes per-cluster push outcomes.
+Clusters that lagged the push are named explicitly — the operator must
+run `nisctl cluster sync <CLUSTER>` against each one to reconcile. The P9
+sync drift dashboard also surfaces lag.
+
+**Limitations in v1:**
+
+- **Operator NKey** and **account main NKey** rotation are NOT supported.
+  Operator pubkey is baked into every cluster's `nats-server.conf` via
+  `operator <jwt>`; rotating it requires a coordinated cluster-config
+  redeploy outside NIS. Account pubkey is a subject component
+  (`$SYS.REQ.ACCOUNT.<accountPublicKey>.JSZ`) and the IssuerAccount on
+  every user JWT under it — "rotating" it is operationally equivalent to
+  creating a new account.
+- **Plain-signer SSKs from NSC imports are refused** with
+  `FailedPrecondition`. NIS doesn't own the permissions baked into those
+  imported user JWTs; re-minting them with NATS-default perms would
+  silently over-permission. Operator-facing path for these is to create
+  a new NIS-native SSK and migrate users to it, then delete the imported
+  SSK.
+
+The rotation reason is captured as `ssk_rotation:<ssk_id>:<your text>` on
+each `user_jwt_revocations` row, which the **Active JWT revocations**
+panel surfaces — making rotation-induced revocations distinguishable
+from individual operator-driven revokes.
+
 ## Events & Webhooks
 
 Every mutation through NIS (create/update/delete on operators, accounts, users, scoped keys, clusters; cluster sync; cluster health transitions) is appended to a durable **events table** in the same transaction as the state change. Operators can subscribe HTTP endpoints to receive HMAC-signed POSTs when events fire. Used for audit trails, Slack/PagerDuty notifications, downstream cache invalidation.
@@ -315,6 +368,7 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `account.created` / `account.updated` / `account.deleted` | Account lifecycle (incl. JetStream limit changes) |
 | `user.created` / `user.updated` / `user.deleted` | User lifecycle |
 | `scoped_key.created` / `scoped_key.updated` / `scoped_key.deleted` | Signing-key lifecycle |
+| `scoped_key.rotated` | Operator rotated an SSK's NKey material (P3). Payload carries old/new public keys, affected user count, and the list of revoked user public keys. Per-user `user.revoked` events are also emitted with `payload.triggered_by = "ssk_rotation"`. |
 | `cluster.created` / `cluster.updated` / `cluster.deleted` | Cluster lifecycle |
 | `cluster.synced` / `cluster.sync_failed` | Each `SyncCluster` call |
 | `cluster.account.synced` | `ReconcileAccountOnCluster` pushed a single account's JWT to one cluster (P9 drift fix) |

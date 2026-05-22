@@ -169,6 +169,48 @@ message SetTrackLatestResponse {
   ScopedSigningKey key = 1;
 }
 
+// RotateScopedSigningKeyRequest rotates the NKey material on an existing
+// SSK. The SSK row keeps its ID/name/permissions/template binding; only
+// public_key + the underlying seed change. Every active dependent user
+// JWT is re-minted under the new key in the same tx, and the user's
+// public key is added to the parent account JWT's revocation map so the
+// old user JWTs are rejected by NATS. Plain-signer SSKs (NSC imports)
+// are refused — NIS does not own those users' permissions and re-minting
+// would over-permission them.
+message RotateScopedSigningKeyRequest {
+  string id = 1;
+  // Free-text reason captured on each revocation row (prefixed with
+  // "ssk_rotation:<ssk_id>:"). Surfaces in the audit log + the P13
+  // Active JWT revocations panel.
+  string reason = 2;
+}
+
+// ClusterPushOutcome reports whether the post-commit account-JWT push
+// landed on a particular cluster. The rotation tx already committed, so
+// a failed push leaves NIS-side state ahead of the resolver — the
+// operator must re-sync (the drift dashboard also surfaces this).
+message ClusterPushOutcome {
+  string cluster_id = 1;
+  string cluster_name = 2;
+  bool ok = 3;
+  string error_message = 4;
+}
+
+message RotateScopedSigningKeyResponse {
+  // The SSK after rotation (new public_key + updated_at).
+  ScopedSigningKey key = 1;
+  // Public key of the SSK BEFORE rotation. Useful for audit + UI.
+  string old_public_key = 2;
+  // Number of active users that had their JWTs re-minted under the
+  // new key.
+  int32 affected_users = 3;
+  // Public keys of the users whose old JWTs were added to the parent
+  // account JWT's revocation map.
+  repeated string revoked_user_public_keys = 4;
+  // Per-cluster outcome of the post-commit push. Order is unspecified.
+  repeated ClusterPushOutcome push_outcomes = 5;
+}
+
 // ScopedSigningKeyService manages scoped signing keys
 service ScopedSigningKeyService {
   rpc CreateScopedSigningKey(CreateScopedSigningKeyRequest) returns (CreateScopedSigningKeyResponse);
@@ -180,4 +222,5 @@ service ScopedSigningKeyService {
   rpc DeleteScopedSigningKey(DeleteScopedSigningKeyRequest) returns (DeleteScopedSigningKeyResponse);
   rpc DetachFromTemplate(DetachFromTemplateRequest) returns (DetachFromTemplateResponse);
   rpc SetTrackLatest(SetTrackLatestRequest) returns (SetTrackLatestResponse);
+  rpc RotateScopedSigningKey(RotateScopedSigningKeyRequest) returns (RotateScopedSigningKeyResponse);
 }

@@ -99,6 +99,35 @@ to dependent SSKs.`,
 var signingKeyBumpTargetVersion int
 var signingKeyTrackLatestEnabled bool
 
+var (
+	signingKeyRotateReason string
+	signingKeyRotateYes    bool
+)
+
+var signingKeyRotateCmd = &cobra.Command{
+	Use:   "rotate ID",
+	Short: "Rotate the NKey material on a scoped signing key",
+	Long: `Replace the SSK's NKey pair and invalidate every dependent
+user's existing JWT. Inside one transaction NIS generates a new keypair,
+re-signs every dependent user JWT under the new key, adds revocations
+for the OLD user public keys to the parent account JWT, and re-signs
+the account JWT. The new account JWT is then pushed to every attached
+cluster (best-effort; per-cluster outcomes are reported in the output).
+
+After rotation:
+  * All existing .creds for users under this SSK STOP WORKING IMMEDIATELY.
+  * Operators must distribute new .creds to dependent services
+    (` + "`nisctl user creds NAME ...`" + ` produces them).
+  * Any cluster that didn't receive the post-commit push will keep
+    accepting old creds until ` + "`nisctl cluster sync`" + ` reconciles it
+    (the rotate output names lagging clusters explicitly).
+
+Plain-signer SSKs (from NSC imports) are refused — NIS doesn't own the
+permissions baked into their dependent users' JWTs.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSigningKeyRotate,
+}
+
 var signingKeyTrackLatestCmd = &cobra.Command{
 	Use:   "track-latest ID",
 	Short: "Enable or disable auto-tracking of the bound template's latest version",
@@ -147,6 +176,9 @@ func init() {
 	signingKeyCmd.AddCommand(signingKeyDetachTemplateCmd)
 	signingKeyCmd.AddCommand(signingKeyBumpTemplateCmd)
 	signingKeyCmd.AddCommand(signingKeyTrackLatestCmd)
+	signingKeyCmd.AddCommand(signingKeyRotateCmd)
+	signingKeyRotateCmd.Flags().StringVar(&signingKeyRotateReason, "reason", "", "free-text reason captured on each revocation row and the audit event")
+	signingKeyRotateCmd.Flags().BoolVarP(&signingKeyRotateYes, "yes", "y", false, "skip the confirmation prompt")
 	signingKeyTrackLatestCmd.Flags().BoolVar(&signingKeyTrackLatestEnabled, "enabled", true, "true to enable tracking, false to disable")
 
 	signingKeyCreateCmd.Flags().StringVar(&signingKeyOperatorID, "operator", "", "operator ID or name (required)")
@@ -567,6 +599,83 @@ func runSigningKeyBumpTemplate(cmd *cobra.Command, args []string) error {
 	}
 	printer.PrintSuccess("Scoped signing key '%s' bumped to template version %d", resp.Msg.Key.Name, resp.Msg.Key.TemplateVersion)
 	return printer.PrintObject(resp.Msg.Key)
+}
+
+func runSigningKeyRotate(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	printer := client.NewPrinter(GetOutputFormat())
+
+	// Look up the SSK first so we can show name + perm scope in the
+	// confirmation prompt and surface PreconditionFailed (plain-signer
+	// refusal) without making the user wait through the rotate call.
+	getResp, err := GetClient().ScopedSigningKey.GetScopedSigningKey(context.Background(),
+		connect.NewRequest(&nisv1.GetScopedSigningKeyRequest{Id: id}))
+	if err != nil {
+		return fmt.Errorf("failed to look up scoped signing key: %w", err)
+	}
+
+	if !signingKeyRotateYes && GetOutputFormat() != "quiet" {
+		fmt.Printf("WARNING: rotating SSK %q will invalidate every user .creds signed by it.\n", getResp.Msg.Key.Name)
+		fmt.Println("         All dependent services must be reissued new credentials immediately.")
+		if !client.Confirm("Proceed with rotation?") {
+			printer.PrintMessage("Rotation cancelled")
+			return nil
+		}
+	}
+
+	resp, err := GetClient().ScopedSigningKey.RotateScopedSigningKey(context.Background(),
+		connect.NewRequest(&nisv1.RotateScopedSigningKeyRequest{
+			Id:     id,
+			Reason: signingKeyRotateReason,
+		}))
+	if err != nil {
+		return fmt.Errorf("failed to rotate scoped signing key: %w", err)
+	}
+
+	if GetOutputFormat() == "quiet" {
+		printer.PrintID(resp.Msg.Key.Id)
+		return nil
+	}
+	if GetOutputFormat() == "json" || GetOutputFormat() == "yaml" {
+		return printer.PrintObject(resp.Msg)
+	}
+
+	printer.PrintSuccess("Scoped signing key '%s' rotated", resp.Msg.Key.Name)
+	fmt.Printf("  Old public key: %s\n", resp.Msg.OldPublicKey)
+	fmt.Printf("  New public key: %s\n", resp.Msg.Key.PublicKey)
+	fmt.Printf("  Affected users: %d\n", resp.Msg.AffectedUsers)
+	if len(resp.Msg.RevokedUserPublicKeys) > 0 {
+		fmt.Println("  Revoked user public keys:")
+		for _, pk := range resp.Msg.RevokedUserPublicKeys {
+			fmt.Printf("    %s\n", pk)
+		}
+	}
+
+	// Push outcomes — surface lag explicitly. The DB committed already;
+	// any non-OK cluster is now ahead of the resolver and the operator
+	// must reconcile (drift dashboard also surfaces this).
+	if len(resp.Msg.PushOutcomes) > 0 {
+		var lagging []string
+		fmt.Println("  Cluster pushes:")
+		for _, po := range resp.Msg.PushOutcomes {
+			status := "ok"
+			if !po.Ok {
+				status = "FAILED"
+				lagging = append(lagging, po.ClusterName)
+			}
+			line := fmt.Sprintf("    %-30s %s", po.ClusterName, status)
+			if po.ErrorMessage != "" {
+				line = fmt.Sprintf("%s  (%s)", line, po.ErrorMessage)
+			}
+			fmt.Println(line)
+		}
+		if len(lagging) > 0 {
+			fmt.Printf("  WARNING: %d cluster(s) lag the new account JWT: %s\n",
+				len(lagging), strings.Join(lagging, ", "))
+			fmt.Println("           Run `nisctl cluster sync <CLUSTER>` to reconcile each one.")
+		}
+	}
+	return nil
 }
 
 func runSigningKeyTrackLatest(cmd *cobra.Command, args []string) error {

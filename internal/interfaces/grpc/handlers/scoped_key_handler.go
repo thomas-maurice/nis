@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"connectrpc.com/connect"
@@ -400,5 +401,60 @@ func (h *ScopedSigningKeyHandler) SetTrackLatest(
 	}
 	return connect.NewResponse(&pb.SetTrackLatestResponse{
 		Key: mappers.ScopedSigningKeyToProto(updated),
+	}), nil
+}
+
+// RotateScopedSigningKey rotates the NKey material on an existing SSK.
+// Authority: CanUpdateAccount on the SSK's parent (admin, operator-admin
+// owning the operator, account-admin owning the account) — same level
+// required to mutate the SSK itself. The Casbin layer maps `Rotate*` to
+// `update` via the extractAction prefix list; per-row scoping happens
+// here.
+//
+// Plain-signer SSKs (NSC imports where NIS does not own the dependent
+// users' permissions) are refused at the service layer with
+// ErrSSKPlainSignerRotation; surfaced here as FailedPrecondition.
+func (h *ScopedSigningKeyHandler) RotateScopedSigningKey(
+	ctx context.Context,
+	req *connect.Request[pb.RotateScopedSigningKeyRequest],
+) (*connect.Response[pb.RotateScopedSigningKeyResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	existing, err := h.service.GetScopedSigningKey(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	if err := h.permService.CanUpdateAccount(ctx, requestingUser, existing.AccountID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	result, err := h.service.RotateScopedSigningKey(ctx, id, req.Msg.Reason)
+	if err != nil {
+		if errors.Is(err, services.ErrSSKPlainSignerRotation) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		return nil, repoErrToConnect(err)
+	}
+
+	outcomes := make([]*pb.ClusterPushOutcome, 0, len(result.PushOutcomes))
+	for _, po := range result.PushOutcomes {
+		outcomes = append(outcomes, &pb.ClusterPushOutcome{
+			ClusterId:    po.ClusterID.String(),
+			ClusterName:  po.ClusterName,
+			Ok:           po.OK,
+			ErrorMessage: po.ErrorMessage,
+		})
+	}
+	return connect.NewResponse(&pb.RotateScopedSigningKeyResponse{
+		Key:                   mappers.ScopedSigningKeyToProto(result.ScopedSigningKey),
+		OldPublicKey:          result.OldPublicKey,
+		AffectedUsers:         int32(result.AffectedUsers),
+		RevokedUserPublicKeys: result.RevokedUserPublicKeys,
+		PushOutcomes:          outcomes,
 	}), nil
 }
