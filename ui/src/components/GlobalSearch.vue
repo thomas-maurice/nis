@@ -72,6 +72,9 @@
             @click="close"
           >
             <strong>{{ a.name }}</strong>
+            <span v-if="operatorNameForOp(a.operatorId)" class="operator-badge">
+              {{ operatorNameForOp(a.operatorId) }}
+            </span>
             <span class="text-muted small ms-2">{{ shortKey(a.publicKey) }}</span>
           </router-link>
           <div v-if="results.accounts.length > maxRowsPerSection" class="search-more">
@@ -92,6 +95,9 @@
             @click="close"
           >
             <strong>{{ u.name }}</strong>
+            <span v-if="operatorNameForAcc(u.accountId)" class="operator-badge">
+              {{ operatorNameForAcc(u.accountId) }}
+            </span>
             <span class="text-muted small ms-2">{{ shortKey(u.publicKey) }}</span>
           </router-link>
           <div v-if="results.users.length > maxRowsPerSection" class="search-more">
@@ -112,6 +118,9 @@
             @click="close"
           >
             <strong>{{ k.name }}</strong>
+            <span v-if="operatorNameForAcc(k.accountId)" class="operator-badge">
+              {{ operatorNameForAcc(k.accountId) }}
+            </span>
             <span class="text-muted small ms-2">{{ shortKey(k.publicKey) }}</span>
           </router-link>
           <div v-if="results.scopedSigningKeys.length > maxRowsPerSection" class="search-more">
@@ -132,6 +141,9 @@
             @click="close"
           >
             <strong>{{ c.name }}</strong>
+            <span v-if="operatorNameForOp(c.operatorId)" class="operator-badge">
+              {{ operatorNameForOp(c.operatorId) }}
+            </span>
             <span class="text-muted small ms-2">{{ (c.serverUrls || []).join(', ') }}</span>
           </router-link>
           <div v-if="results.clusters.length > maxRowsPerSection" class="search-more">
@@ -181,8 +193,20 @@ function visible(list) {
 
 function shortKey(k) {
   if (!k) return ''
-  if (k.length <= 14) return k
-  return k.slice(0, 8) + '…' + k.slice(-4)
+  if (k.length <= 24) return k
+  return k.slice(0, 14) + '…' + k.slice(-6)
+}
+
+function operatorNameForOp(operatorId) {
+  if (!operatorId || !results.value) return ''
+  return results.value.operatorNames?.[operatorId] || ''
+}
+
+function operatorNameForAcc(accountId) {
+  if (!accountId || !results.value) return ''
+  const opId = results.value.accountOperators?.[accountId]
+  if (!opId) return ''
+  return results.value.operatorNames?.[opId] || ''
 }
 
 function onInput() {
@@ -251,21 +275,22 @@ watch(() => route.fullPath, () => {
 
 <style scoped>
 .global-search {
-  width: 320px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 22vw;
 }
 
 .search-dropdown {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  right: 0;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 0.375rem;
   z-index: 1050;
   max-height: 70vh;
   overflow-y: auto;
+  width: 33vw;
+  max-width: 33vw;
 }
 
 .search-section {
@@ -303,5 +328,17 @@ watch(() => route.fullPath, () => {
   font-size: 0.75rem;
   color: #6c757d;
   font-style: italic;
+}
+
+.operator-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #495057;
+  background: #e9ecef;
+  border-radius: 0.25rem;
+  white-space: nowrap;
 }
 </style>

@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
@@ -54,13 +55,20 @@ const (
 )
 
 // SearchResults groups matches by kind. Each slice is already narrowed by the
-// caller's RBAC scope.
+// caller's RBAC scope. OperatorNames + AccountOperators are side-band lookup
+// tables so the UI can label each row with the owning operator without an
+// extra round-trip (Accounts/Clusters carry operator_id natively; Users and
+// ScopedSigningKeys only carry account_id, so they chain via AccountOperators
+// → OperatorNames). Entries exist only for operators referenced by at least
+// one row in the result set.
 type SearchResults struct {
 	Operators         []*entities.Operator
 	Accounts          []*entities.Account
 	Users             []*entities.User
 	ScopedSigningKeys []*entities.ScopedSigningKey
 	Clusters          []*entities.Cluster
+	OperatorNames     map[string]string
+	AccountOperators  map[string]string
 }
 
 // ErrSearchQueryInvalid is returned for empty / too-short / too-long queries.
@@ -159,7 +167,73 @@ func (s *SearchService) Search(ctx context.Context, apiUser *entities.APIUser, q
 		out.Clusters = s.filterClusters(ctx, apiUser, raw)
 	}
 
+	if err := s.populateOperatorContext(ctx, out); err != nil {
+		return nil, fmt.Errorf("populate operator context: %w", err)
+	}
+
 	return out, nil
+}
+
+// populateOperatorContext fills OperatorNames and AccountOperators so the UI
+// can render the owning operator on every row. For Users and SSKs we need to
+// chain account_id → operator_id first; Accounts and Clusters carry the
+// operator_id natively. Lookups are deduped by ID. Per-row resolution errors
+// are tolerated (the row just renders without an operator label) — search is
+// an inspection surface, not a write path, and we already filtered by RBAC.
+func (s *SearchService) populateOperatorContext(ctx context.Context, r *SearchResults) error {
+	accountIDs := make(map[uuid.UUID]struct{})
+	operatorIDs := make(map[uuid.UUID]struct{})
+
+	for _, a := range r.Accounts {
+		operatorIDs[a.OperatorID] = struct{}{}
+	}
+	for _, c := range r.Clusters {
+		operatorIDs[c.OperatorID] = struct{}{}
+	}
+	for _, o := range r.Operators {
+		operatorIDs[o.ID] = struct{}{}
+	}
+	for _, u := range r.Users {
+		accountIDs[u.AccountID] = struct{}{}
+	}
+	for _, k := range r.ScopedSigningKeys {
+		accountIDs[k.AccountID] = struct{}{}
+	}
+
+	accountOperators := make(map[string]string, len(accountIDs))
+	if len(accountIDs) > 0 {
+		accRepo := s.factory.AccountRepository()
+		for aid := range accountIDs {
+			acc, err := accRepo.GetByID(ctx, aid)
+			if err != nil {
+				if errors.Is(err, repositories.ErrNotFound) {
+					continue
+				}
+				return fmt.Errorf("lookup account %s: %w", aid, err)
+			}
+			accountOperators[aid.String()] = acc.OperatorID.String()
+			operatorIDs[acc.OperatorID] = struct{}{}
+		}
+	}
+
+	operatorNames := make(map[string]string, len(operatorIDs))
+	if len(operatorIDs) > 0 {
+		opRepo := s.factory.OperatorRepository()
+		for oid := range operatorIDs {
+			op, err := opRepo.GetByID(ctx, oid)
+			if err != nil {
+				if errors.Is(err, repositories.ErrNotFound) {
+					continue
+				}
+				return fmt.Errorf("lookup operator %s: %w", oid, err)
+			}
+			operatorNames[oid.String()] = op.Name
+		}
+	}
+
+	r.OperatorNames = operatorNames
+	r.AccountOperators = accountOperators
+	return nil
 }
 
 // filterScopedSigningKeys narrows by ownsAccount — operator-admin sees keys

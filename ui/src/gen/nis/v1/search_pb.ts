@@ -115,6 +115,13 @@ export class SearchRequest extends Message<SearchRequest> {
  * caller's RBAC scope. Reuses the existing entity messages so the UI can deep
  * link into existing detail views with zero shape translation.
  *
+ * `operator_names` and `account_operators` are side-band lookup tables so the
+ * UI can label every result row with the owning operator without a second
+ * round-trip. Accounts and Clusters carry operator_id natively; Users and
+ * ScopedSigningKeys only carry account_id, so chain via account_operators →
+ * operator_names. Names exist only for operators referenced by at least one
+ * result row in this response.
+ *
  * @generated from message nis.v1.SearchResponse
  */
 export class SearchResponse extends Message<SearchResponse> {
@@ -143,6 +150,16 @@ export class SearchResponse extends Message<SearchResponse> {
    */
   clusters: Cluster[] = [];
 
+  /**
+   * @generated from field: map<string, string> operator_names = 6;
+   */
+  operatorNames: { [key: string]: string } = {};
+
+  /**
+   * @generated from field: map<string, string> account_operators = 7;
+   */
+  accountOperators: { [key: string]: string } = {};
+
   constructor(data?: PartialMessage<SearchResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -156,6 +173,8 @@ export class SearchResponse extends Message<SearchResponse> {
     { no: 3, name: "users", kind: "message", T: User, repeated: true },
     { no: 4, name: "scoped_signing_keys", kind: "message", T: ScopedSigningKey, repeated: true },
     { no: 5, name: "clusters", kind: "message", T: Cluster, repeated: true },
+    { no: 6, name: "operator_names", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
+    { no: 7, name: "account_operators", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SearchResponse {

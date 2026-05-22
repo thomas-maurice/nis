@@ -32,12 +32,21 @@ message SearchRequest {
 // SearchResponse returns matches grouped by kind, already narrowed by the
 // caller's RBAC scope. Reuses the existing entity messages so the UI can deep
 // link into existing detail views with zero shape translation.
+//
+// `operator_names` and `account_operators` are side-band lookup tables so the
+// UI can label every result row with the owning operator without a second
+// round-trip. Accounts and Clusters carry operator_id natively; Users and
+// ScopedSigningKeys only carry account_id, so chain via account_operators →
+// operator_names. Names exist only for operators referenced by at least one
+// result row in this response.
 message SearchResponse {
   repeated Operator operators = 1;
   repeated Account accounts = 2;
   repeated User users = 3;
   repeated ScopedSigningKey scoped_signing_keys = 4;
   repeated Cluster clusters = 5;
+  map<string, string> operator_names = 6;
+  map<string, string> account_operators = 7;
 }
 
 // SearchService is the global identity-tree search. Authentication-required;

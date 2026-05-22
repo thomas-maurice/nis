@@ -146,6 +146,13 @@ func (x *SearchRequest) GetLimit() int32 {
 // SearchResponse returns matches grouped by kind, already narrowed by the
 // caller's RBAC scope. Reuses the existing entity messages so the UI can deep
 // link into existing detail views with zero shape translation.
+//
+// `operator_names` and `account_operators` are side-band lookup tables so the
+// UI can label every result row with the owning operator without a second
+// round-trip. Accounts and Clusters carry operator_id natively; Users and
+// ScopedSigningKeys only carry account_id, so chain via account_operators →
+// operator_names. Names exist only for operators referenced by at least one
+// result row in this response.
 type SearchResponse struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Operators         []*Operator            `protobuf:"bytes,1,rep,name=operators,proto3" json:"operators,omitempty"`
@@ -153,6 +160,8 @@ type SearchResponse struct {
 	Users             []*User                `protobuf:"bytes,3,rep,name=users,proto3" json:"users,omitempty"`
 	ScopedSigningKeys []*ScopedSigningKey    `protobuf:"bytes,4,rep,name=scoped_signing_keys,json=scopedSigningKeys,proto3" json:"scoped_signing_keys,omitempty"`
 	Clusters          []*Cluster             `protobuf:"bytes,5,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	OperatorNames     map[string]string      `protobuf:"bytes,6,rep,name=operator_names,json=operatorNames,proto3" json:"operator_names,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	AccountOperators  map[string]string      `protobuf:"bytes,7,rep,name=account_operators,json=accountOperators,proto3" json:"account_operators,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -222,6 +231,20 @@ func (x *SearchResponse) GetClusters() []*Cluster {
 	return nil
 }
 
+func (x *SearchResponse) GetOperatorNames() map[string]string {
+	if x != nil {
+		return x.OperatorNames
+	}
+	return nil
+}
+
+func (x *SearchResponse) GetAccountOperators() map[string]string {
+	if x != nil {
+		return x.AccountOperators
+	}
+	return nil
+}
+
 var File_nis_v1_search_proto protoreflect.FileDescriptor
 
 const file_nis_v1_search_proto_rawDesc = "" +
@@ -230,13 +253,21 @@ const file_nis_v1_search_proto_rawDesc = "" +
 	"\rSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12(\n" +
 	"\x05kinds\x18\x02 \x03(\x0e2\x12.nis.v1.SearchKindR\x05kinds\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\x88\x02\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xbc\x04\n" +
 	"\x0eSearchResponse\x12.\n" +
 	"\toperators\x18\x01 \x03(\v2\x10.nis.v1.OperatorR\toperators\x12+\n" +
 	"\baccounts\x18\x02 \x03(\v2\x0f.nis.v1.AccountR\baccounts\x12\"\n" +
 	"\x05users\x18\x03 \x03(\v2\f.nis.v1.UserR\x05users\x12H\n" +
 	"\x13scoped_signing_keys\x18\x04 \x03(\v2\x18.nis.v1.ScopedSigningKeyR\x11scopedSigningKeys\x12+\n" +
-	"\bclusters\x18\x05 \x03(\v2\x0f.nis.v1.ClusterR\bclusters*\xaf\x01\n" +
+	"\bclusters\x18\x05 \x03(\v2\x0f.nis.v1.ClusterR\bclusters\x12P\n" +
+	"\x0eoperator_names\x18\x06 \x03(\v2).nis.v1.SearchResponse.OperatorNamesEntryR\roperatorNames\x12Y\n" +
+	"\x11account_operators\x18\a \x03(\v2,.nis.v1.SearchResponse.AccountOperatorsEntryR\x10accountOperators\x1a@\n" +
+	"\x12OperatorNamesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aC\n" +
+	"\x15AccountOperatorsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xaf\x01\n" +
 	"\n" +
 	"SearchKind\x12\x1b\n" +
 	"\x17SEARCH_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -263,31 +294,35 @@ func file_nis_v1_search_proto_rawDescGZIP() []byte {
 }
 
 var file_nis_v1_search_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_nis_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_nis_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_nis_v1_search_proto_goTypes = []any{
 	(SearchKind)(0),          // 0: nis.v1.SearchKind
 	(*SearchRequest)(nil),    // 1: nis.v1.SearchRequest
 	(*SearchResponse)(nil),   // 2: nis.v1.SearchResponse
-	(*Operator)(nil),         // 3: nis.v1.Operator
-	(*Account)(nil),          // 4: nis.v1.Account
-	(*User)(nil),             // 5: nis.v1.User
-	(*ScopedSigningKey)(nil), // 6: nis.v1.ScopedSigningKey
-	(*Cluster)(nil),          // 7: nis.v1.Cluster
+	nil,                      // 3: nis.v1.SearchResponse.OperatorNamesEntry
+	nil,                      // 4: nis.v1.SearchResponse.AccountOperatorsEntry
+	(*Operator)(nil),         // 5: nis.v1.Operator
+	(*Account)(nil),          // 6: nis.v1.Account
+	(*User)(nil),             // 7: nis.v1.User
+	(*ScopedSigningKey)(nil), // 8: nis.v1.ScopedSigningKey
+	(*Cluster)(nil),          // 9: nis.v1.Cluster
 }
 var file_nis_v1_search_proto_depIdxs = []int32{
 	0, // 0: nis.v1.SearchRequest.kinds:type_name -> nis.v1.SearchKind
-	3, // 1: nis.v1.SearchResponse.operators:type_name -> nis.v1.Operator
-	4, // 2: nis.v1.SearchResponse.accounts:type_name -> nis.v1.Account
-	5, // 3: nis.v1.SearchResponse.users:type_name -> nis.v1.User
-	6, // 4: nis.v1.SearchResponse.scoped_signing_keys:type_name -> nis.v1.ScopedSigningKey
-	7, // 5: nis.v1.SearchResponse.clusters:type_name -> nis.v1.Cluster
-	1, // 6: nis.v1.SearchService.Search:input_type -> nis.v1.SearchRequest
-	2, // 7: nis.v1.SearchService.Search:output_type -> nis.v1.SearchResponse
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5, // 1: nis.v1.SearchResponse.operators:type_name -> nis.v1.Operator
+	6, // 2: nis.v1.SearchResponse.accounts:type_name -> nis.v1.Account
+	7, // 3: nis.v1.SearchResponse.users:type_name -> nis.v1.User
+	8, // 4: nis.v1.SearchResponse.scoped_signing_keys:type_name -> nis.v1.ScopedSigningKey
+	9, // 5: nis.v1.SearchResponse.clusters:type_name -> nis.v1.Cluster
+	3, // 6: nis.v1.SearchResponse.operator_names:type_name -> nis.v1.SearchResponse.OperatorNamesEntry
+	4, // 7: nis.v1.SearchResponse.account_operators:type_name -> nis.v1.SearchResponse.AccountOperatorsEntry
+	1, // 8: nis.v1.SearchService.Search:input_type -> nis.v1.SearchRequest
+	2, // 9: nis.v1.SearchService.Search:output_type -> nis.v1.SearchResponse
+	9, // [9:10] is the sub-list for method output_type
+	8, // [8:9] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_search_proto_init() }
@@ -306,7 +341,7 @@ func file_nis_v1_search_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_search_proto_rawDesc), len(file_nis_v1_search_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

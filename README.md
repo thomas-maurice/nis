@@ -773,6 +773,11 @@ Behavior:
   subtree even when the LIKE query matches another operator's row. The
   filtering uses the same `Filter*` helpers as every List RPC.
 - Limit applies per kind (default 20, cap 100).
+- Each result row is labelled in the UI with the **owning operator's name**,
+  so name collisions across operators (`$SYS`, `system`, `default`) are no
+  longer ambiguous. The response carries two side-band lookup maps
+  (`operator_names`, `account_operators`) that the UI chains for Users and
+  ScopedSigningKeys (which only reference their account natively).
 
 Deliberately excluded from the search surface: API users, API tokens, webhook
 subscriptions, and events. These are credentials / audit surfaces with their

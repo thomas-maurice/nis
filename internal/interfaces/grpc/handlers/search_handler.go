@@ -51,6 +51,8 @@ func (h *SearchHandler) Search(
 		Users:             mappers.UsersToProto(results.Users),
 		ScopedSigningKeys: mappers.ScopedSigningKeysToProto(results.ScopedSigningKeys),
 		Clusters:          mappers.ClustersToProto(results.Clusters),
+		OperatorNames:     results.OperatorNames,
+		AccountOperators:  results.AccountOperators,
 	}
 	return connect.NewResponse(resp), nil
 }

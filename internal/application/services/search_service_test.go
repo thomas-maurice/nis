@@ -233,6 +233,21 @@ func (s *SearchServiceTestSuite) TestAccountAdmin_NarrowedToOwnSubtree() {
 	assert.Equal(s.T(), s.cluster1, got.Clusters[0].ID, "account-admin sees own-operator's cluster, not foreign cluster")
 }
 
+// TestOperatorContext_PopulatedForAllRows — pins the side-band lookup maps so
+// the UI can label every row with its owning operator. SYS-like name collisions
+// across operators are the original motivation for this — without these maps
+// "SYS" or "system" rows render indistinguishably.
+func (s *SearchServiceTestSuite) TestOperatorContext_PopulatedForAllRows() {
+	got, err := s.svc.Search(s.ctx, s.admin, "metrics", nil, 50)
+	require.NoError(s.T(), err)
+
+	assert.Equal(s.T(), "metrics-co", got.OperatorNames[s.op1.String()])
+	assert.Equal(s.T(), "metrics-rival", got.OperatorNames[s.op2.String()])
+
+	assert.Equal(s.T(), s.op1.String(), got.AccountOperators[s.acc1.String()])
+	assert.Equal(s.T(), s.op2.String(), got.AccountOperators[s.acc2.String()])
+}
+
 // TestKindsFilter_ScopesQuery — the `kinds` argument MUST narrow which surfaces
 // are hit, regardless of RBAC. Asking only for OPERATOR returns operators only,
 // even when other matches exist.
