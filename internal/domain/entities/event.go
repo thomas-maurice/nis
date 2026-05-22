@@ -48,7 +48,20 @@ const (
 	EventTypeClusterSynced        = "cluster.synced"
 	EventTypeClusterSyncFailed    = "cluster.sync_failed"
 	EventTypeClusterHealthChanged = "cluster.health_changed"
+	// EventTypeClusterAccountSynced is emitted when an account JWT is
+	// pushed to a NATS resolver. Payload carries cluster_id, cluster_name,
+	// account_id, account_name, account_public_key, jwt_iat, and a
+	// trigger field ("auto" for substrate-driven A13-full pushes, "manual"
+	// for operator-initiated P9 reconciles). Used by webhook subscribers
+	// who want to follow "did my change land on this cluster?".
 	EventTypeClusterAccountSynced = "cluster.account.synced"
+	// EventTypeClusterAccountDeletedFromResolver is emitted when an
+	// account's resolver entry is removed via $SYS.REQ.CLAIMS.DELETE.
+	// Payload carries cluster_id, cluster_name, account_pubkey. Fires
+	// from the substrate-driven cluster.account.delete handler after a
+	// successful delete-claim round-trip; failures live in the job row's
+	// last_error and surface via JobsView + the drift dashboard.
+	EventTypeClusterAccountDeletedFromResolver = "cluster.account.deleted_from_resolver"
 	EventTypeWebhookTest          = "webhook.test"
 	EventTypeAPITokenCreated      = "api_token.created"
 	EventTypeAPITokenRevoked      = "api_token.revoked"

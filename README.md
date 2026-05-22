@@ -371,7 +371,8 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `scoped_key.rotated` | Operator rotated an SSK's NKey material (P3). Payload carries old/new public keys, affected user count, and the list of revoked user public keys. Per-user `user.revoked` events are also emitted with `payload.triggered_by = "ssk_rotation"`. |
 | `cluster.created` / `cluster.updated` / `cluster.deleted` | Cluster lifecycle |
 | `cluster.synced` / `cluster.sync_failed` | Each `SyncCluster` call |
-| `cluster.account.synced` | `ReconcileAccountOnCluster` pushed a single account's JWT to one cluster (P9 drift fix) |
+| `cluster.account.synced` | A single account's JWT was pushed to one cluster. Payload carries `trigger` ∈ `auto` (substrate-driven, A13-full auto-sync) or `manual` (operator-initiated `ReconcileAccountOnCluster` / P9 drift fix). |
+| `cluster.account.deleted_from_resolver` | A successful `$SYS.REQ.CLAIMS.DELETE` for one account on one cluster (A13-full `cluster.account.delete` handler). |
 | `cluster.health_changed` | The 60s probe sees a healthy→unhealthy or unhealthy→healthy transition |
 | `webhook.test` | Operator clicks "Send Test" on a subscription |
 | `api_token.created` / `api_token.revoked` | Service-account API token lifecycle |
@@ -982,13 +983,28 @@ system user).
 [`example/manifests/template.yaml`](example/manifests/template.yaml)
 and [`example/manifests/full-stack.yaml`](example/manifests/full-stack.yaml).
 
-**Auto-sync (A13-lite, shipped with P6).** SSK mutations and account
-JSON edits now push the regenerated account JWT to every attached
-cluster after the DB tx commits. Best-effort: per-cluster failures are
-logged but don't fail the API call (`nisctl cluster sync` and the
-[sync drift dashboard](#sync-drift-detection-p9) still reconcile when
-a cluster comes back). `nisctl cluster sync` becomes a recovery tool
-rather than the primary roll-out command.
+**Auto-sync (A13-full, 2026-05-22).** Account, SSK, template, user-revoke,
+and revocation-prune mutations now enqueue one `cluster.account.push` job
+per attached cluster INSIDE the same DB transaction. The substrate
+(`jobs.poll_interval_seconds`, default 2s PG / 10s SQLite) picks up the
+row and pushes the regenerated account JWT to NATS with retries and
+backoff. Account deletes enqueue `cluster.account.delete` jobs that send
+`$SYS.REQ.CLAIMS.DELETE` to each cluster's resolver. Per-cluster
+failures live on the job row's `last_error` and surface via JobsView +
+the [sync drift dashboard](#sync-drift-detection-p9); `nisctl cluster
+sync` remains the manual recovery tool.
+
+Stay-synchronous carve-outs (NOT routed through the substrate):
+`RotateScopedSigningKey` (returns per-cluster outcomes inline in the RPC
+response — operators rely on it), `SyncCluster` (manual via `nisctl
+cluster sync`, user is waiting), and `ReconcileAccountOnCluster` (P9
+manual reconcile). The `cluster.account.synced` event payload now carries
+a `trigger` field ("auto" for substrate-driven, "manual" for operator-
+initiated) so webhook subscribers can distinguish them.
+
+Replaces A13-lite (the in-process post-commit push that shipped with P6).
+A13-lite lost pushes on NIS-crash-between-commit-and-push windows; A13-
+full's in-tx enqueue closes that window.
 
 ## Background jobs (A2)
 
@@ -1004,9 +1020,10 @@ the two retention sweeps:
 | `webhook.deliver`        | per-delivery, in-tx enqueue | Dispatches one webhook subscription POST per row. Inserted into the same tx as the `webhook_deliveries` row (atomic). Permanent failures (subscription disabled, decrypt error, malformed payload) signal `ErrPermanentJobFailure` and dead-letter the job immediately; transient (5xx, transport) retry with the substrate's backoff up to `webhooks.max_attempts`. `AuditNone` — per-delivery audit lives on the typed `webhook_deliveries` row. |
 | `backup.sweep` / `backup.execute` | sweep 1h, execute per due operator | Per-operator scheduled backups to S3. See "Scheduled backups (P12)" below. |
 | `jwt.expiry_sweep`       | `jwt_policy.sweep_interval_seconds` (default 1h) | Drives the four-phase JWT lifecycle sweeper (P2): prune past-exp revocations → expiring-soon alert → optional auto-renew → expired alert. `LeaseDuration` is 15m at the handler level (the auto-renew phase can re-sign and push N cluster JWTs per operator). `AuditFailuresOnly` — the sweeper emits its own per-user `user.cred.*` semantic events, so substrate audit would triple-emit. |
+| `cluster.health.sweep` / `cluster.health_check` | sweep `cluster.health_check_interval_seconds` (default 60s) | A15. Per-cluster health probe. Sweep enumerates clusters and EnsureScheduled-s one check per row; each check is one-shot (`MaxAttempts=1`) because failure state lives on the cluster row, not the job. |
+| `cluster.account.push` / `cluster.account.delete` | per-mutation, in-tx enqueue | A13-full. Pushes a single account JWT to one cluster (or deletes via `$SYS.REQ.CLAIMS.DELETE`). One row per `(account, cluster)`; the partial unique index collapses bursts. After the push, the handler re-reads `account.JWT`; if it changed during the push, a follow-up keyed on the new JWT hash is enqueued so the dedup index can't suppress staleness fixes. `MaxAttempts=3`, `AuditFailuresOnly` (the handler emits `cluster.account.synced` on success; substrate audit would duplicate). |
 
-Future scheduled work — A15 (per-cluster health check as a job) — will
-plug onto this same runner. See [PROPOSALS.md](PROPOSALS.md) for the
+Future scheduled work — see [PROPOSALS.md](PROPOSALS.md) for the
 follow-up roadmap.
 
 ### Admin surface

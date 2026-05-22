@@ -20,13 +20,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// sweeperNoop satisfies AccountJWTPusher without hitting NATS.
-type sweeperNoop struct{}
-
-func (s *sweeperNoop) PushAccountToAllClusters(_ context.Context, _ uuid.UUID, _ *entities.Account) []SyncError {
-	return nil
-}
-
 // JWTExpirySweeperTestSuite exercises JWTExpirySweeper.Tick directly.
 // No Run() is ever called — all tests call Tick so behaviour is deterministic.
 type JWTExpirySweeperTestSuite struct {
@@ -76,9 +69,8 @@ func (s *JWTExpirySweeperTestSuite) SetupSuite() {
 		s.encryptor,
 	).WithFactory(s.factory)
 
-	noop := &sweeperNoop{}
-	s.revSvc = NewUserRevocationService(s.factory, s.jwtService, noop, s.encryptor)
-	s.sweeper = NewJWTExpirySweeper(s.factory, s.jwtService, s.revSvc, noop, 500)
+	s.revSvc = NewUserRevocationService(s.factory, s.jwtService, s.encryptor)
+	s.sweeper = NewJWTExpirySweeper(s.factory, s.jwtService, s.revSvc, 500)
 }
 
 func (s *JWTExpirySweeperTestSuite) TearDownSuite() {

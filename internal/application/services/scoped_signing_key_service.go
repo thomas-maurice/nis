@@ -14,7 +14,6 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
-	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
 
@@ -29,11 +28,21 @@ import (
 // factory.WithTx, so a JWT-regen failure rolls back the key mutation too. That
 // prevents the account-JWT-references-missing-key (or missing-JWT-references-existing-key)
 // split-brain state that previously required best-effort manual rollback.
+//
+// Cluster-side auto-sync (A13-full): every mutation enqueues one
+// cluster.account.push job per attached cluster INSIDE the same tx. The old
+// in-process post-commit push (A13-lite) is gone — substrate-driven
+// retry/recovery replaces it.
+//
+// clusterService is still wired post-construction and used by
+// RotateScopedSigningKey (P3) to call PushAccountToAllClustersDetailed
+// synchronously — that path returns per-cluster outcomes inline in the
+// RPC response and must NOT route through the substrate.
 type ScopedSigningKeyService struct {
 	factory        persistence.RepositoryFactory
 	jwtService     *JWTService
 	encryptor      encryption.Encryptor
-	clusterService *ClusterService // optional; set via WithClusterService for post-commit NATS pushes
+	clusterService *ClusterService // set via WithClusterService; ONLY used by P3 rotation, not by auto-sync.
 }
 
 // NewScopedSigningKeyService creates a new scoped signing key service
@@ -49,52 +58,16 @@ func NewScopedSigningKeyService(
 	}
 }
 
-// WithClusterService attaches a ClusterService used to push the
-// parent account JWT to every attached cluster after an SSK mutation
-// commits. Mirrors AccountService.WithClusterService — both are wired
-// post-construction in serve.go because the two services are mutually
-// independent at construction time. Tests that don't wire this skip the
-// NATS push; the DB mutation, JWT regen, and audit event still happen.
+// WithClusterService attaches a ClusterService used by RotateScopedSigningKey
+// to push the parent account JWT to every attached cluster SYNCHRONOUSLY and
+// surface per-cluster outcomes inline in the rotation RPC response (P3
+// contract — operators rely on seeing lag inline).
+//
+// Auto-sync paths (create/update/delete/bump) do NOT go through this field —
+// they enqueue cluster.account.push jobs on the A2 substrate instead.
 func (s *ScopedSigningKeyService) WithClusterService(cs *ClusterService) *ScopedSigningKeyService {
 	s.clusterService = cs
 	return s
-}
-
-// PushAccountAfterCommit loads the parent account (with its freshly
-// regenerated JWT) and pushes it to every cluster attached to its
-// operator. Best-effort: per-cluster failures are logged and the call
-// returns. Mirrors AccountService.pushAccountAfterCommit; see there for
-// the rationale (DB is source of truth, drift dashboard surfaces lag).
-// Exported so TemplateService can reuse it for auto-track propagation
-// without duplicating the per-cluster fan-out + error-logging pattern.
-func (s *ScopedSigningKeyService) PushAccountAfterCommit(ctx context.Context, accountID uuid.UUID) {
-	s.pushAccountAfterCommit(ctx, accountID)
-}
-
-func (s *ScopedSigningKeyService) pushAccountAfterCommit(ctx context.Context, accountID uuid.UUID) {
-	if s.clusterService == nil {
-		return
-	}
-	account, err := s.factory.AccountRepository().GetByID(ctx, accountID)
-	if err != nil {
-		logging.LogFromContext(ctx).Warn("scoped-key auto-sync: load account failed; manual 'nisctl cluster sync' will reconcile",
-			"account_id", accountID,
-			"error", err,
-		)
-		return
-	}
-	errs := s.clusterService.PushAccountToAllClusters(ctx, account.OperatorID, account)
-	if len(errs) == 0 {
-		return
-	}
-	log := logging.LogFromContext(ctx)
-	for _, e := range errs {
-		log.Warn("scoped-key auto-sync: account JWT push failed; run 'nisctl cluster sync' to reconcile",
-			"account", account.Name,
-			"account_public_key", account.PublicKey,
-			"error", e.Error,
-		)
-	}
 }
 
 // RegenerateAccountJWTTx is the exported wrapper around regenerateAccountJWTTx.
@@ -104,6 +77,19 @@ func (s *ScopedSigningKeyService) pushAccountAfterCommit(ctx context.Context, ac
 // signers" invariant atomic across services.
 func (s *ScopedSigningKeyService) RegenerateAccountJWTTx(ctx context.Context, tx persistence.RepositoryFactory, accountID uuid.UUID) error {
 	return s.regenerateAccountJWTTx(ctx, tx, accountID)
+}
+
+// enqueueAccountPushTx re-loads the account (so it sees the JWT that
+// regenerateAccountJWTTx just wrote in this tx) and enqueues per-cluster
+// push jobs. Called from every mutation site after the account-JWT regen
+// step has run, replacing the pre-A13-full post-commit pushAccountAfterCommit
+// helper.
+func (s *ScopedSigningKeyService) enqueueAccountPushTx(ctx context.Context, tx persistence.RepositoryFactory, accountID uuid.UUID) error {
+	account, err := tx.AccountRepository().GetByID(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("load account for push enqueue: %w", err)
+	}
+	return EnqueueAccountPush(ctx, tx, account.OperatorID, account)
 }
 
 func (s *ScopedSigningKeyService) regenerateAccountJWTTx(ctx context.Context, tx persistence.RepositoryFactory, accountID uuid.UUID) error {
@@ -331,12 +317,13 @@ func (s *ScopedSigningKeyService) CreateScopedSigningKey(ctx context.Context, re
 		}
 
 		result = scopedKey
-		return nil
+		// A13-full: enqueue per-cluster push jobs IN the same tx. Atomic
+		// with the SSK create + account JWT regen above.
+		return s.enqueueAccountPushTx(ctx, tx, scopedKey.AccountID)
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.pushAccountAfterCommit(ctx, result.AccountID)
 	return result, nil
 }
 
@@ -495,12 +482,12 @@ func (s *ScopedSigningKeyService) UpdateScopedSigningKey(ctx context.Context, id
 		}
 
 		result = scopedKey
-		return nil
+		// A13-full: per-cluster push enqueue in-tx.
+		return s.enqueueAccountPushTx(ctx, tx, scopedKey.AccountID)
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.pushAccountAfterCommit(ctx, result.AccountID)
 	return result, nil
 }
 
@@ -543,12 +530,14 @@ func (s *ScopedSigningKeyService) DeleteScopedSigningKey(ctx context.Context, id
 		}
 
 		pushAccountID = existing.AccountID
-		return nil
+		// A13-full: per-cluster push enqueue in-tx (the deleted SSK no
+		// longer appears in the regenerated account JWT's signing_keys).
+		return s.enqueueAccountPushTx(ctx, tx, pushAccountID)
 	})
 	if err != nil {
 		return err
 	}
-	s.pushAccountAfterCommit(ctx, pushAccountID)
+	_ = pushAccountID // retained for log-friendly identity if a follow-up adds tracing.
 	return nil
 }
 
@@ -631,15 +620,14 @@ func (s *ScopedSigningKeyService) BumpScopedKeyTemplate(ctx context.Context, sco
 			return fmt.Errorf("emit scoped_key.updated (bump): %w", err)
 		}
 		result = ssk
-		return nil
+		// A13-full: per-cluster push enqueue in-tx. Bump is the textbook
+		// auto-sync case — operator explicitly rolled out new permissions;
+		// pushing them out immediately is the whole point of P6 templates.
+		return s.enqueueAccountPushTx(ctx, tx, ssk.AccountID)
 	})
 	if err != nil {
 		return nil, err
 	}
-	// Bump is the textbook auto-sync case: operator explicitly rolled
-	// out new permissions; pushing them out immediately is the whole
-	// point of P6's templates.
-	s.pushAccountAfterCommit(ctx, result.AccountID)
 	return result, nil
 }
 

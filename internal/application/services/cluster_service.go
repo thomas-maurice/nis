@@ -652,6 +652,58 @@ func friendlyPushError(err error) string {
 	return "push account JWT: " + raw
 }
 
+// PushAccountToCluster pushes one account's JWT to one cluster. The
+// per-cluster building block used by the A13-full job handlers; the existing
+// fan-out methods (PushAccountToAllClusters, ...Detailed) cover the
+// synchronous paths (rotate, manual sync, P9 reconcile) that need inline
+// per-cluster outcomes.
+//
+// Returns nil on success, ErrNotFound (wrapped) if the cluster row is gone,
+// a non-nil error otherwise. Skipping clusters with empty creds is a normal
+// happy-path return: the caller (the handler) treats nil as "nothing to do
+// here" and the substrate marks the job succeeded.
+func (s *ClusterService) PushAccountToCluster(ctx context.Context, clusterID uuid.UUID, account *entities.Account) error {
+	if account == nil || account.JWT == "" {
+		return fmt.Errorf("nil or empty-JWT account")
+	}
+	natsClient, _, err := s.openManagedCluster(ctx, clusterID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = natsClient.Close() }()
+	if err := natsClient.PushAccountJWT(ctx, account); err != nil {
+		return errors.New(friendlyPushError(err))
+	}
+	return nil
+}
+
+// DeleteAccountFromCluster sends an operator-signed delete-claim for one
+// account public key to one cluster's resolver. Mirrors PushAccountToCluster
+// but for the delete-claim path; used by the A13-full cluster.account.delete
+// job handler.
+func (s *ClusterService) DeleteAccountFromCluster(ctx context.Context, clusterID, operatorID uuid.UUID, accountPubkey string) error {
+	if accountPubkey == "" {
+		return fmt.Errorf("empty account public key")
+	}
+	operator, err := s.operatorRepo.GetByID(ctx, operatorID)
+	if err != nil {
+		return fmt.Errorf("get operator: %w", err)
+	}
+	deleteClaim, err := s.jwtService.GenerateDeleteClaimJWT(ctx, operator, []string{accountPubkey})
+	if err != nil {
+		return fmt.Errorf("generate delete claim: %w", err)
+	}
+	natsClient, _, err := s.openManagedCluster(ctx, clusterID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = natsClient.Close() }()
+	if err := natsClient.DeleteAccountJWT(ctx, deleteClaim); err != nil {
+		return fmt.Errorf("delete on cluster: %w", err)
+	}
+	return nil
+}
+
 // openManagedCluster fetches a cluster, decrypts its system credentials, and opens a NATS
 // connection. Returns the live client and the cluster entity. Caller MUST close the client.
 func (s *ClusterService) openManagedCluster(ctx context.Context, id uuid.UUID) (*nats.Client, *entities.Cluster, error) {

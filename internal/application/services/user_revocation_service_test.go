@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
@@ -19,13 +18,6 @@ import (
 	"github.com/thomas-maurice/nis/migrations"
 	"gorm.io/gorm"
 )
-
-// revNoop satisfies AccountJWTPusher without touching NATS.
-type revNoop struct{}
-
-func (r *revNoop) PushAccountToAllClusters(_ context.Context, _ uuid.UUID, _ *entities.Account) []SyncError {
-	return nil
-}
 
 // UserRevocationServiceTestSuite is the test suite for UserRevocationService.
 type UserRevocationServiceTestSuite struct {
@@ -74,7 +66,7 @@ func (s *UserRevocationServiceTestSuite) SetupSuite() {
 		s.encryptor,
 	).WithFactory(s.factory)
 
-	s.revSvc = NewUserRevocationService(s.factory, s.jwtService, &revNoop{}, s.encryptor)
+	s.revSvc = NewUserRevocationService(s.factory, s.jwtService, s.encryptor)
 }
 
 func (s *UserRevocationServiceTestSuite) TearDownSuite() {

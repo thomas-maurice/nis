@@ -235,6 +235,10 @@ const KNOWN_JOB_TYPES = [
   'backup.sweep',
   'backup.execute',
   'jwt.expiry_sweep',
+  'cluster.health.sweep',
+  'cluster.health_check',
+  'cluster.account.push',
+  'cluster.account.delete',
 ]
 
 // Hide JOB_STATUS_UNSPECIFIED from the picker (it's the proto zero-value

@@ -11,6 +11,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -162,9 +163,14 @@ func TestE2E_Delete_AccountIsRemovedFromResolver(t *testing.T) {
 	}
 
 	// Delete — must propagate to the resolver.
+	deleteSince := time.Now()
 	if _, err := h.accountCli.DeleteAccount(ctx, connect.NewRequest(&nisv1.DeleteAccountRequest{Id: doomedID})); err != nil {
 		t.Fatalf("DeleteAccount: %v", err)
 	}
+
+	// A13-full: DeleteAccount enqueues a cluster.account.delete job. Wait
+	// for it to land before checking the resolver.
+	h.waitForAccountDeleted(t, doomedPubKey, deleteSince, 10*time.Second)
 
 	after, err := h.clusterCli.ListResolverAccounts(ctx, connect.NewRequest(&nisv1.ListResolverAccountsRequest{ClusterId: st.clusterID}))
 	if err != nil {

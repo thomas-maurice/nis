@@ -277,17 +277,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		jwtService,
 	).WithFactory(repoFactory)
 
-	// Account deletion must propagate to the NATS resolver — without this
-	// wire, a deleted account's JWT would stay on the resolver until manual
-	// `nisctl cluster sync --prune` and any previously-issued .creds would
-	// keep connecting indefinitely. Done post-construction because
-	// AccountService doesn't otherwise need a ClusterService dep.
-	accountService.WithClusterService(clusterService)
-	// P6 auto-sync: SSK mutations also push the parent account JWT to
-	// every cluster after the tx commits. Without this, an operator who
-	// adds a scoped key or bumps a template would have to remember to
-	// `nisctl cluster sync` afterwards. Same best-effort semantic as
-	// AccountService; failures logged but not propagated.
+	// A13-full: account auto-sync (create / update / jetstream / delete)
+	// now routes through the A2 jobs substrate via in-tx EnqueueAccount*
+	// helpers. AccountService no longer needs a *ClusterService reference.
+	//
+	// ScopedSigningKeyService still keeps its clusterService — exclusively
+	// for RotateScopedSigningKey (P3), which surfaces per-cluster outcomes
+	// inline in the rotate RPC response and must remain synchronous.
 	scopedKeyService.WithClusterService(clusterService)
 
 	authService := services.NewAuthService(
@@ -385,10 +381,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// via the jwt.expiry_sweep handler (registered below). OperatorHandler.
 	// RunJWTExpirySweep still calls Tick directly for the admin out-of-band
 	// sweep RPC — that contract returns SweepResult counts inline.
-	userRevocationService := services.NewUserRevocationService(repoFactory, jwtService, clusterService, encryptor)
+	userRevocationService := services.NewUserRevocationService(repoFactory, jwtService, encryptor)
 	jwtSweepInterval := time.Duration(viper.GetInt("jwt_policy.sweep_interval_seconds")) * time.Second
 	jwtSweepBatch := viper.GetInt("jwt_policy.sweep_batch_limit")
-	jwtExpirySweeper := services.NewJWTExpirySweeper(repoFactory, jwtService, userRevocationService, clusterService, jwtSweepBatch)
+	jwtExpirySweeper := services.NewJWTExpirySweeper(repoFactory, jwtService, userRevocationService, jwtSweepBatch)
 
 	// Initialize gRPC server with auth middleware
 	server := grpcServer.NewServer(
@@ -527,6 +523,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		SweepInterval: jwtSweepInterval,
 		LeaseDuration: time.Duration(viper.GetInt("jwt_policy.expiry_lease_seconds")) * time.Second,
 	})
+	// A13-full: per-cluster account-JWT push + delete handlers. Auto-sync
+	// fan-out for account / SSK / template / revocation / prune mutations
+	// flows through these instead of in-process post-commit calls.
+	services.RegisterClusterAccountPushHandlers(jobRunner, repoFactory, clusterService, services.ClusterAccountSyncConfig{})
 	go func() { _ = jobRunner.Run(ctx) }()
 
 	// Catch up any non-terminal webhook_deliveries rows that don't already

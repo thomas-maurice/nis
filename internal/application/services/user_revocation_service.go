@@ -27,7 +27,6 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
-	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 )
@@ -36,51 +35,46 @@ import (
 // RevokedAt is already set. The caller can choose to surface or ignore.
 var ErrUserAlreadyRevoked = errors.New("user already revoked")
 
-// AccountJWTPusher is the subset of *ClusterService that the revocation
-// service needs. Decoupled so tests can swap a no-op pusher in. The real
-// implementation is ClusterService.PushAccountToAllClusters.
-type AccountJWTPusher interface {
-	PushAccountToAllClusters(ctx context.Context, operatorID uuid.UUID, account *entities.Account) []SyncError
-}
-
 // UserRevocationService is the P2 entry point for revocation and regeneration.
+//
+// Cluster-side auto-sync (A13-full): after the user revocation is persisted
+// and the parent account JWT is re-signed, per-cluster push jobs are
+// enqueued via EnqueueAccountPush INSIDE the same tx. The old
+// AccountJWTPusher interface + post-commit fan-out is gone — the substrate
+// owns retry/backoff/audit, and the partial unique index plus the post-push
+// staleness check keep duplicate-mutation bursts coherent.
 type UserRevocationService struct {
-	factory     persistence.RepositoryFactory
-	jwtService  *JWTService
-	clusterPush AccountJWTPusher
-	encryptor   encryption.Encryptor
+	factory    persistence.RepositoryFactory
+	jwtService *JWTService
+	encryptor  encryption.Encryptor
 }
 
-// NewUserRevocationService constructs the service. clusterPush is allowed to
-// be nil for tests that don't care about the NATS push path; revoke/renew
-// still update the DB + emit events.
+// NewUserRevocationService constructs the service. No optional dependencies
+// — the cluster-push surface is the in-tx EnqueueAccountPush helper, which
+// is a package-level function.
 func NewUserRevocationService(
 	factory persistence.RepositoryFactory,
 	jwtService *JWTService,
-	clusterPush AccountJWTPusher,
 	encryptor encryption.Encryptor,
 ) *UserRevocationService {
 	return &UserRevocationService{
-		factory:     factory,
-		jwtService:  jwtService,
-		clusterPush: clusterPush,
-		encryptor:   encryptor,
+		factory:    factory,
+		jwtService: jwtService,
+		encryptor:  encryptor,
 	}
 }
 
 // RevokeUser adds the user's NATS public key to the parent account JWT's
-// Revocations map, re-signs the account JWT, and emits user.revoked. After
-// the tx commits, the updated account JWT is pushed to every cluster the
-// operator owns (the push failure does NOT roll back — the revocation row is
-// authoritative, and the next sweep / manual sync will reconcile).
+// Revocations map, re-signs the account JWT, emits user.revoked, and (A13-full)
+// enqueues per-cluster cluster.account.push jobs IN the same tx. The substrate
+// pushes the regenerated account JWT to every attached cluster best-effort
+// with retries/backoff; per-cluster failures surface via JobsView + the P9
+// drift dashboard.
 //
 // Idempotency: a second RevokeUser on an already-revoked user returns
 // ErrUserAlreadyRevoked with the current entity, no state change.
 func (s *UserRevocationService) RevokeUser(ctx context.Context, userID uuid.UUID, reason string) (*entities.User, error) {
-	var (
-		updatedUser    *entities.User
-		updatedAccount *entities.Account
-	)
+	var updatedUser *entities.User
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		userRepo := tx.UserRepository()
 		accountRepo := tx.AccountRepository()
@@ -181,22 +175,17 @@ func (s *UserRevocationService) RevokeUser(ctx context.Context, userID uuid.UUID
 		}
 
 		updatedUser = user
-		updatedAccount = account
-		return nil
+
+		// A13-full: enqueue per-cluster pushes in-tx. The substrate
+		// retries transient failures; persistent failures dead-letter
+		// and surface via JobsView + the P9 drift dashboard. Push failure
+		// does NOT poison the revoke — the revocation row stays
+		// authoritative and the next manual sync reconciles.
+		return EnqueueAccountPush(ctx, tx, account.OperatorID, account)
 	})
 	if err != nil && !errors.Is(err, ErrUserAlreadyRevoked) {
 		metrics.Default().RecordUserJWTRevocation(ctx, "err")
 		return nil, err
-	}
-
-	// Push outside the tx. Failure is recorded but does NOT poison the revoke.
-	if updatedAccount != nil && s.clusterPush != nil {
-		if pushErrs := s.clusterPush.PushAccountToAllClusters(ctx, updatedAccount.OperatorID, updatedAccount); len(pushErrs) > 0 {
-			log := logging.LogFromContext(ctx)
-			for _, e := range pushErrs {
-				log.Warn("revoke: account JWT push failed", "account", e.AccountName, "error", e.Error)
-			}
-		}
 	}
 	if errors.Is(err, ErrUserAlreadyRevoked) {
 		return updatedUser, err

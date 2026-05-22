@@ -262,9 +262,8 @@ const autoTrackCap = 200
 
 func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req UpdateTemplateRequest) (*entities.Template, *entities.TemplateVersion, error) {
 	var (
-		outTpl       *entities.Template
-		outVer       *entities.TemplateVersion
-		pushAccounts []uuid.UUID
+		outTpl *entities.Template
+		outVer *entities.TemplateVersion
 	)
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		tpl, err := tx.TemplateRepository().GetByID(ctx, id)
@@ -392,7 +391,17 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 					if err := s.sskService.RegenerateAccountJWTTx(ctx, tx, ssk.AccountID); err != nil {
 						return fmt.Errorf("auto-track regen account %s JWT: %w", ssk.AccountID, err)
 					}
-					pushAccounts = append(pushAccounts, ssk.AccountID)
+					// A13-full: enqueue per-cluster push jobs in-tx so the
+					// auto-bumped account JWT atomically gets a durable push
+					// schedule on every attached cluster. Replaces the
+					// pre-A13-full post-commit best-effort fan-out.
+					acct, err := tx.AccountRepository().GetByID(ctx, ssk.AccountID)
+					if err != nil {
+						return fmt.Errorf("auto-track load account %s for push enqueue: %w", ssk.AccountID, err)
+					}
+					if err := EnqueueAccountPush(ctx, tx, acct.OperatorID, acct); err != nil {
+						return fmt.Errorf("auto-track enqueue push for account %s: %w", ssk.AccountID, err)
+					}
 				}
 			}
 		}
@@ -419,16 +428,6 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 	})
 	if err != nil {
 		return nil, nil, err
-	}
-	// Best-effort cluster pushes for every account that had at least one
-	// tracking SSK auto-bumped. Same A13-lite semantic as
-	// ScopedSigningKeyService.pushAccountAfterCommit — failures are
-	// logged but do not fail the API call; nisctl cluster sync is the
-	// recovery tool.
-	if s.sskService != nil {
-		for _, accountID := range pushAccounts {
-			s.sskService.PushAccountAfterCommit(ctx, accountID)
-		}
 	}
 	return outTpl, outVer, nil
 }

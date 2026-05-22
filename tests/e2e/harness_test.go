@@ -204,6 +204,12 @@ func (h *harness) start(t *testing.T) {
 		"DATABASE_DRIVER=sqlite",
 		"DATABASE_DSN=" + dbPath,
 		"DATABASE_AUTO_MIGRATE=true",
+		// A13-full: shorten the substrate poll cadence so cluster.account.push
+		// jobs land within typical test timeouts. The harness uses in-memory
+		// SQLite (single-process, one-conn), so the cache-miss concerns that
+		// kept the production default at 10s don't apply here. Production
+		// default is still 10s on SQLite / 2s on Postgres.
+		"JOBS_POLL_INTERVAL_SECONDS=1",
 	}
 	if h.backupsBucket != "" {
 		// Pin the sweep interval short so tests can observe scheduled backups
@@ -681,6 +687,74 @@ func ensureNISBinary(repoDir, workDir string) (string, error) {
 		return "", fmt.Errorf("go build ./cmd/nis: %w\n%s", err, b)
 	}
 	return out, nil
+}
+
+// waitForAccountPushed polls the job substrate until a cluster.account.push
+// job for the given account ID, CREATED AT OR AFTER `since`, has reached a
+// terminal status (succeeded / failed / dead_lettered / cancelled).
+//
+// A13-full made auto-sync asynchronous: previously the in-process push
+// landed before the mutation RPC returned, so tests immediately reconnecting
+// to NATS would see the new JWT. Now the substrate processes the push on its
+// own cadence (jobs.poll_interval_seconds: 2s on Postgres, 10s on SQLite).
+// Tests that assert post-mutation NATS behaviour must call this between the
+// mutation RPC and the NATS reconnect.
+//
+// The `since` argument is the load-bearing parameter: capture it BEFORE the
+// mutation RPC. Without that, repeat calls in a test that does multiple
+// mutations would return instantly on the first mutation's terminal row.
+func (h *harness) waitForAccountPushed(t *testing.T, accountID string, since time.Time, timeout time.Duration) {
+	t.Helper()
+	h.waitForAccountJob(t, "cluster.account.push", accountID, since, timeout)
+}
+
+// waitForAccountDeleted polls until the cluster.account.delete job for the
+// given account public-key substring (matched in the dedup key
+// "account-delete:<pubkey>:<cluster>") reaches a terminal state. See
+// waitForAccountPushed for the `since` semantics.
+func (h *harness) waitForAccountDeleted(t *testing.T, accountPubkey string, since time.Time, timeout time.Duration) {
+	t.Helper()
+	h.waitForAccountJob(t, "cluster.account.delete", accountPubkey, since, timeout)
+}
+
+func (h *harness) waitForAccountJob(t *testing.T, jobType, dedupSubstring string, since time.Time, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := h.jobCli.ListJobs(context.Background(), connect.NewRequest(&nisv1.ListJobsRequest{
+			Filter: &nisv1.JobFilter{
+				Types: []string{jobType},
+				Limit: 100,
+			},
+		}))
+		if err == nil {
+			for _, j := range resp.Msg.Jobs {
+				if !strings.Contains(j.DedupKey, dedupSubstring) {
+					continue
+				}
+				// Filter on UpdatedAt (last status change), not CreatedAt.
+				// The dedup index can suppress a new enqueue while a previous
+				// row is still pending/running — in that case the surviving
+				// row was created before our mutation but its handler ALSO
+				// runs after our mutation committed (the handler re-reads
+				// the account row, so it picks up the post-mutation JWT).
+				// Terminal UpdatedAt >= since is the correct "the substrate
+				// processed work that includes our change" signal.
+				if j.UpdatedAt != nil && j.UpdatedAt.AsTime().Before(since) {
+					continue
+				}
+				switch j.Status {
+				case nisv1.JobStatus_JOB_STATUS_SUCCEEDED,
+					nisv1.JobStatus_JOB_STATUS_FAILED,
+					nisv1.JobStatus_JOB_STATUS_DEAD_LETTERED,
+					nisv1.JobStatus_JOB_STATUS_CANCELLED:
+					return
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("no terminal %s job matching %q updated at/after %s within %s", jobType, dedupSubstring, since.Format(time.RFC3339Nano), timeout)
 }
 
 func waitForHTTP(url string, timeout time.Duration) error {

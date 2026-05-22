@@ -209,6 +209,7 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
+	sskCreateSince := time.Now()
 	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: s.accountID,
 		Name:      "bump-ssk",
@@ -221,8 +222,9 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 		t.Fatalf("CreateScopedSigningKey from template: %v", err)
 	}
 	userID := h.createScopedUser(t, s.accountID, "bump-user", sskResp.Msg.Key.Id)
-	// Auto-sync wired in serve.go pushes after the SSK + user creates;
-	// no manual sync required.
+	// A13-full: SSK creation enqueues a cluster.account.push job; wait for
+	// it to land before the initial NATS connect.
+	h.waitForAccountPushed(t, s.accountID, sskCreateSince, 10*time.Second)
 	credsPath := h.fetchUserCreds(t, userID, "bump-user")
 
 	// v1 allows events.* — initial connect can subscribe without errors.
@@ -254,6 +256,7 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 
 	// Apply v2 to the SSK. This is the explicit-roll-out path —
 	// template update alone never auto-cascades.
+	bumpSince := time.Now()
 	bumpResp, err := h.templateCli.ApplyTemplateToScopedKey(context.Background(), connect.NewRequest(&nisv1.ApplyTemplateToScopedKeyRequest{
 		ScopedSigningKeyId: sskResp.Msg.Key.Id,
 	}))
@@ -263,6 +266,13 @@ func TestE2E_Templates_BumpAppliesNewPermissionsToNATS(t *testing.T) {
 	if bumpResp.Msg.Key.TemplateVersion != 2 {
 		t.Fatalf("expected SSK pinned to v2 after bump, got v%d", bumpResp.Msg.Key.TemplateVersion)
 	}
+
+	// A13-full: ApplyTemplateToScopedKey enqueues a cluster.account.push job
+	// for the re-signed account JWT. Wait for it to land on NATS before the
+	// new connect — otherwise the connect races the substrate poll. The 2s
+	// timeout used for the perm violation downstream is too tight to also
+	// cover the substrate's claim cadence (1s in e2e config).
+	h.waitForAccountPushed(t, s.accountID, bumpSince, 10*time.Second)
 
 	// New connect with the SAME credentials — the bump auto-pushed the
 	// re-signed account JWT to NATS, so the new scope template applies
@@ -476,6 +486,7 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
+	sskCreateSince := time.Now()
 	sskResp, err := h.keyCli.CreateScopedSigningKey(context.Background(), connect.NewRequest(&nisv1.CreateScopedSigningKeyRequest{
 		AccountId: s.accountID,
 		Name:      "auto-ssk",
@@ -496,6 +507,8 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	}
 
 	userID := h.createScopedUser(t, s.accountID, "auto-user", sskResp.Msg.Key.Id)
+	// A13-full: wait for the create-SSK push to land before the initial connect.
+	h.waitForAccountPushed(t, s.accountID, sskCreateSince, 10*time.Second)
 	credsPath := h.fetchUserCreds(t, userID, "auto-user")
 
 	// Phase 1: v1 perms allow subscribing to events.secret.foo (no deny).
@@ -517,6 +530,7 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	// should snapshot the new version onto the SSK, regen the parent
 	// account JWT, and push to clusters — all WITHOUT a manual
 	// ApplyTemplateToScopedKey call.
+	tplUpdateSince := time.Now()
 	if _, err := h.templateCli.UpdateTemplate(context.Background(), connect.NewRequest(&nisv1.UpdateTemplateRequest{
 		Id: tplResp.Msg.Template.Id,
 		Permissions: &nisv1.UserPermissions{
@@ -555,6 +569,9 @@ func TestE2E_Templates_AutoTrackPropagates(t *testing.T) {
 	if !gotDeny {
 		t.Fatalf("expected sub_deny[events.secret.>] in auto-bumped perms, got %v", getResp.Msg.Key.Permissions.GetSubDeny())
 	}
+
+	// A13-full: auto-track fan-out enqueues a push job; wait for it.
+	h.waitForAccountPushed(t, s.accountID, tplUpdateSince, 10*time.Second)
 
 	// Phase 2: reconnect — NATS resolver should now have the re-signed
 	// account JWT (auto-pushed by the auto-track fan-out). Subscribing

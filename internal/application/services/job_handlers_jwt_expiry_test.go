@@ -52,9 +52,8 @@ func buildJWTExpirySweeperFixture(t *testing.T) (*JWTExpirySweeper, persistence.
 		enc,
 	).WithFactory(factory)
 
-	noop := &sweeperNoop{}
-	revSvc := NewUserRevocationService(factory, jwtSvc, noop, enc)
-	sweeper := NewJWTExpirySweeper(factory, jwtSvc, revSvc, noop, 500)
+	revSvc := NewUserRevocationService(factory, jwtSvc, enc)
+	sweeper := NewJWTExpirySweeper(factory, jwtSvc, revSvc, 500)
 	return sweeper, factory, opSvc, accSvc, userSvc
 }
 
@@ -141,9 +140,8 @@ func TestJWTExpiryHandler_RegisterPanicsAfterRunStart(t *testing.T) {
 func TestJWTExpiryHandler_RegisterDefaults(t *testing.T) {
 	_, factory, _, _, _ := buildJWTExpirySweeperFixture(t)
 	runner := NewJobRunner(factory, JobRunnerConfig{})
-	noop := &sweeperNoop{}
-	revSvc := NewUserRevocationService(factory, NewJWTService(nil), noop, nil)
-	sweeper := NewJWTExpirySweeper(factory, NewJWTService(nil), revSvc, noop, 500)
+	revSvc := NewUserRevocationService(factory, NewJWTService(nil), nil)
+	sweeper := NewJWTExpirySweeper(factory, NewJWTService(nil), revSvc, 500)
 
 	RegisterJWTExpiryHandler(runner, sweeper, JWTExpiryHandlerConfig{})
 

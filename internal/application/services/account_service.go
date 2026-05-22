@@ -23,11 +23,16 @@ import (
 // run inside a single repository-level transaction via factory.WithTx, so
 // partial failures don't leave half-created accounts or accounts whose JWT
 // references a scoped key that wasn't actually persisted.
+//
+// Cluster-side auto-sync (A13-full): every mutation that changes the
+// account JWT enqueues one cluster.account.push job per attached cluster
+// INSIDE the same tx. Crash between commit and substrate pickup is
+// survivable — the job row commits atomically with the mutation. See
+// cluster_sync_enqueue.go for the enqueue helpers.
 type AccountService struct {
-	factory        persistence.RepositoryFactory
-	jwtService     *JWTService
-	encryptor      encryption.Encryptor
-	clusterService *ClusterService // optional; set via WithClusterService for NATS-side cleanup on delete
+	factory    persistence.RepositoryFactory
+	jwtService *JWTService
+	encryptor  encryption.Encryptor
 }
 
 // NewAccountService creates a new account service.
@@ -40,46 +45,6 @@ func NewAccountService(
 		factory:    factory,
 		jwtService: jwtService,
 		encryptor:  encryptor,
-	}
-}
-
-// WithClusterService attaches a ClusterService used to propagate account
-// JWT changes (create / update / delete / jetstream-limit) to the NATS
-// resolver(s) attached to the operator. Call this from serve.go AFTER
-// both services exist (the two are mutually independent at construction,
-// so no init-order surprise). Tests that don't wire this skip the
-// NATS-side push — the DB-side mutation and audit event still happen,
-// and `nisctl cluster sync` reconciles when the operator is ready.
-func (s *AccountService) WithClusterService(cs *ClusterService) *AccountService {
-	s.clusterService = cs
-	return s
-}
-
-// pushAccountAfterCommit pushes the (already-committed) account JWT to
-// every cluster attached to its operator. Best-effort: per-cluster
-// failures are logged and the call returns nil. The DB is the source of
-// truth; the drift dashboard (P9) surfaces any cluster that fell behind.
-//
-// This is the auto-sync side of P6: before P6, mutating an account or
-// SSK left the DB ahead of NATS until an operator ran `nisctl cluster
-// sync`. Now every mutation that changes the account JWT triggers a
-// push as part of the same operation, with the same best-effort
-// semantics DeleteAccount uses.
-func (s *AccountService) pushAccountAfterCommit(ctx context.Context, account *entities.Account) {
-	if s.clusterService == nil || account == nil || account.JWT == "" {
-		return
-	}
-	errs := s.clusterService.PushAccountToAllClusters(ctx, account.OperatorID, account)
-	if len(errs) == 0 {
-		return
-	}
-	log := logging.LogFromContext(ctx)
-	for _, e := range errs {
-		log.Warn("account JWT push failed; run 'nisctl cluster sync' to reconcile",
-			"account", account.Name,
-			"account_public_key", account.PublicKey,
-			"error", e.Error,
-		)
 	}
 }
 
@@ -102,13 +67,18 @@ func (s *AccountService) CreateAccount(ctx context.Context, req CreateAccountReq
 	var account *entities.Account
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		a, e := s.createAccountTx(ctx, tx, req)
+		if e != nil {
+			return e
+		}
 		account = a
-		return e
+		// A13-full: enqueue per-cluster push jobs IN the same tx so the
+		// auto-sync commit is atomic with the mutation. Crash between
+		// commit and worker pickup leaves a durable resumable job.
+		return EnqueueAccountPush(ctx, tx, a.OperatorID, a)
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.pushAccountAfterCommit(ctx, account)
 	return account, nil
 }
 
@@ -377,12 +347,14 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 		}
 
 		account = acc
-		return nil
+		// A13-full: enqueue per-cluster pushes in-tx. Only fires when the
+		// account JWT was regenerated (the early "no change" branch above
+		// returns before reaching here).
+		return EnqueueAccountPush(ctx, tx, acc.OperatorID, acc)
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.pushAccountAfterCommit(ctx, account)
 	return account, nil
 }
 
@@ -459,33 +431,27 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 		}
 
 		account = acc
-		return nil
+		// A13-full: enqueue per-cluster pushes in-tx.
+		return EnqueueAccountPush(ctx, tx, acc.OperatorID, acc)
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.pushAccountAfterCommit(ctx, account)
 	return account, nil
 }
 
 // DeleteAccount deletes an account and all associated data (cascades to users).
-// After the DB transaction commits successfully, sends an operator-signed
-// $SYS.REQ.CLAIMS.DELETE to every cluster attached to the operator so the
-// account's JWT no longer sits on the resolver — without that step, any
-// .creds previously issued under the account would keep connecting to NATS
-// indefinitely (effectively forever under the default no-expiry policy).
+// Inside the same transaction it enqueues one cluster.account.delete job per
+// attached cluster so the account's JWT is removed from each resolver via
+// $SYS.REQ.CLAIMS.DELETE. Without that, any .creds previously issued under the
+// account would keep connecting to NATS indefinitely (effectively forever under
+// the default no-expiry policy).
 //
-// Per-cluster delete failures are logged but do NOT roll back the DB delete.
-// Mirrors A6's "NATS is reconciled best-effort, DB is the source of truth"
-// rule and the existing PushAccountToAllClusters semantic — a transient
-// resolver hiccup must not block an operator from removing an account.
+// Per-cluster delete failures live on the job row's last_error and surface via
+// JobsView + the P9 drift dashboard (the substrate retries transient failures
+// with backoff before dead-lettering). Mirrors A6's "NATS is reconciled
+// best-effort, DB is the source of truth" rule.
 func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error {
-	var (
-		operatorID       uuid.UUID
-		accountPublicKey string
-		accountName      string
-	)
-
 	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		accountRepo := tx.AccountRepository()
 		operatorRepo := tx.OperatorRepository()
@@ -506,6 +472,12 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error 
 			return fmt.Errorf("cannot delete system account: this account is designated as the system account for operator '%s'", operator.Name)
 		}
 
+		// Capture identity for the delete-job payload BEFORE the row is
+		// removed (the handler runs after this tx commits, when the row
+		// is gone).
+		operatorID := account.OperatorID
+		accountPublicKey := account.PublicKey
+
 		// Delete account (cascades to users and scoped signing keys at FK level)
 		if err := accountRepo.Delete(ctx, id); err != nil {
 			return err
@@ -522,31 +494,12 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id uuid.UUID) error 
 			return fmt.Errorf("emit account.deleted: %w", err)
 		}
 
-		operatorID = account.OperatorID
-		accountPublicKey = account.PublicKey
-		accountName = account.Name
-		return nil
+		// A13-full: enqueue per-cluster delete-claim jobs in-tx.
+		return EnqueueAccountDelete(ctx, tx, operatorID, accountPublicKey)
 	})
 	if err != nil {
 		return err
 	}
-
-	// DB commit succeeded — reconcile the resolver. clusterService is nil in
-	// tests that don't wire it; tolerate that without skipping the audit
-	// trail above.
-	if s.clusterService != nil && accountPublicKey != "" {
-		if delErrs := s.clusterService.DeleteAccountFromAllClusters(ctx, operatorID, accountPublicKey); len(delErrs) > 0 {
-			log := logging.LogFromContext(ctx)
-			for _, e := range delErrs {
-				log.Warn("account.deleted: resolver delete failed; run 'nisctl cluster sync --prune' to reconcile",
-					"account", accountName,
-					"account_public_key", accountPublicKey,
-					"error", e.Error,
-				)
-			}
-		}
-	}
-
 	return nil
 }
 

@@ -62,11 +62,15 @@ type SweepResult struct {
 // JWTExpirySweeper holds the dependencies the four-phase Tick needs.
 // The recurring schedule is owned by the A2 job substrate; this struct
 // is purely the Tick entry point + state.
+//
+// A13-full: the per-account cluster push (after a revocation row is
+// hard-pruned + the account JWT is re-signed) now enqueues
+// cluster.account.push jobs via EnqueueAccountPush IN the same tx as the
+// prune. The old AccountJWTPusher dep is gone.
 type JWTExpirySweeper struct {
 	factory       persistence.RepositoryFactory
 	jwtService    *JWTService
 	revocationSvc *UserRevocationService
-	clusterPush   AccountJWTPusher
 	batchLimit    int
 	mu            sync.Mutex // serialises substrate tick vs admin out-of-band tick
 }
@@ -78,7 +82,6 @@ func NewJWTExpirySweeper(
 	factory persistence.RepositoryFactory,
 	jwtService *JWTService,
 	revocationSvc *UserRevocationService,
-	clusterPush AccountJWTPusher,
 	batchLimit int,
 ) *JWTExpirySweeper {
 	if batchLimit <= 0 {
@@ -88,7 +91,6 @@ func NewJWTExpirySweeper(
 		factory:       factory,
 		jwtService:    jwtService,
 		revocationSvc: revocationSvc,
-		clusterPush:   clusterPush,
 		batchLimit:    batchLimit,
 	}
 }
@@ -211,23 +213,18 @@ func (w *JWTExpirySweeper) prunePhase(ctx context.Context, now time.Time) (int, 
 			}
 
 			account = acc
-			return nil
+			// A13-full: enqueue per-cluster pushes in-tx so the
+			// post-prune account JWT propagates atomically with the
+			// prune. Substrate handles retries/backoff.
+			return EnqueueAccountPush(ctx, tx, acc.OperatorID, acc)
 		})
 		if err != nil {
 			logging.GetLogger().Error("jwt sweeper prune: account update failed", "account", accountID, "error", err)
 			continue
 		}
+		_ = account // identity available for future log enrichment.
 		totalPruned += len(rows)
 		metrics.Default().RecordUserJWTRevocationPruned(ctx, len(rows))
-
-		if account != nil && w.clusterPush != nil {
-			if pushErrs := w.clusterPush.PushAccountToAllClusters(ctx, account.OperatorID, account); len(pushErrs) > 0 {
-				log := logging.GetLogger()
-				for _, e := range pushErrs {
-					log.Warn("jwt sweeper prune: account push failed", "account", e.AccountName, "error", e.Error)
-				}
-			}
-		}
 	}
 	return totalPruned, nil
 }

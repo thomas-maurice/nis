@@ -496,6 +496,10 @@ func (s *ClusterService) ReconcileAccountOnCluster(ctx context.Context, clusterI
 	}
 
 	if s.factory != nil {
+		// A13-full: trigger:"manual" mirrors the trigger:"auto" emitted
+		// by the substrate-driven push path so webhook subscribers can
+		// distinguish the two without subscribing to different event
+		// types.
 		if err := events.EmitSystem(ctx, s.factory, events.Event{
 			Type:         entities.EventTypeClusterAccountSynced,
 			OperatorID:   &cluster.OperatorID,
@@ -503,9 +507,12 @@ func (s *ClusterService) ReconcileAccountOnCluster(ctx context.Context, clusterI
 			ResourceType: "cluster",
 			ResourceID:   cluster.ID.String(),
 			Payload: map[string]any{
-				"cluster_name": cluster.Name,
-				"account_name": account.Name,
+				"cluster_id":         cluster.ID.String(),
+				"cluster_name":       cluster.Name,
+				"account_id":         account.ID.String(),
+				"account_name":       account.Name,
 				"account_public_key": account.PublicKey,
+				"trigger":            "manual",
 			},
 		}); err != nil {
 			return fmt.Errorf("emit cluster.account.synced: %w", err)
