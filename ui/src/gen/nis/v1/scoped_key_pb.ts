@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
-import { ListOptions, ResponsePermission, UserPermissions } from "./common_pb.js";
+import { ListOptions, PageRequest, ResponsePermission, UserPermissions } from "./common_pb.js";
 
 /**
  * ScopedSigningKey represents a scoped signing key for account-level user signing
@@ -488,7 +488,11 @@ export class GetScopedSigningKeyByNameResponse extends Message<GetScopedSigningK
 }
 
 /**
- * ListScopedSigningKeysRequest is the request to list scoped signing keys
+ * ListScopedSigningKeysRequest is the request to list scoped signing keys.
+ * account_id is optional; when set the page is narrowed to that account.
+ * options is the legacy offset-pagination field, retained for back-compat —
+ * new clients should use page. name_like is a case-insensitive substring
+ * match on name.
  *
  * @generated from message nis.v1.ListScopedSigningKeysRequest
  */
@@ -503,6 +507,16 @@ export class ListScopedSigningKeysRequest extends Message<ListScopedSigningKeysR
    */
   options?: ListOptions;
 
+  /**
+   * @generated from field: string name_like = 3;
+   */
+  nameLike = "";
+
+  /**
+   * @generated from field: nis.v1.PageRequest page = 4;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListScopedSigningKeysRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -513,6 +527,8 @@ export class ListScopedSigningKeysRequest extends Message<ListScopedSigningKeysR
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "options", kind: "message", T: ListOptions },
+    { no: 3, name: "name_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListScopedSigningKeysRequest {
@@ -533,7 +549,8 @@ export class ListScopedSigningKeysRequest extends Message<ListScopedSigningKeysR
 }
 
 /**
- * ListScopedSigningKeysResponse is the response from listing scoped signing keys
+ * ListScopedSigningKeysResponse is the response from listing scoped signing
+ * keys. next_cursor is empty on the final page.
  *
  * @generated from message nis.v1.ListScopedSigningKeysResponse
  */
@@ -542,6 +559,11 @@ export class ListScopedSigningKeysResponse extends Message<ListScopedSigningKeys
    * @generated from field: repeated nis.v1.ScopedSigningKey keys = 1;
    */
   keys: ScopedSigningKey[] = [];
+
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
 
   constructor(data?: PartialMessage<ListScopedSigningKeysResponse>) {
     super();
@@ -552,6 +574,7 @@ export class ListScopedSigningKeysResponse extends Message<ListScopedSigningKeys
   static readonly typeName = "nis.v1.ListScopedSigningKeysResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "keys", kind: "message", T: ScopedSigningKey, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListScopedSigningKeysResponse {

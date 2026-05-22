@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -136,24 +137,33 @@ func (h *TemplateHandler) ListTemplates(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
+
+	filter := repositories.TemplateListFilter{
+		NameLike: req.Msg.NameLike,
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.Limit)
+		filter.Cursor = req.Msg.Page.Cursor
+	}
+	if req.Msg.OperatorId != "" {
+		operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		filter.OperatorID = &operatorID
+	}
+
+	scope := authz.ScopeFromAPIUser(requestingUser)
+	tpls, nextCursor, err := h.service.ListTemplatesPage(ctx, scope, filter)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if err := h.permService.CanReadTemplate(ctx, requestingUser, operatorID); err != nil {
-		return nil, connect.NewError(connect.CodePermissionDenied, err)
-	}
-	opts := repositories.ListOptions{}
-	if req.Msg.Options != nil {
-		opts.Limit = int(req.Msg.Options.Limit)
-		opts.Offset = int(req.Msg.Options.Offset)
-	}
-	tpls, err := h.service.ListTemplates(ctx, operatorID, opts)
-	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
 	return connect.NewResponse(&pb.ListTemplatesResponse{
-		Templates: mappers.TemplatesToProto(tpls),
+		Templates:  mappers.TemplatesToProto(tpls),
+		NextCursor: nextCursor,
 	}), nil
 }
 

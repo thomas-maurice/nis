@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { JetStreamLimits, ListOptions } from "./common_pb.js";
+import { JetStreamLimits, ListOptions, PageRequest } from "./common_pb.js";
 
 /**
  * JetStreamProbeStatus is the per-cluster outcome of a live JetStream usage
@@ -438,9 +438,25 @@ export class ListAccountsRequest extends Message<ListAccountsRequest> {
   operatorId = "";
 
   /**
+   * options is the legacy pagination parameter (kept for back-compat; prefer page).
+   *
    * @generated from field: nis.v1.ListOptions options = 2;
    */
   options?: ListOptions;
+
+  /**
+   * name_like is a case-insensitive substring filter on account name.
+   *
+   * @generated from field: string name_like = 3;
+   */
+  nameLike = "";
+
+  /**
+   * page carries keyset-pagination parameters.
+   *
+   * @generated from field: nis.v1.PageRequest page = 4;
+   */
+  page?: PageRequest;
 
   constructor(data?: PartialMessage<ListAccountsRequest>) {
     super();
@@ -452,6 +468,8 @@ export class ListAccountsRequest extends Message<ListAccountsRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "options", kind: "message", T: ListOptions },
+    { no: 3, name: "name_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAccountsRequest {
@@ -482,6 +500,13 @@ export class ListAccountsResponse extends Message<ListAccountsResponse> {
    */
   accounts: Account[] = [];
 
+  /**
+   * next_cursor is the cursor for the next page (empty = no more pages).
+   *
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListAccountsResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -491,6 +516,7 @@ export class ListAccountsResponse extends Message<ListAccountsResponse> {
   static readonly typeName = "nis.v1.ListAccountsResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "accounts", kind: "message", T: Account, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAccountsResponse {

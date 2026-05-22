@@ -2,10 +2,22 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
+
+// TemplateListFilter holds filter + pagination parameters for TemplateRepository.ListPage.
+type TemplateListFilter struct {
+	Limit        int
+	Cursor       string
+	NameLike     string
+	OperatorID   *uuid.UUID
+	CreatedSince *time.Time
+	CreatedUntil *time.Time
+}
 
 // TemplateRepository defines persistence for operator-scoped permission
 // templates. Version rows live in TemplateVersionRepository.
@@ -15,6 +27,9 @@ type TemplateRepository interface {
 	GetByName(ctx context.Context, operatorID uuid.UUID, name string) (*entities.Template, error)
 	ListByOperator(ctx context.Context, operatorID uuid.UUID, opts ListOptions) ([]*entities.Template, error)
 	List(ctx context.Context, opts ListOptions) ([]*entities.Template, error)
+	// ListPage returns one keyset-paginated page of templates visible under scope.
+	// Order: (created_at DESC, id DESC).
+	ListPage(ctx context.Context, scope authz.Scope, filter TemplateListFilter) ([]*entities.Template, string, error)
 	Update(ctx context.Context, t *entities.Template) error
 	Delete(ctx context.Context, id uuid.UUID) error
 

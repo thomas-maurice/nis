@@ -124,11 +124,11 @@
       </div>
     </div>
 
-    <div class="mt-3 text-center" v-if="nextCursor">
-      <button class="btn btn-outline-primary" @click="loadMore" :disabled="loadingMore">
-        <span v-if="loadingMore" class="spinner-border spinner-border-sm me-2"></span>
-        Load more
-      </button>
+    <div class="d-flex align-items-center gap-2 mt-3">
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+      <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
     </div>
 
     <!-- Event detail modal -->
@@ -255,9 +255,9 @@ const KNOWN_EVENT_TYPES = [
 
 const events = ref([])
 const loading = ref(false)
-const loadingMore = ref(false)
 const error = ref('')
 const nextCursor = ref('')
+const cursorStack = ref([])
 const selectedEvent = ref(null)
 const apiUserNames = ref({})
 
@@ -284,13 +284,11 @@ function buildFilter(cursor) {
   return f
 }
 
-const loadEvents = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
-  events.value = []
-  nextCursor.value = ''
   try {
-    const resp = await eventClient.listEvents({ filter: buildFilter('') })
+    const resp = await eventClient.listEvents({ filter: buildFilter(cursor || '') })
     events.value = resp.events || []
     nextCursor.value = resp.nextCursor || ''
   } catch (err) {
@@ -300,15 +298,35 @@ const loadEvents = async () => {
   }
 }
 
-const applyFilters = () => {
-  loadEvents()
+// CRITICAL: filter changes reset items + nextCursor + cursorStack before re-fetching.
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
 }
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+// Alias for existing callers (post-mutation reloads, button handlers).
+const loadEvents = loadFirstPage
+
+const applyFilters = () => loadFirstPage()
 
 const clearFilters = () => {
   filterTypes.value = []
   filterOperatorId.value = ''
   filterSince.value = '24h'
-  loadEvents()
+  loadFirstPage()
 }
 
 const loadApiUsers = async () => {
@@ -350,19 +368,6 @@ function resourceRoute(type, id) {
   const prefix = RESOURCE_ROUTE_PREFIX[type]
   if (!prefix) return null
   return `${prefix}/${id}`
-}
-
-const loadMore = async () => {
-  loadingMore.value = true
-  try {
-    const resp = await eventClient.listEvents({ filter: buildFilter(nextCursor.value) })
-    events.value.push(...(resp.events || []))
-    nextCursor.value = resp.nextCursor || ''
-  } catch (err) {
-    error.value = err.message || 'Failed to load more events'
-  } finally {
-    loadingMore.value = false
-  }
 }
 
 const openDetail = (event) => {

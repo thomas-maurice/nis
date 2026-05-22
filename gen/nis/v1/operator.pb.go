@@ -436,8 +436,13 @@ func (x *GetOperatorByNameResponse) GetOperator() *Operator {
 
 // ListOperatorsRequest is the request to list operators
 type ListOperatorsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Options       *ListOptions           `protobuf:"bytes,1,opt,name=options,proto3" json:"options,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// options is the legacy pagination parameter (kept for back-compat; prefer page).
+	Options *ListOptions `protobuf:"bytes,1,opt,name=options,proto3" json:"options,omitempty"`
+	// name_like is a case-insensitive substring filter on operator name.
+	NameLike string `protobuf:"bytes,2,opt,name=name_like,json=nameLike,proto3" json:"name_like,omitempty"`
+	// page carries keyset-pagination parameters.
+	Page          *PageRequest `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -479,10 +484,26 @@ func (x *ListOperatorsRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListOperatorsRequest) GetNameLike() string {
+	if x != nil {
+		return x.NameLike
+	}
+	return ""
+}
+
+func (x *ListOperatorsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 // ListOperatorsResponse is the response from listing operators
 type ListOperatorsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Operators     []*Operator            `protobuf:"bytes,1,rep,name=operators,proto3" json:"operators,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Operators []*Operator            `protobuf:"bytes,1,rep,name=operators,proto3" json:"operators,omitempty"`
+	// next_cursor is the cursor for the next page (empty = no more pages).
+	NextCursor    string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -522,6 +543,13 @@ func (x *ListOperatorsResponse) GetOperators() []*Operator {
 		return x.Operators
 	}
 	return nil
+}
+
+func (x *ListOperatorsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // UpdateOperatorRequest is the request to update an operator
@@ -1167,11 +1195,15 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\x18GetOperatorByNameRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"I\n" +
 	"\x19GetOperatorByNameResponse\x12,\n" +
-	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"E\n" +
+	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"\x8b\x01\n" +
 	"\x14ListOperatorsRequest\x12-\n" +
-	"\aoptions\x18\x01 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"G\n" +
+	"\aoptions\x18\x01 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1b\n" +
+	"\tname_like\x18\x02 \x01(\tR\bnameLike\x12'\n" +
+	"\x04page\x18\x03 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"h\n" +
 	"\x15ListOperatorsResponse\x12.\n" +
-	"\toperators\x18\x01 \x03(\v2\x10.nis.v1.OperatorR\toperators\"\x80\x01\n" +
+	"\toperators\x18\x01 \x03(\v2\x10.nis.v1.OperatorR\toperators\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\x80\x01\n" +
 	"\x15UpdateOperatorRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -1261,6 +1293,7 @@ var file_nis_v1_operator_proto_goTypes = []any{
 	(*RunJWTExpirySweepResponse)(nil), // 20: nis.v1.RunJWTExpirySweepResponse
 	(*timestamppb.Timestamp)(nil),     // 21: google.protobuf.Timestamp
 	(*ListOptions)(nil),               // 22: nis.v1.ListOptions
+	(*PageRequest)(nil),               // 23: nis.v1.PageRequest
 }
 var file_nis_v1_operator_proto_depIdxs = []int32{
 	21, // 0: nis.v1.Operator.created_at:type_name -> google.protobuf.Timestamp
@@ -1269,35 +1302,36 @@ var file_nis_v1_operator_proto_depIdxs = []int32{
 	0,  // 3: nis.v1.GetOperatorResponse.operator:type_name -> nis.v1.Operator
 	0,  // 4: nis.v1.GetOperatorByNameResponse.operator:type_name -> nis.v1.Operator
 	22, // 5: nis.v1.ListOperatorsRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 6: nis.v1.ListOperatorsResponse.operators:type_name -> nis.v1.Operator
-	0,  // 7: nis.v1.UpdateOperatorResponse.operator:type_name -> nis.v1.Operator
-	0,  // 8: nis.v1.SetSystemAccountResponse.operator:type_name -> nis.v1.Operator
-	0,  // 9: nis.v1.SetJWTPolicyResponse.operator:type_name -> nis.v1.Operator
-	1,  // 10: nis.v1.OperatorService.CreateOperator:input_type -> nis.v1.CreateOperatorRequest
-	3,  // 11: nis.v1.OperatorService.GetOperator:input_type -> nis.v1.GetOperatorRequest
-	5,  // 12: nis.v1.OperatorService.GetOperatorByName:input_type -> nis.v1.GetOperatorByNameRequest
-	7,  // 13: nis.v1.OperatorService.ListOperators:input_type -> nis.v1.ListOperatorsRequest
-	9,  // 14: nis.v1.OperatorService.UpdateOperator:input_type -> nis.v1.UpdateOperatorRequest
-	11, // 15: nis.v1.OperatorService.SetSystemAccount:input_type -> nis.v1.SetSystemAccountRequest
-	13, // 16: nis.v1.OperatorService.DeleteOperator:input_type -> nis.v1.DeleteOperatorRequest
-	15, // 17: nis.v1.OperatorService.GenerateInclude:input_type -> nis.v1.GenerateIncludeRequest
-	17, // 18: nis.v1.OperatorService.SetJWTPolicy:input_type -> nis.v1.SetJWTPolicyRequest
-	19, // 19: nis.v1.OperatorService.RunJWTExpirySweep:input_type -> nis.v1.RunJWTExpirySweepRequest
-	2,  // 20: nis.v1.OperatorService.CreateOperator:output_type -> nis.v1.CreateOperatorResponse
-	4,  // 21: nis.v1.OperatorService.GetOperator:output_type -> nis.v1.GetOperatorResponse
-	6,  // 22: nis.v1.OperatorService.GetOperatorByName:output_type -> nis.v1.GetOperatorByNameResponse
-	8,  // 23: nis.v1.OperatorService.ListOperators:output_type -> nis.v1.ListOperatorsResponse
-	10, // 24: nis.v1.OperatorService.UpdateOperator:output_type -> nis.v1.UpdateOperatorResponse
-	12, // 25: nis.v1.OperatorService.SetSystemAccount:output_type -> nis.v1.SetSystemAccountResponse
-	14, // 26: nis.v1.OperatorService.DeleteOperator:output_type -> nis.v1.DeleteOperatorResponse
-	16, // 27: nis.v1.OperatorService.GenerateInclude:output_type -> nis.v1.GenerateIncludeResponse
-	18, // 28: nis.v1.OperatorService.SetJWTPolicy:output_type -> nis.v1.SetJWTPolicyResponse
-	20, // 29: nis.v1.OperatorService.RunJWTExpirySweep:output_type -> nis.v1.RunJWTExpirySweepResponse
-	20, // [20:30] is the sub-list for method output_type
-	10, // [10:20] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	23, // 6: nis.v1.ListOperatorsRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 7: nis.v1.ListOperatorsResponse.operators:type_name -> nis.v1.Operator
+	0,  // 8: nis.v1.UpdateOperatorResponse.operator:type_name -> nis.v1.Operator
+	0,  // 9: nis.v1.SetSystemAccountResponse.operator:type_name -> nis.v1.Operator
+	0,  // 10: nis.v1.SetJWTPolicyResponse.operator:type_name -> nis.v1.Operator
+	1,  // 11: nis.v1.OperatorService.CreateOperator:input_type -> nis.v1.CreateOperatorRequest
+	3,  // 12: nis.v1.OperatorService.GetOperator:input_type -> nis.v1.GetOperatorRequest
+	5,  // 13: nis.v1.OperatorService.GetOperatorByName:input_type -> nis.v1.GetOperatorByNameRequest
+	7,  // 14: nis.v1.OperatorService.ListOperators:input_type -> nis.v1.ListOperatorsRequest
+	9,  // 15: nis.v1.OperatorService.UpdateOperator:input_type -> nis.v1.UpdateOperatorRequest
+	11, // 16: nis.v1.OperatorService.SetSystemAccount:input_type -> nis.v1.SetSystemAccountRequest
+	13, // 17: nis.v1.OperatorService.DeleteOperator:input_type -> nis.v1.DeleteOperatorRequest
+	15, // 18: nis.v1.OperatorService.GenerateInclude:input_type -> nis.v1.GenerateIncludeRequest
+	17, // 19: nis.v1.OperatorService.SetJWTPolicy:input_type -> nis.v1.SetJWTPolicyRequest
+	19, // 20: nis.v1.OperatorService.RunJWTExpirySweep:input_type -> nis.v1.RunJWTExpirySweepRequest
+	2,  // 21: nis.v1.OperatorService.CreateOperator:output_type -> nis.v1.CreateOperatorResponse
+	4,  // 22: nis.v1.OperatorService.GetOperator:output_type -> nis.v1.GetOperatorResponse
+	6,  // 23: nis.v1.OperatorService.GetOperatorByName:output_type -> nis.v1.GetOperatorByNameResponse
+	8,  // 24: nis.v1.OperatorService.ListOperators:output_type -> nis.v1.ListOperatorsResponse
+	10, // 25: nis.v1.OperatorService.UpdateOperator:output_type -> nis.v1.UpdateOperatorResponse
+	12, // 26: nis.v1.OperatorService.SetSystemAccount:output_type -> nis.v1.SetSystemAccountResponse
+	14, // 27: nis.v1.OperatorService.DeleteOperator:output_type -> nis.v1.DeleteOperatorResponse
+	16, // 28: nis.v1.OperatorService.GenerateInclude:output_type -> nis.v1.GenerateIncludeResponse
+	18, // 29: nis.v1.OperatorService.SetJWTPolicy:output_type -> nis.v1.SetJWTPolicyResponse
+	20, // 30: nis.v1.OperatorService.RunJWTExpirySweep:output_type -> nis.v1.RunJWTExpirySweepResponse
+	21, // [21:31] is the sub-list for method output_type
+	11, // [11:21] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_operator_proto_init() }

@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { ListOptions } from "./common_pb.js";
+import { ListOptions, PageRequest } from "./common_pb.js";
 
 /**
  * Operator represents a NATS operator
@@ -361,9 +361,25 @@ export class GetOperatorByNameResponse extends Message<GetOperatorByNameResponse
  */
 export class ListOperatorsRequest extends Message<ListOperatorsRequest> {
   /**
+   * options is the legacy pagination parameter (kept for back-compat; prefer page).
+   *
    * @generated from field: nis.v1.ListOptions options = 1;
    */
   options?: ListOptions;
+
+  /**
+   * name_like is a case-insensitive substring filter on operator name.
+   *
+   * @generated from field: string name_like = 2;
+   */
+  nameLike = "";
+
+  /**
+   * page carries keyset-pagination parameters.
+   *
+   * @generated from field: nis.v1.PageRequest page = 3;
+   */
+  page?: PageRequest;
 
   constructor(data?: PartialMessage<ListOperatorsRequest>) {
     super();
@@ -374,6 +390,8 @@ export class ListOperatorsRequest extends Message<ListOperatorsRequest> {
   static readonly typeName = "nis.v1.ListOperatorsRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "options", kind: "message", T: ListOptions },
+    { no: 2, name: "name_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListOperatorsRequest {
@@ -404,6 +422,13 @@ export class ListOperatorsResponse extends Message<ListOperatorsResponse> {
    */
   operators: Operator[] = [];
 
+  /**
+   * next_cursor is the cursor for the next page (empty = no more pages).
+   *
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListOperatorsResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -413,6 +438,7 @@ export class ListOperatorsResponse extends Message<ListOperatorsResponse> {
   static readonly typeName = "nis.v1.ListOperatorsResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operators", kind: "message", T: Operator, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListOperatorsResponse {

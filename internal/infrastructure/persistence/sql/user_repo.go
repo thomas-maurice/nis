@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -169,6 +171,96 @@ func (r *UserRepo) ListByScopedSigningKey(ctx context.Context, scopedKeyID uuid.
 	}
 
 	return users, nil
+}
+
+// ListPage returns one keyset-paginated page of users visible under scope.
+// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+func (r *UserRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.UserListFilter) ([]*entities.User, string, error) {
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx).Table("users")
+
+	// Scope → SQL narrowing.
+	switch {
+	case scope.IsAdmin():
+		// No narrowing.
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return nil, "", nil
+		}
+		// Operator-admin sees users whose account belongs to their operator.
+		query = query.Where("EXISTS (SELECT 1 FROM accounts WHERE accounts.id = users.account_id AND accounts.operator_id = ?)", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("account_id = ?", scope.ScopeAccountID.String())
+	}
+
+	// Additional filters.
+	if filter.AccountID != nil {
+		query = query.Where("account_id = ?", filter.AccountID.String())
+	}
+	if filter.ScopedSigningKeyID != nil {
+		query = query.Where("scoped_signing_key_id = ?", filter.ScopedSigningKeyID.String())
+	}
+	if filter.Revoked != nil {
+		if *filter.Revoked {
+			query = query.Where("revoked_at IS NOT NULL")
+		} else {
+			query = query.Where("revoked_at IS NULL")
+		}
+	}
+	if filter.ExpiresBefore != nil {
+		query = query.Where("jwt_expires_at < ?", filter.ExpiresBefore.UTC())
+	}
+
+	// NameLike filter. escapeLikeParam escapes %, _, and \ so they are treated as
+	// literals; the ESCAPE '\' clause activates SQLite's backslash-escape mode.
+	if filter.NameLike != "" {
+		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.NameLike)) + "%"
+		query = query.Where("LOWER(name) LIKE LOWER(?) ESCAPE '\\'", pattern)
+	}
+
+	// Time bound filters.
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	// Cursor predicate.
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []UserModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list users page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	users := make([]*entities.User, len(models))
+	for i, m := range models {
+		users[i] = m.ToEntity()
+	}
+	return users, nextCursor, nil
 }
 
 // ListForExpirySweep returns rows matching the sweeper's target subset. See the

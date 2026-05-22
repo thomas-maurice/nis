@@ -5,6 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { PageRequest } from "./common_pb.js";
 
 /**
  * APIUser represents an API user for authentication
@@ -522,11 +523,26 @@ export class GetAPIUserByUsernameResponse extends Message<GetAPIUserByUsernameRe
 }
 
 /**
- * ListAPIUsersRequest is the request to list API users
+ * ListAPIUsersRequest is the request to list API users.
  *
  * @generated from message nis.v1.ListAPIUsersRequest
  */
 export class ListAPIUsersRequest extends Message<ListAPIUsersRequest> {
+  /**
+   * @generated from field: string role = 1;
+   */
+  role = "";
+
+  /**
+   * @generated from field: string username_like = 2;
+   */
+  usernameLike = "";
+
+  /**
+   * @generated from field: nis.v1.PageRequest page = 3;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListAPIUsersRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -535,6 +551,9 @@ export class ListAPIUsersRequest extends Message<ListAPIUsersRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "nis.v1.ListAPIUsersRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "username_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAPIUsersRequest {
@@ -555,7 +574,7 @@ export class ListAPIUsersRequest extends Message<ListAPIUsersRequest> {
 }
 
 /**
- * ListAPIUsersResponse is the response from listing API users
+ * ListAPIUsersResponse is the response from listing API users.
  *
  * @generated from message nis.v1.ListAPIUsersResponse
  */
@@ -564,6 +583,11 @@ export class ListAPIUsersResponse extends Message<ListAPIUsersResponse> {
    * @generated from field: repeated nis.v1.APIUser users = 1;
    */
   users: APIUser[] = [];
+
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
 
   constructor(data?: PartialMessage<ListAPIUsersResponse>) {
     super();
@@ -574,6 +598,7 @@ export class ListAPIUsersResponse extends Message<ListAPIUsersResponse> {
   static readonly typeName = "nis.v1.ListAPIUsersResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "users", kind: "message", T: APIUser, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAPIUsersResponse {

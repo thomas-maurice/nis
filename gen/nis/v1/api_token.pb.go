@@ -396,11 +396,13 @@ func (x *GetAPITokenResponse) GetToken() *APIToken {
 
 type ListAPITokensRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// When set by admins, filters to tokens minted by that api_user. Ignored for
-	// non-admins (always scoped to caller's own tokens).
+	// created_by_user_id is admin-only and reserved; non-admin callers see only
+	// their own tokens via repo-layer scope and any value here is ignored. New
+	// clients should leave this empty.
 	CreatedByUserId string       `protobuf:"bytes,1,opt,name=created_by_user_id,json=createdByUserId,proto3" json:"created_by_user_id,omitempty"`
 	IncludeRevoked  bool         `protobuf:"varint,2,opt,name=include_revoked,json=includeRevoked,proto3" json:"include_revoked,omitempty"`
 	Options         *ListOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	Page            *PageRequest `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -456,9 +458,17 @@ func (x *ListAPITokensRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListAPITokensRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListAPITokensResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Tokens        []*APIToken            `protobuf:"bytes,1,rep,name=tokens,proto3" json:"tokens,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -498,6 +508,13 @@ func (x *ListAPITokensResponse) GetTokens() []*APIToken {
 		return x.Tokens
 	}
 	return nil
+}
+
+func (x *ListAPITokensResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // Revoke marks a token as revoked. Tokens are intentionally immutable in every
@@ -713,13 +730,16 @@ const file_nis_v1_api_token_proto_rawDesc = "" +
 	"\x12GetAPITokenRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"=\n" +
 	"\x13GetAPITokenResponse\x12&\n" +
-	"\x05token\x18\x01 \x01(\v2\x10.nis.v1.APITokenR\x05token\"\x9b\x01\n" +
+	"\x05token\x18\x01 \x01(\v2\x10.nis.v1.APITokenR\x05token\"\xc4\x01\n" +
 	"\x14ListAPITokensRequest\x12+\n" +
 	"\x12created_by_user_id\x18\x01 \x01(\tR\x0fcreatedByUserId\x12'\n" +
 	"\x0finclude_revoked\x18\x02 \x01(\bR\x0eincludeRevoked\x12-\n" +
-	"\aoptions\x18\x03 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"A\n" +
+	"\aoptions\x18\x03 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"b\n" +
 	"\x15ListAPITokensResponse\x12(\n" +
-	"\x06tokens\x18\x01 \x03(\v2\x10.nis.v1.APITokenR\x06tokens\"'\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x10.nis.v1.APITokenR\x06tokens\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"'\n" +
 	"\x15RevokeAPITokenRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"@\n" +
 	"\x16RevokeAPITokenResponse\x12&\n" +
@@ -763,6 +783,7 @@ var file_nis_v1_api_token_proto_goTypes = []any{
 	(*DeleteAPITokenResponse)(nil), // 10: nis.v1.DeleteAPITokenResponse
 	(*timestamppb.Timestamp)(nil),  // 11: google.protobuf.Timestamp
 	(*ListOptions)(nil),            // 12: nis.v1.ListOptions
+	(*PageRequest)(nil),            // 13: nis.v1.PageRequest
 }
 var file_nis_v1_api_token_proto_depIdxs = []int32{
 	11, // 0: nis.v1.APIToken.expires_at:type_name -> google.protobuf.Timestamp
@@ -774,23 +795,24 @@ var file_nis_v1_api_token_proto_depIdxs = []int32{
 	0,  // 6: nis.v1.CreateAPITokenResponse.token:type_name -> nis.v1.APIToken
 	0,  // 7: nis.v1.GetAPITokenResponse.token:type_name -> nis.v1.APIToken
 	12, // 8: nis.v1.ListAPITokensRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 9: nis.v1.ListAPITokensResponse.tokens:type_name -> nis.v1.APIToken
-	0,  // 10: nis.v1.RevokeAPITokenResponse.token:type_name -> nis.v1.APIToken
-	1,  // 11: nis.v1.APITokenService.CreateAPIToken:input_type -> nis.v1.CreateAPITokenRequest
-	3,  // 12: nis.v1.APITokenService.GetAPIToken:input_type -> nis.v1.GetAPITokenRequest
-	5,  // 13: nis.v1.APITokenService.ListAPITokens:input_type -> nis.v1.ListAPITokensRequest
-	7,  // 14: nis.v1.APITokenService.RevokeAPIToken:input_type -> nis.v1.RevokeAPITokenRequest
-	9,  // 15: nis.v1.APITokenService.DeleteAPIToken:input_type -> nis.v1.DeleteAPITokenRequest
-	2,  // 16: nis.v1.APITokenService.CreateAPIToken:output_type -> nis.v1.CreateAPITokenResponse
-	4,  // 17: nis.v1.APITokenService.GetAPIToken:output_type -> nis.v1.GetAPITokenResponse
-	6,  // 18: nis.v1.APITokenService.ListAPITokens:output_type -> nis.v1.ListAPITokensResponse
-	8,  // 19: nis.v1.APITokenService.RevokeAPIToken:output_type -> nis.v1.RevokeAPITokenResponse
-	10, // 20: nis.v1.APITokenService.DeleteAPIToken:output_type -> nis.v1.DeleteAPITokenResponse
-	16, // [16:21] is the sub-list for method output_type
-	11, // [11:16] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	13, // 9: nis.v1.ListAPITokensRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 10: nis.v1.ListAPITokensResponse.tokens:type_name -> nis.v1.APIToken
+	0,  // 11: nis.v1.RevokeAPITokenResponse.token:type_name -> nis.v1.APIToken
+	1,  // 12: nis.v1.APITokenService.CreateAPIToken:input_type -> nis.v1.CreateAPITokenRequest
+	3,  // 13: nis.v1.APITokenService.GetAPIToken:input_type -> nis.v1.GetAPITokenRequest
+	5,  // 14: nis.v1.APITokenService.ListAPITokens:input_type -> nis.v1.ListAPITokensRequest
+	7,  // 15: nis.v1.APITokenService.RevokeAPIToken:input_type -> nis.v1.RevokeAPITokenRequest
+	9,  // 16: nis.v1.APITokenService.DeleteAPIToken:input_type -> nis.v1.DeleteAPITokenRequest
+	2,  // 17: nis.v1.APITokenService.CreateAPIToken:output_type -> nis.v1.CreateAPITokenResponse
+	4,  // 18: nis.v1.APITokenService.GetAPIToken:output_type -> nis.v1.GetAPITokenResponse
+	6,  // 19: nis.v1.APITokenService.ListAPITokens:output_type -> nis.v1.ListAPITokensResponse
+	8,  // 20: nis.v1.APITokenService.RevokeAPIToken:output_type -> nis.v1.RevokeAPITokenResponse
+	10, // 21: nis.v1.APITokenService.DeleteAPIToken:output_type -> nis.v1.DeleteAPITokenResponse
+	17, // [17:22] is the sub-list for method output_type
+	12, // [12:17] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_api_token_proto_init() }

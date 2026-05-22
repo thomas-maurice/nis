@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
@@ -174,24 +175,37 @@ func (h *AuthHandler) GetAPIUserByUsername(
 	}), nil
 }
 
-// ListAPIUsers lists all API users
+// ListAPIUsers lists all API users (admin-only, paginated).
 func (h *AuthHandler) ListAPIUsers(
 	ctx context.Context,
 	req *connect.Request[pb.ListAPIUsersRequest],
 ) (*connect.Response[pb.ListAPIUsersResponse], error) {
-	// Get requesting user from context
 	requestingUser, err := authedUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	users, err := h.service.ListAPIUsers(ctx, requestingUser)
+	filter := repositories.APIUserListFilter{
+		Role:         req.Msg.GetRole(),
+		UsernameLike: req.Msg.GetUsernameLike(),
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.GetLimit())
+		filter.Cursor = req.Msg.Page.GetCursor()
+	}
+
+	scope := authz.ScopeFromAPIUser(requestingUser)
+	users, nextCursor, err := h.service.ListAPIUsersPage(ctx, scope, filter)
 	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	return connect.NewResponse(&pb.ListAPIUsersResponse{
-		Users: mappers.APIUsersToProto(users),
+		Users:      mappers.APIUsersToProto(users),
+		NextCursor: nextCursor,
 	}), nil
 }
 

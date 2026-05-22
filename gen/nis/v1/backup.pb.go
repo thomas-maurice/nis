@@ -486,6 +486,8 @@ func (x *RunOperatorBackupResponse) GetBackup() *OperatorBackup {
 type ListOperatorBackupsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	TriggerKind   string                 `protobuf:"bytes,2,opt,name=trigger_kind,json=triggerKind,proto3" json:"trigger_kind,omitempty"`
+	Page          *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -527,9 +529,24 @@ func (x *ListOperatorBackupsRequest) GetOperatorId() string {
 	return ""
 }
 
+func (x *ListOperatorBackupsRequest) GetTriggerKind() string {
+	if x != nil {
+		return x.TriggerKind
+	}
+	return ""
+}
+
+func (x *ListOperatorBackupsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListOperatorBackupsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Backups       []*OperatorBackup      `protobuf:"bytes,1,rep,name=backups,proto3" json:"backups,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -569,6 +586,13 @@ func (x *ListOperatorBackupsResponse) GetBackups() []*OperatorBackup {
 		return x.Backups
 	}
 	return nil
+}
+
+func (x *ListOperatorBackupsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 type GetBackupRequest struct {
@@ -872,7 +896,7 @@ var File_nis_v1_backup_proto protoreflect.FileDescriptor
 
 const file_nis_v1_backup_proto_rawDesc = "" +
 	"\n" +
-	"\x13nis/v1/backup.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf5\x01\n" +
+	"\x13nis/v1/backup.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13nis/v1/common.proto\"\xf5\x01\n" +
 	"\x0eOperatorBackup\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\voperator_id\x18\x02 \x01(\tR\n" +
@@ -911,12 +935,16 @@ const file_nis_v1_backup_proto_rawDesc = "" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\"K\n" +
 	"\x19RunOperatorBackupResponse\x12.\n" +
-	"\x06backup\x18\x01 \x01(\v2\x16.nis.v1.OperatorBackupR\x06backup\"=\n" +
+	"\x06backup\x18\x01 \x01(\v2\x16.nis.v1.OperatorBackupR\x06backup\"\x89\x01\n" +
 	"\x1aListOperatorBackupsRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
-	"operatorId\"O\n" +
+	"operatorId\x12!\n" +
+	"\ftrigger_kind\x18\x02 \x01(\tR\vtriggerKind\x12'\n" +
+	"\x04page\x18\x03 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"p\n" +
 	"\x1bListOperatorBackupsResponse\x120\n" +
-	"\abackups\x18\x01 \x03(\v2\x16.nis.v1.OperatorBackupR\abackups\"\"\n" +
+	"\abackups\x18\x01 \x03(\v2\x16.nis.v1.OperatorBackupR\abackups\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\"\n" +
 	"\x10GetBackupRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"C\n" +
 	"\x11GetBackupResponse\x12.\n" +
@@ -972,6 +1000,7 @@ var file_nis_v1_backup_proto_goTypes = []any{
 	(*DeleteBackupRequest)(nil),                  // 14: nis.v1.DeleteBackupRequest
 	(*DeleteBackupResponse)(nil),                 // 15: nis.v1.DeleteBackupResponse
 	(*timestamppb.Timestamp)(nil),                // 16: google.protobuf.Timestamp
+	(*PageRequest)(nil),                          // 17: nis.v1.PageRequest
 }
 var file_nis_v1_backup_proto_depIdxs = []int32{
 	16, // 0: nis.v1.OperatorBackup.created_at:type_name -> google.protobuf.Timestamp
@@ -979,28 +1008,29 @@ var file_nis_v1_backup_proto_depIdxs = []int32{
 	1,  // 2: nis.v1.UpdateOperatorBackupSettingsResponse.settings:type_name -> nis.v1.BackupSettings
 	1,  // 3: nis.v1.GetOperatorBackupSettingsResponse.settings:type_name -> nis.v1.BackupSettings
 	0,  // 4: nis.v1.RunOperatorBackupResponse.backup:type_name -> nis.v1.OperatorBackup
-	0,  // 5: nis.v1.ListOperatorBackupsResponse.backups:type_name -> nis.v1.OperatorBackup
-	0,  // 6: nis.v1.GetBackupResponse.backup:type_name -> nis.v1.OperatorBackup
-	0,  // 7: nis.v1.DownloadBackupResponse.metadata:type_name -> nis.v1.OperatorBackup
-	2,  // 8: nis.v1.BackupService.UpdateOperatorBackupSettings:input_type -> nis.v1.UpdateOperatorBackupSettingsRequest
-	4,  // 9: nis.v1.BackupService.GetOperatorBackupSettings:input_type -> nis.v1.GetOperatorBackupSettingsRequest
-	6,  // 10: nis.v1.BackupService.RunOperatorBackup:input_type -> nis.v1.RunOperatorBackupRequest
-	8,  // 11: nis.v1.BackupService.ListOperatorBackups:input_type -> nis.v1.ListOperatorBackupsRequest
-	10, // 12: nis.v1.BackupService.GetBackup:input_type -> nis.v1.GetBackupRequest
-	12, // 13: nis.v1.BackupService.DownloadBackup:input_type -> nis.v1.DownloadBackupRequest
-	14, // 14: nis.v1.BackupService.DeleteBackup:input_type -> nis.v1.DeleteBackupRequest
-	3,  // 15: nis.v1.BackupService.UpdateOperatorBackupSettings:output_type -> nis.v1.UpdateOperatorBackupSettingsResponse
-	5,  // 16: nis.v1.BackupService.GetOperatorBackupSettings:output_type -> nis.v1.GetOperatorBackupSettingsResponse
-	7,  // 17: nis.v1.BackupService.RunOperatorBackup:output_type -> nis.v1.RunOperatorBackupResponse
-	9,  // 18: nis.v1.BackupService.ListOperatorBackups:output_type -> nis.v1.ListOperatorBackupsResponse
-	11, // 19: nis.v1.BackupService.GetBackup:output_type -> nis.v1.GetBackupResponse
-	13, // 20: nis.v1.BackupService.DownloadBackup:output_type -> nis.v1.DownloadBackupResponse
-	15, // 21: nis.v1.BackupService.DeleteBackup:output_type -> nis.v1.DeleteBackupResponse
-	15, // [15:22] is the sub-list for method output_type
-	8,  // [8:15] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	17, // 5: nis.v1.ListOperatorBackupsRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 6: nis.v1.ListOperatorBackupsResponse.backups:type_name -> nis.v1.OperatorBackup
+	0,  // 7: nis.v1.GetBackupResponse.backup:type_name -> nis.v1.OperatorBackup
+	0,  // 8: nis.v1.DownloadBackupResponse.metadata:type_name -> nis.v1.OperatorBackup
+	2,  // 9: nis.v1.BackupService.UpdateOperatorBackupSettings:input_type -> nis.v1.UpdateOperatorBackupSettingsRequest
+	4,  // 10: nis.v1.BackupService.GetOperatorBackupSettings:input_type -> nis.v1.GetOperatorBackupSettingsRequest
+	6,  // 11: nis.v1.BackupService.RunOperatorBackup:input_type -> nis.v1.RunOperatorBackupRequest
+	8,  // 12: nis.v1.BackupService.ListOperatorBackups:input_type -> nis.v1.ListOperatorBackupsRequest
+	10, // 13: nis.v1.BackupService.GetBackup:input_type -> nis.v1.GetBackupRequest
+	12, // 14: nis.v1.BackupService.DownloadBackup:input_type -> nis.v1.DownloadBackupRequest
+	14, // 15: nis.v1.BackupService.DeleteBackup:input_type -> nis.v1.DeleteBackupRequest
+	3,  // 16: nis.v1.BackupService.UpdateOperatorBackupSettings:output_type -> nis.v1.UpdateOperatorBackupSettingsResponse
+	5,  // 17: nis.v1.BackupService.GetOperatorBackupSettings:output_type -> nis.v1.GetOperatorBackupSettingsResponse
+	7,  // 18: nis.v1.BackupService.RunOperatorBackup:output_type -> nis.v1.RunOperatorBackupResponse
+	9,  // 19: nis.v1.BackupService.ListOperatorBackups:output_type -> nis.v1.ListOperatorBackupsResponse
+	11, // 20: nis.v1.BackupService.GetBackup:output_type -> nis.v1.GetBackupResponse
+	13, // 21: nis.v1.BackupService.DownloadBackup:output_type -> nis.v1.DownloadBackupResponse
+	15, // 22: nis.v1.BackupService.DeleteBackup:output_type -> nis.v1.DeleteBackupResponse
+	16, // [16:23] is the sub-list for method output_type
+	9,  // [9:16] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_backup_proto_init() }
@@ -1008,6 +1038,7 @@ func file_nis_v1_backup_proto_init() {
 	if File_nis_v1_backup_proto != nil {
 		return
 	}
+	file_nis_v1_common_proto_init()
 	file_nis_v1_backup_proto_msgTypes[2].OneofWrappers = []any{}
 	file_nis_v1_backup_proto_msgTypes[13].OneofWrappers = []any{
 		(*DownloadBackupResponse_Metadata)(nil),

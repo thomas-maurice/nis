@@ -71,6 +71,10 @@ var (
 	signingKeySubDeny         []string
 	signingKeyResponseMaxMsgs int
 	signingKeyResponseTTL     string
+
+	signingKeyListLimit    int32
+	signingKeyListCursor   string
+	signingKeyListNameLike string
 )
 
 var signingKeyDetachTemplateCmd = &cobra.Command{
@@ -207,6 +211,9 @@ func init() {
 
 	signingKeyListCmd.Flags().StringVar(&signingKeyOperatorID, "operator", "", "operator ID or name (required)")
 	_ = signingKeyListCmd.MarkFlagRequired("operator")
+	signingKeyListCmd.Flags().Int32Var(&signingKeyListLimit, "limit", 0, "fetch only this many rows in one page (default: fetch all)")
+	signingKeyListCmd.Flags().StringVar(&signingKeyListCursor, "cursor", "", "start from this opaque cursor (single-page mode)")
+	signingKeyListCmd.Flags().StringVar(&signingKeyListNameLike, "name-like", "", "filter by case-insensitive name substring")
 
 	signingKeyDeleteCmd.Flags().BoolVarP(&signingKeyForce, "force", "f", false, "skip confirmation prompt")
 
@@ -448,33 +455,59 @@ func runSigningKeyList(cmd *cobra.Command, args []string) error {
 	accountName := args[0]
 	printer := client.NewPrinter(GetOutputFormat())
 
-	// Resolve operator ID
 	operatorID, err := resolveOperatorID(signingKeyOperatorID)
 	if err != nil {
 		return err
 	}
 
-	// Get account by name
 	accountReq := connect.NewRequest(&nisv1.GetAccountByNameRequest{
 		OperatorId: operatorID,
 		Name:       accountName,
 	})
-
 	accountResp, err := GetClient().Account.GetAccountByName(context.Background(), accountReq)
 	if err != nil {
 		return fmt.Errorf("account not found: %w", err)
 	}
 
-	req := connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
-		AccountId: accountResp.Msg.Account.Id,
-	})
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
 
-	resp, err := GetClient().ScopedSigningKey.ListScopedSigningKeys(context.Background(), req)
-	if err != nil {
-		return fmt.Errorf("failed to list scoped signing keys: %w", err)
+	var allKeys []*nisv1.ScopedSigningKey
+	cursor := signingKeyListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := signingKeyListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+		req := connect.NewRequest(&nisv1.ListScopedSigningKeysRequest{
+			AccountId: accountResp.Msg.Account.Id,
+			NameLike:  signingKeyListNameLike,
+			Page:      &nisv1.PageRequest{Limit: pageLimit, Cursor: cursor},
+		})
+		resp, err := GetClient().ScopedSigningKey.ListScopedSigningKeys(context.Background(), req)
+		if err != nil {
+			return fmt.Errorf("failed to list scoped signing keys: %w", err)
+		}
+		allKeys = append(allKeys, resp.Msg.Keys...)
+		pageNum++
+
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Keys) == 0 {
+	if len(allKeys) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No scoped signing keys found")
 		}
@@ -483,12 +516,12 @@ func runSigningKeyList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "ACCOUNT", "CREATED AT"}
-		rows := make([][]string, len(resp.Msg.Keys))
+		rows := make([][]string, len(allKeys))
 
-		for i, key := range resp.Msg.Keys {
+		for i, key := range allKeys {
 			createdAt := "-"
 			if key.CreatedAt != nil {
-				createdAt = key.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				createdAt = key.CreatedAt.AsTime().Local().Format("2006-01-02 15:04:05")
 			}
 
 			rows[i] = []string{
@@ -502,7 +535,7 @@ func runSigningKeyList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Keys)
+	return printer.PrintList(allKeys)
 }
 
 func runSigningKeyGet(cmd *cobra.Command, args []string) error {

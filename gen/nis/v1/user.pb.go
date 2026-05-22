@@ -476,9 +476,14 @@ func (x *GetUserByNameResponse) GetUser() *User {
 
 // ListUsersRequest is the request to list users
 type ListUsersRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Options       *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	AccountId string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	// options is the legacy pagination parameter (kept for back-compat; prefer page).
+	Options *ListOptions `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	// name_like is a case-insensitive substring filter on user name.
+	NameLike string `protobuf:"bytes,3,opt,name=name_like,json=nameLike,proto3" json:"name_like,omitempty"`
+	// page carries keyset-pagination parameters.
+	Page          *PageRequest `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -527,10 +532,26 @@ func (x *ListUsersRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListUsersRequest) GetNameLike() string {
+	if x != nil {
+		return x.NameLike
+	}
+	return ""
+}
+
+func (x *ListUsersRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 // ListUsersResponse is the response from listing users
 type ListUsersResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Users         []*User                `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Users []*User                `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	// next_cursor is the cursor for the next page (empty = no more pages).
+	NextCursor    string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -570,6 +591,13 @@ func (x *ListUsersResponse) GetUsers() []*User {
 		return x.Users
 	}
 	return nil
+}
+
+func (x *ListUsersResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // UpdateUserRequest is the request to update a user
@@ -1121,13 +1149,17 @@ const file_nis_v1_user_proto_rawDesc = "" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"9\n" +
 	"\x15GetUserByNameResponse\x12 \n" +
-	"\x04user\x18\x01 \x01(\v2\f.nis.v1.UserR\x04user\"`\n" +
+	"\x04user\x18\x01 \x01(\v2\f.nis.v1.UserR\x04user\"\xa6\x01\n" +
 	"\x10ListUsersRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12-\n" +
-	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"7\n" +
+	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1b\n" +
+	"\tname_like\x18\x03 \x01(\tR\bnameLike\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"X\n" +
 	"\x11ListUsersResponse\x12\"\n" +
-	"\x05users\x18\x01 \x03(\v2\f.nis.v1.UserR\x05users\"\xe1\x01\n" +
+	"\x05users\x18\x01 \x03(\v2\f.nis.v1.UserR\x05users\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\xe1\x01\n" +
 	"\x11UpdateUserRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -1208,6 +1240,7 @@ var file_nis_v1_user_proto_goTypes = []any{
 	(*RegenerateUserCredentialsResponse)(nil), // 18: nis.v1.RegenerateUserCredentialsResponse
 	(*timestamppb.Timestamp)(nil),             // 19: google.protobuf.Timestamp
 	(*ListOptions)(nil),                       // 20: nis.v1.ListOptions
+	(*PageRequest)(nil),                       // 21: nis.v1.PageRequest
 }
 var file_nis_v1_user_proto_depIdxs = []int32{
 	19, // 0: nis.v1.User.created_at:type_name -> google.protobuf.Timestamp
@@ -1219,33 +1252,34 @@ var file_nis_v1_user_proto_depIdxs = []int32{
 	0,  // 6: nis.v1.GetUserResponse.user:type_name -> nis.v1.User
 	0,  // 7: nis.v1.GetUserByNameResponse.user:type_name -> nis.v1.User
 	20, // 8: nis.v1.ListUsersRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 9: nis.v1.ListUsersResponse.users:type_name -> nis.v1.User
-	0,  // 10: nis.v1.UpdateUserResponse.user:type_name -> nis.v1.User
-	0,  // 11: nis.v1.RevokeUserResponse.user:type_name -> nis.v1.User
-	0,  // 12: nis.v1.RegenerateUserCredentialsResponse.user:type_name -> nis.v1.User
-	1,  // 13: nis.v1.UserService.CreateUser:input_type -> nis.v1.CreateUserRequest
-	3,  // 14: nis.v1.UserService.GetUser:input_type -> nis.v1.GetUserRequest
-	5,  // 15: nis.v1.UserService.GetUserByName:input_type -> nis.v1.GetUserByNameRequest
-	7,  // 16: nis.v1.UserService.ListUsers:input_type -> nis.v1.ListUsersRequest
-	9,  // 17: nis.v1.UserService.UpdateUser:input_type -> nis.v1.UpdateUserRequest
-	11, // 18: nis.v1.UserService.DeleteUser:input_type -> nis.v1.DeleteUserRequest
-	13, // 19: nis.v1.UserService.GetUserCredentials:input_type -> nis.v1.GetUserCredentialsRequest
-	15, // 20: nis.v1.UserService.RevokeUser:input_type -> nis.v1.RevokeUserRequest
-	17, // 21: nis.v1.UserService.RegenerateUserCredentials:input_type -> nis.v1.RegenerateUserCredentialsRequest
-	2,  // 22: nis.v1.UserService.CreateUser:output_type -> nis.v1.CreateUserResponse
-	4,  // 23: nis.v1.UserService.GetUser:output_type -> nis.v1.GetUserResponse
-	6,  // 24: nis.v1.UserService.GetUserByName:output_type -> nis.v1.GetUserByNameResponse
-	8,  // 25: nis.v1.UserService.ListUsers:output_type -> nis.v1.ListUsersResponse
-	10, // 26: nis.v1.UserService.UpdateUser:output_type -> nis.v1.UpdateUserResponse
-	12, // 27: nis.v1.UserService.DeleteUser:output_type -> nis.v1.DeleteUserResponse
-	14, // 28: nis.v1.UserService.GetUserCredentials:output_type -> nis.v1.GetUserCredentialsResponse
-	16, // 29: nis.v1.UserService.RevokeUser:output_type -> nis.v1.RevokeUserResponse
-	18, // 30: nis.v1.UserService.RegenerateUserCredentials:output_type -> nis.v1.RegenerateUserCredentialsResponse
-	22, // [22:31] is the sub-list for method output_type
-	13, // [13:22] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	21, // 9: nis.v1.ListUsersRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 10: nis.v1.ListUsersResponse.users:type_name -> nis.v1.User
+	0,  // 11: nis.v1.UpdateUserResponse.user:type_name -> nis.v1.User
+	0,  // 12: nis.v1.RevokeUserResponse.user:type_name -> nis.v1.User
+	0,  // 13: nis.v1.RegenerateUserCredentialsResponse.user:type_name -> nis.v1.User
+	1,  // 14: nis.v1.UserService.CreateUser:input_type -> nis.v1.CreateUserRequest
+	3,  // 15: nis.v1.UserService.GetUser:input_type -> nis.v1.GetUserRequest
+	5,  // 16: nis.v1.UserService.GetUserByName:input_type -> nis.v1.GetUserByNameRequest
+	7,  // 17: nis.v1.UserService.ListUsers:input_type -> nis.v1.ListUsersRequest
+	9,  // 18: nis.v1.UserService.UpdateUser:input_type -> nis.v1.UpdateUserRequest
+	11, // 19: nis.v1.UserService.DeleteUser:input_type -> nis.v1.DeleteUserRequest
+	13, // 20: nis.v1.UserService.GetUserCredentials:input_type -> nis.v1.GetUserCredentialsRequest
+	15, // 21: nis.v1.UserService.RevokeUser:input_type -> nis.v1.RevokeUserRequest
+	17, // 22: nis.v1.UserService.RegenerateUserCredentials:input_type -> nis.v1.RegenerateUserCredentialsRequest
+	2,  // 23: nis.v1.UserService.CreateUser:output_type -> nis.v1.CreateUserResponse
+	4,  // 24: nis.v1.UserService.GetUser:output_type -> nis.v1.GetUserResponse
+	6,  // 25: nis.v1.UserService.GetUserByName:output_type -> nis.v1.GetUserByNameResponse
+	8,  // 26: nis.v1.UserService.ListUsers:output_type -> nis.v1.ListUsersResponse
+	10, // 27: nis.v1.UserService.UpdateUser:output_type -> nis.v1.UpdateUserResponse
+	12, // 28: nis.v1.UserService.DeleteUser:output_type -> nis.v1.DeleteUserResponse
+	14, // 29: nis.v1.UserService.GetUserCredentials:output_type -> nis.v1.GetUserCredentialsResponse
+	16, // 30: nis.v1.UserService.RevokeUser:output_type -> nis.v1.RevokeUserResponse
+	18, // 31: nis.v1.UserService.RegenerateUserCredentials:output_type -> nis.v1.RegenerateUserCredentialsResponse
+	23, // [23:32] is the sub-list for method output_type
+	14, // [14:23] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_user_proto_init() }

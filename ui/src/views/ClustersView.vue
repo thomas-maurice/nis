@@ -10,6 +10,20 @@
       <button type="button" class="btn-close" @click="syncError = ''"></button>
     </div>
 
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-auto">
+        <label for="cluster-operator-filter" class="form-label small mb-1">Operator</label>
+        <select id="cluster-operator-filter" v-model="operatorFilter" class="form-select form-select-sm" @change="loadFirstPage">
+          <option value="">All operators</option>
+          <option v-for="op in operators" :key="op.id" :value="op.id">{{ op.name }}</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label for="cluster-name-filter" class="form-label small mb-1">Name contains</label>
+        <input id="cluster-name-filter" v-model="nameLikeInput" type="text" class="form-control form-control-sm" placeholder="substring..." @input="onNameLikeInput" />
+      </div>
+    </div>
+
     <EntityList
       title="Clusters"
       entity-name="Cluster"
@@ -66,6 +80,13 @@
         {{ formatDate(item.createdAt) }}
       </template>
     </EntityList>
+
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+      <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
+    </div>
 
     <EntityForm
       v-if="showModal"
@@ -162,6 +183,12 @@ const clusters = ref([])
 const operators = ref([])
 const loading = ref(false)
 const error = ref('')
+const nextCursor = ref('')
+const cursorStack = ref([])
+const nameLikeFilter = ref('')
+const nameLikeInput = ref('')
+const operatorFilter = ref('')
+let nameLikeTimer = null
 const showModal = ref(false)
 const editingCluster = ref(null)
 const formData = ref({})
@@ -180,17 +207,59 @@ const columns = [
   { key: 'createdAt', label: 'Created' }
 ]
 
-const loadClusters = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
   try {
-    const response = await apiClient.post('/nis.v1.ClusterService/ListClusters', {})
+    const req = {
+      nameLike: nameLikeFilter.value,
+      page: { limit: 50, cursor: cursor || '' }
+    }
+    if (operatorFilter.value) {
+      req.operatorId = operatorFilter.value
+    }
+    const response = await apiClient.post('/nis.v1.ClusterService/ListClusters', req)
     clusters.value = response.data.clusters || []
+    nextCursor.value = response.data.nextCursor || ''
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load clusters'
   } finally {
     loading.value = false
   }
+}
+
+// CRITICAL: filter changes must clear items + nextCursor + cursorStack BEFORE
+// re-fetching.
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
+}
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+const onNameLikeInput = () => {
+  clearTimeout(nameLikeTimer)
+  nameLikeTimer = setTimeout(() => {
+    nameLikeFilter.value = nameLikeInput.value
+    loadFirstPage()
+  }, 300)
+}
+
+// Auto-refresh keeps the current page in sync with health-check status.
+const refreshCurrentPage = () => {
+  const current = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(current)
 }
 
 const loadOperators = async () => {
@@ -246,7 +315,7 @@ const handleSubmit = async (data) => {
       await apiClient.post('/nis.v1.ClusterService/CreateCluster', payload)
     }
     closeModal()
-    await loadClusters()
+    await loadFirstPage()
   } catch (err) {
     formError.value = err.response?.data?.message || 'Failed to save cluster'
   } finally {
@@ -263,7 +332,7 @@ const handleDelete = async (cluster) => {
     await apiClient.post('/nis.v1.ClusterService/DeleteCluster', {
       id: cluster.id
     })
-    await loadClusters()
+    await loadFirstPage()
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to delete cluster'
   }
@@ -306,12 +375,13 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => {
-  loadClusters()
+  loadFirstPage()
   loadOperators()
 
-  // Auto-refresh cluster status every 30 seconds
+  // Auto-refresh the current page every 30 seconds — keeps health status fresh
+  // without resetting the user's pagination position.
   refreshInterval = setInterval(() => {
-    loadClusters()
+    refreshCurrentPage()
   }, 30000)
 })
 

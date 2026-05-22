@@ -5,6 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
+import { PageRequest } from "./common_pb.js";
 
 /**
  * OperatorBackup is one row from the operator_backups table — metadata
@@ -402,6 +403,16 @@ export class ListOperatorBackupsRequest extends Message<ListOperatorBackupsReque
    */
   operatorId = "";
 
+  /**
+   * @generated from field: string trigger_kind = 2;
+   */
+  triggerKind = "";
+
+  /**
+   * @generated from field: nis.v1.PageRequest page = 3;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListOperatorBackupsRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -411,6 +422,8 @@ export class ListOperatorBackupsRequest extends Message<ListOperatorBackupsReque
   static readonly typeName = "nis.v1.ListOperatorBackupsRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "trigger_kind", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListOperatorBackupsRequest {
@@ -439,6 +452,11 @@ export class ListOperatorBackupsResponse extends Message<ListOperatorBackupsResp
    */
   backups: OperatorBackup[] = [];
 
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListOperatorBackupsResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -448,6 +466,7 @@ export class ListOperatorBackupsResponse extends Message<ListOperatorBackupsResp
   static readonly typeName = "nis.v1.ListOperatorBackupsResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "backups", kind: "message", T: OperatorBackup, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListOperatorBackupsResponse {

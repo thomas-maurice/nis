@@ -57,12 +57,19 @@ message GetAccountByNameResponse {
 // ListAccountsRequest is the request to list accounts
 message ListAccountsRequest {
   string operator_id = 1;
+  // options is the legacy pagination parameter (kept for back-compat; prefer page).
   ListOptions options = 2;
+  // name_like is a case-insensitive substring filter on account name.
+  string name_like = 3;
+  // page carries keyset-pagination parameters.
+  PageRequest page = 4;
 }
 
 // ListAccountsResponse is the response from listing accounts
 message ListAccountsResponse {
   repeated Account accounts = 1;
+  // next_cursor is the cursor for the next page (empty = no more pages).
+  string next_cursor = 2;
 }
 
 // UpdateAccountRequest is the request to update an account

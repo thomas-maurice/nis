@@ -74,12 +74,17 @@ var userDeleteCmd = &cobra.Command{
 }
 
 var (
-	userOperatorID          string
-	userAccountID           string
-	userDescription         string
-	userScopedKeyID         string
-	userCredsOutputFile     string
-	userForce               bool
+	userOperatorID      string
+	userAccountID       string
+	userDescription     string
+	userScopedKeyID     string
+	userCredsOutputFile string
+	userForce           bool
+
+	// list flags
+	userListNameLike string
+	userListLimit    int32
+	userListCursor   string
 )
 
 func init() {
@@ -104,6 +109,9 @@ func init() {
 	// List flags
 	userListCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
 	_ = userListCmd.MarkFlagRequired("operator")
+	userListCmd.Flags().StringVar(&userListNameLike, "name-like", "", "filter by name (substring match)")
+	userListCmd.Flags().Int32Var(&userListLimit, "limit", 0, "page size (0 = fetch all pages)")
+	userListCmd.Flags().StringVar(&userListCursor, "cursor", "", "start at this pagination cursor (implies single-page mode)")
 
 	// Get flags
 	userGetCmd.Flags().StringVar(&userOperatorID, "operator", "", "operator ID or name (required)")
@@ -225,16 +233,52 @@ func runUserList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("account not found: %w", err)
 	}
 
-	req := connect.NewRequest(&nisv1.ListUsersRequest{
-		AccountId: accountResp.Msg.Account.Id,
-	})
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
 
-	resp, err := GetClient().User.ListUsers(context.Background(), req)
-	if err != nil {
-		return fmt.Errorf("failed to list users: %w", err)
+	var allUsers []*nisv1.User
+	cursor := userListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := userListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+
+		req := connect.NewRequest(&nisv1.ListUsersRequest{
+			AccountId: accountResp.Msg.Account.Id,
+			NameLike:  userListNameLike,
+			Page: &nisv1.PageRequest{
+				Limit:  pageLimit,
+				Cursor: cursor,
+			},
+		})
+
+		resp, err := GetClient().User.ListUsers(context.Background(), req)
+		if err != nil {
+			return fmt.Errorf("failed to list users: %w", err)
+		}
+
+		allUsers = append(allUsers, resp.Msg.Users...)
+		pageNum++
+
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Users) == 0 {
+	if len(allUsers) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No users found")
 		}
@@ -243,9 +287,9 @@ func runUserList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "ACCOUNT", "SCOPED KEY", "CREATED AT"}
-		rows := make([][]string, len(resp.Msg.Users))
+		rows := make([][]string, len(allUsers))
 
-		for i, u := range resp.Msg.Users {
+		for i, u := range allUsers {
 			scopedKey := "-"
 			if u.ScopedSigningKeyId != "" {
 				scopedKey = client.ScopedKeyID(u.ScopedSigningKeyId)
@@ -253,7 +297,7 @@ func runUserList(cmd *cobra.Command, args []string) error {
 
 			createdAt := "-"
 			if u.CreatedAt != nil {
-				createdAt = u.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				createdAt = u.CreatedAt.AsTime().Local().Format("2006-01-02 15:04:05")
 			}
 
 			rows[i] = []string{
@@ -268,7 +312,7 @@ func runUserList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Users)
+	return printer.PrintList(allUsers)
 }
 
 func runUserGet(cmd *cobra.Command, args []string) error {

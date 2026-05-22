@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -91,34 +93,39 @@ func (h *WebhookHandler) ListWebhookSubscriptions(ctx context.Context, req *conn
 		return nil, err
 	}
 
-	filter := repositories.WebhookSubscriptionFilter{}
-
-	switch apiUser.Role {
-	case entities.RoleAdmin:
-		if opStr := req.Msg.GetOperatorId(); opStr != "" {
-			opID, err := uuid.Parse(opStr)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInvalidArgument, err)
-			}
-			filter.OperatorID = &opID
-		}
-	case entities.RoleOperatorAdmin:
-		if apiUser.OperatorID == nil {
-			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("operator-admin has no operator assigned"))
-		}
-		// Always scope to own operator, ignore any operator_id the client sent.
-		filter.OperatorID = apiUser.OperatorID
-	default:
+	// Coarse role gate — fine-grained tenant scope is enforced in the repo
+	// via Scope. account-admin can't manage webhook subscriptions, so refuse
+	// at the handler boundary (the scope would deny anyway, but the explicit
+	// 403 reflects the design intent).
+	if apiUser.Role != entities.RoleAdmin && apiUser.Role != entities.RoleOperatorAdmin {
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("insufficient role to list webhook subscriptions"))
 	}
 
-	if opts := req.Msg.GetOptions(); opts != nil {
-		filter.Limit = int(opts.GetLimit())
-		filter.Offset = int(opts.GetOffset())
+	filter := repositories.WebhookSubscriptionListFilter{
+		EventTypeMatch: req.Msg.GetEventTypeMatch(),
+	}
+	if req.Msg.Enabled != nil {
+		v := req.Msg.GetEnabled()
+		filter.Enabled = &v
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.GetLimit())
+		filter.Cursor = req.Msg.Page.GetCursor()
+	}
+	if opStr := req.Msg.GetOperatorId(); opStr != "" {
+		opID, err := uuid.Parse(opStr)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		filter.OperatorID = &opID
 	}
 
-	subs, err := h.svc.ListSubscriptions(ctx, filter)
+	scope := authz.ScopeFromAPIUser(apiUser)
+	subs, nextCursor, err := h.svc.ListSubscriptionsPage(ctx, scope, filter)
 	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
 
@@ -128,6 +135,7 @@ func (h *WebhookHandler) ListWebhookSubscriptions(ctx context.Context, req *conn
 	}
 	return connect.NewResponse(&nisv1.ListWebhookSubscriptionsResponse{
 		Subscriptions: proto,
+		NextCursor:    nextCursor,
 	}), nil
 }
 
@@ -236,6 +244,9 @@ func (h *WebhookHandler) ListWebhookDeliveries(ctx context.Context, req *connect
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// Verify the caller can see the parent subscription. The repo-level scope
+	// also filters out invisible subs, but the explicit 403 here is clearer
+	// when the operator gets the wrong subscription ID.
 	sub, err := h.svc.GetSubscription(ctx, subID)
 	if err != nil {
 		return nil, repoErrToConnect(err)
@@ -244,20 +255,24 @@ func (h *WebhookHandler) ListWebhookDeliveries(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	filter := repositories.WebhookDeliveryFilter{
+	filter := repositories.WebhookDeliveryListFilter{
 		SubscriptionID: &subID,
 	}
 	if s := req.Msg.GetStatus(); s != "" {
 		status := entities.DeliveryStatus(s)
 		filter.Status = &status
 	}
-	if opts := req.Msg.GetOptions(); opts != nil {
-		filter.Limit = int(opts.GetLimit())
-		filter.Offset = int(opts.GetOffset())
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.GetLimit())
+		filter.Cursor = req.Msg.Page.GetCursor()
 	}
 
-	deliveries, err := h.svc.ListDeliveries(ctx, filter)
+	scope := authz.ScopeFromAPIUser(apiUser)
+	deliveries, nextCursor, err := h.svc.ListDeliveriesPage(ctx, scope, filter)
 	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
 
@@ -267,5 +282,6 @@ func (h *WebhookHandler) ListWebhookDeliveries(ctx context.Context, req *connect
 	}
 	return connect.NewResponse(&nisv1.ListWebhookDeliveriesResponse{
 		Deliveries: proto,
+		NextCursor: nextCursor,
 	}), nil
 }

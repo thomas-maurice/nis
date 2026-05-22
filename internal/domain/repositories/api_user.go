@@ -2,10 +2,24 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
+
+// APIUserListFilter filters the keyset-paginated APIUserRepository.ListPage.
+// API users are an admin-only surface, so there is no per-row tenant scope:
+// non-admin callers see no rows regardless of these filters.
+type APIUserListFilter struct {
+	Limit        int
+	Cursor       string
+	Role         string // exact-match on role; "" disables
+	UsernameLike string // case-insensitive substring on username
+	CreatedSince *time.Time
+	CreatedUntil *time.Time
+}
 
 // APIUserRepository defines the interface for API user persistence
 type APIUserRepository interface {
@@ -18,8 +32,12 @@ type APIUserRepository interface {
 	// GetByUsername retrieves an API user by username
 	GetByUsername(ctx context.Context, username string) (*entities.APIUser, error)
 
-	// List retrieves all API users with pagination
+	// List retrieves all API users with pagination (legacy)
 	List(ctx context.Context, opts ListOptions) ([]*entities.APIUser, error)
+
+	// ListPage returns one keyset-paginated page of API users. Admin-only:
+	// any non-admin scope yields an empty result.
+	ListPage(ctx context.Context, scope authz.Scope, filter APIUserListFilter) ([]*entities.APIUser, string, error)
 
 	// Update updates an existing API user
 	Update(ctx context.Context, user *entities.APIUser) error

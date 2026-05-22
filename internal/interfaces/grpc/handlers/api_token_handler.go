@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -116,38 +118,68 @@ func (h *APITokenHandler) ListAPITokens(ctx context.Context, req *connect.Reques
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	filter := repositories.APITokenFilter{
+	filter := repositories.APITokenListFilter{
 		IncludeRevoked: req.Msg.GetIncludeRevoked(),
 	}
-	if opts := req.Msg.GetOptions(); opts != nil {
-		filter.Limit = int(opts.GetLimit())
-		filter.Offset = int(opts.GetOffset())
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.GetLimit())
+		filter.Cursor = req.Msg.Page.GetCursor()
 	}
 
-	// Non-admins are forcibly scoped to their own tokens regardless of any
-	// filter they pass — defense-in-depth against a client setting
-	// created_by_user_id=<other user>.
+	// Self-scope is enforced at the repo via authz.Scope.CallerUserID. The
+	// admin-only created_by_user_id filter overrides who CallerUserID applies
+	// to — admin can ask "show me tokens minted by user X" by constructing a
+	// synthetic scope. Non-admins ignore the field entirely.
+	scope := authz.ScopeFromAPIUser(apiUser)
 	if apiUser.Role == entities.RoleAdmin {
 		if filterUser := req.Msg.GetCreatedByUserId(); filterUser != "" {
 			uid, err := uuid.Parse(filterUser)
 			if err != nil {
 				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("created_by_user_id: %w", err))
 			}
-			filter.CreatedByUserID = &uid
+			// Demote scope from admin-equivalent to "see only this user's tokens"
+			// by clearing the admin role and pinning CallerUserID. The repo's
+			// self-scope branch then takes over.
+			scope = authz.Scope{
+				Role:         string(entities.RoleAdmin) + "+filter",
+				CallerUserID: uid,
+			}
+			_ = scope // keep documented; the repo treats unknown roles as zero,
+			// so we instead use the explicit list-by-user filter below.
+			filter2 := filter
+			// Fall through to repo with a forged non-admin scope so the WHERE
+			// pins created_by_user_id = uid. We craft it directly:
+			fakeScope := authz.Scope{
+				Role:         string(entities.RoleAccountAdmin), // any non-admin role; CallerUserID is what the repo's self-scope WHERE binds.
+				CallerUserID: uid,
+			}
+			tokens, nextCursor, err := h.svc.ListTokensPage(ctx, fakeScope, filter2)
+			if err != nil {
+				if errors.Is(err, repositories.ErrInvalidCursor) {
+					return nil, connect.NewError(connect.CodeInvalidArgument, err)
+				}
+				return nil, repoErrToConnect(err)
+			}
+			proto := make([]*nisv1.APIToken, 0, len(tokens))
+			for _, t := range tokens {
+				proto = append(proto, mappers.APITokenToProto(t))
+			}
+			return connect.NewResponse(&nisv1.ListAPITokensResponse{Tokens: proto, NextCursor: nextCursor}), nil
 		}
-	} else {
-		filter.CreatedByUserID = &apiUser.ID
 	}
 
-	tokens, err := h.svc.ListTokens(ctx, filter)
+	tokens, nextCursor, err := h.svc.ListTokensPage(ctx, scope, filter)
 	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
 	proto := make([]*nisv1.APIToken, 0, len(tokens))
 	for _, t := range tokens {
 		proto = append(proto, mappers.APITokenToProto(t))
 	}
-	return connect.NewResponse(&nisv1.ListAPITokensResponse{Tokens: proto}), nil
+	return connect.NewResponse(&nisv1.ListAPITokensResponse{Tokens: proto, NextCursor: nextCursor}), nil
 }
 
 func (h *APITokenHandler) RevokeAPIToken(ctx context.Context, req *connect.Request[nisv1.RevokeAPITokenRequest]) (*connect.Response[nisv1.RevokeAPITokenResponse], error) {

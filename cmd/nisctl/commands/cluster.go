@@ -104,6 +104,11 @@ var (
 	clusterDriftIncludeInSync bool
 	clusterReconcileOperator string
 	clusterReconcileAccount  string
+
+	clusterListLimit    int32
+	clusterListCursor   string
+	clusterListNameLike string
+	clusterListOperator string
 )
 
 func init() {
@@ -130,6 +135,11 @@ func init() {
 	clusterSyncCmd.Flags().BoolVar(&clusterSyncPrune, "prune", false, "remove accounts from resolver that are not in the database")
 
 	clusterDeleteResolverAccountCmd.Flags().BoolVarP(&clusterDeleteForce, "force", "f", false, "skip confirmation prompt")
+
+	clusterListCmd.Flags().Int32Var(&clusterListLimit, "limit", 0, "fetch only this many rows in one page (default: fetch all)")
+	clusterListCmd.Flags().StringVar(&clusterListCursor, "cursor", "", "start from this opaque cursor (single-page mode)")
+	clusterListCmd.Flags().StringVar(&clusterListNameLike, "name-like", "", "filter by case-insensitive name substring")
+	clusterListCmd.Flags().StringVar(&clusterListOperator, "operator", "", "filter to clusters owned by this operator (id or name)")
 
 	clusterDriftCmd.Flags().BoolVar(&clusterDriftIncludeInSync, "include-in-sync", false, "include accounts whose resolver JWT matches NIS")
 
@@ -174,14 +184,52 @@ func runClusterCreate(cmd *cobra.Command, args []string) error {
 func runClusterList(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
-	req := connect.NewRequest(&nisv1.ListClustersRequest{})
-
-	resp, err := GetClient().Cluster.ListClusters(context.Background(), req)
-	if err != nil {
-		return fmt.Errorf("failed to list clusters: %w", err)
+	var operatorID string
+	if clusterListOperator != "" {
+		var err error
+		operatorID, err = resolveOperatorID(clusterListOperator)
+		if err != nil {
+			return err
+		}
 	}
 
-	if len(resp.Msg.Clusters) == 0 {
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
+	var allClusters []*nisv1.Cluster
+	cursor := clusterListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := clusterListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+		req := connect.NewRequest(&nisv1.ListClustersRequest{
+			OperatorId: operatorID,
+			NameLike:   clusterListNameLike,
+			Page:       &nisv1.PageRequest{Limit: pageLimit, Cursor: cursor},
+		})
+		resp, err := GetClient().Cluster.ListClusters(context.Background(), req)
+		if err != nil {
+			return fmt.Errorf("failed to list clusters: %w", err)
+		}
+		allClusters = append(allClusters, resp.Msg.Clusters...)
+		pageNum++
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
+	}
+
+	if len(allClusters) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No clusters found")
 		}
@@ -190,9 +238,9 @@ func runClusterList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "DESCRIPTION", "CREATED AT"}
-		rows := make([][]string, len(resp.Msg.Clusters))
+		rows := make([][]string, len(allClusters))
 
-		for i, cluster := range resp.Msg.Clusters {
+		for i, cluster := range allClusters {
 			description := cluster.Description
 			if description == "" {
 				description = "-"
@@ -200,7 +248,7 @@ func runClusterList(cmd *cobra.Command, args []string) error {
 
 			createdAt := "-"
 			if cluster.CreatedAt != nil {
-				createdAt = cluster.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				createdAt = cluster.CreatedAt.AsTime().Local().Format("2006-01-02 15:04:05")
 			}
 
 			rows[i] = []string{
@@ -214,7 +262,7 @@ func runClusterList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Clusters)
+	return printer.PrintList(allClusters)
 }
 
 func runClusterGet(cmd *cobra.Command, args []string) error {

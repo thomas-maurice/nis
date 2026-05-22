@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -91,6 +93,61 @@ func (r *APIUserRepo) List(ctx context.Context, opts repositories.ListOptions) (
 }
 
 // Update updates an existing API user
+// ListPage returns one keyset-paginated page of API users. Admin-only: any
+// non-admin scope returns an empty result immediately.
+//
+// Order: (created_at DESC, id DESC).
+func (r *APIUserRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.APIUserListFilter) ([]*entities.APIUser, string, error) {
+	if !scope.IsAdmin() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx)
+
+	if filter.Role != "" {
+		query = query.Where("role = ?", filter.Role)
+	}
+	if filter.UsernameLike != "" {
+		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.UsernameLike)) + "%"
+		query = query.Where("LOWER(username) LIKE LOWER(?) ESCAPE '\\'", pattern)
+	}
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []APIUserModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list api users page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	out := make([]*entities.APIUser, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nextCursor, nil
+}
+
 func (r *APIUserRepo) Update(ctx context.Context, user *entities.APIUser) error {
 	model := APIUserModelFromEntity(user)
 

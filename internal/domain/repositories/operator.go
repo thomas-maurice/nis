@@ -2,10 +2,26 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
+
+// OperatorListFilter holds the filtering and pagination parameters for ListPage.
+type OperatorListFilter struct {
+	// Limit is the maximum number of rows to return (0 → default 50; clamped to max 200).
+	Limit int
+	// Cursor is the opaque pagination cursor ("" → first page).
+	Cursor string
+	// NameLike is a case-insensitive substring match on name ("" disables).
+	NameLike string
+	// CreatedSince is an inclusive lower bound on created_at (nil disables).
+	CreatedSince *time.Time
+	// CreatedUntil is an exclusive upper bound on created_at (nil disables).
+	CreatedUntil *time.Time
+}
 
 // OperatorRepository defines the interface for operator persistence
 type OperatorRepository interface {
@@ -21,8 +37,12 @@ type OperatorRepository interface {
 	// GetByPublicKey retrieves an operator by its NATS public key
 	GetByPublicKey(ctx context.Context, publicKey string) (*entities.Operator, error)
 
-	// List retrieves operators with pagination
+	// List retrieves operators with pagination (legacy — kept for internal sweepers).
 	List(ctx context.Context, opts ListOptions) ([]*entities.Operator, error)
+
+	// ListPage returns one keyset-paginated page of operators visible under scope.
+	// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+	ListPage(ctx context.Context, scope authz.Scope, filter OperatorListFilter) ([]*entities.Operator, string, error)
 
 	// Update updates an existing operator
 	Update(ctx context.Context, operator *entities.Operator) error

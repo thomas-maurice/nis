@@ -5,6 +5,7 @@ package nis.v1;
 option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
 
 import "google/protobuf/timestamp.proto";
+import "nis/v1/common.proto";
 
 // APIUser represents an API user for authentication
 message APIUser {
@@ -74,12 +75,17 @@ message GetAPIUserByUsernameResponse {
   APIUser user = 1;
 }
 
-// ListAPIUsersRequest is the request to list API users
-message ListAPIUsersRequest {}
+// ListAPIUsersRequest is the request to list API users.
+message ListAPIUsersRequest {
+  string role = 1;
+  string username_like = 2;
+  PageRequest page = 3;
+}
 
-// ListAPIUsersResponse is the response from listing API users
+// ListAPIUsersResponse is the response from listing API users.
 message ListAPIUsersResponse {
   repeated APIUser users = 1;
+  string next_cursor = 2;
 }
 
 // UpdateAPIUserPasswordRequest is the request to update an API user's password

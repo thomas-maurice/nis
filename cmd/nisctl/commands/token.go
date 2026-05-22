@@ -59,6 +59,9 @@ var (
 	tokenExpiresIn       time.Duration
 	tokenIncludeRevoked  bool
 	tokenForce           bool
+
+	tokenListLimit  int32
+	tokenListCursor string
 )
 
 func init() {
@@ -79,6 +82,8 @@ func init() {
 	tokenCreateCmd.Flags().DurationVar(&tokenExpiresIn, "expires-in", 0, "expiry duration (e.g. 720h, 90d unsupported — use h); zero = never expires")
 
 	tokenListCmd.Flags().BoolVar(&tokenIncludeRevoked, "include-revoked", false, "include revoked tokens in the listing")
+	tokenListCmd.Flags().Int32Var(&tokenListLimit, "limit", 0, "fetch only this many rows in one page (default: fetch all)")
+	tokenListCmd.Flags().StringVar(&tokenListCursor, "cursor", "", "start from this opaque cursor (single-page mode)")
 
 	tokenDeleteCmd.Flags().BoolVarP(&tokenForce, "force", "f", false, "skip confirmation prompt")
 }
@@ -124,14 +129,41 @@ func runTokenCreate(cmd *cobra.Command, args []string) error {
 func runTokenList(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
-	resp, err := GetClient().APIToken.ListAPITokens(context.Background(), connect.NewRequest(&nisv1.ListAPITokensRequest{
-		IncludeRevoked: tokenIncludeRevoked,
-	}))
-	if err != nil {
-		return fmt.Errorf("failed to list api tokens: %w", err)
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
+	var allTokens []*nisv1.APIToken
+	cursor := tokenListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := tokenListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+		resp, err := GetClient().APIToken.ListAPITokens(context.Background(), connect.NewRequest(&nisv1.ListAPITokensRequest{
+			IncludeRevoked: tokenIncludeRevoked,
+			Page:           &nisv1.PageRequest{Limit: pageLimit, Cursor: cursor},
+		}))
+		if err != nil {
+			return fmt.Errorf("failed to list api tokens: %w", err)
+		}
+		allTokens = append(allTokens, resp.Msg.Tokens...)
+		pageNum++
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Tokens) == 0 {
+	if len(allTokens) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No API tokens found")
 		}
@@ -140,8 +172,8 @@ func runTokenList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "ROLE", "PREFIX", "LAST USED", "STATUS"}
-		rows := make([][]string, len(resp.Msg.Tokens))
-		for i, t := range resp.Msg.Tokens {
+		rows := make([][]string, len(allTokens))
+		for i, t := range allTokens {
 			lastUsed := "—"
 			if t.LastUsedAt != nil {
 				lastUsed = t.LastUsedAt.AsTime().Local().Format(time.RFC3339)
@@ -160,7 +192,7 @@ func runTokenList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Tokens)
+	return printer.PrintList(allTokens)
 }
 
 func runTokenGet(cmd *cobra.Command, args []string) error {

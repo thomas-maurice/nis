@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -250,9 +251,14 @@ func (s *AccountService) ListAccountsByOperator(ctx context.Context, operatorID 
 	return s.factory.AccountRepository().ListByOperator(ctx, operatorID, opts)
 }
 
-// ListAllAccounts lists all accounts across all operators
+// ListAllAccounts lists all accounts across all operators (legacy — kept for internal callers).
 func (s *AccountService) ListAllAccounts(ctx context.Context, opts repositories.ListOptions) ([]*entities.Account, error) {
 	return s.factory.AccountRepository().List(ctx, opts)
+}
+
+// ListAccountsPage returns one keyset-paginated page of accounts visible under scope.
+func (s *AccountService) ListAccountsPage(ctx context.Context, scope authz.Scope, filter repositories.AccountListFilter) ([]*entities.Account, string, error) {
+	return s.factory.AccountRepository().ListPage(ctx, scope, filter)
 }
 
 // UpdateAccountRequest contains the fields that can be updated

@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -239,6 +240,16 @@ func (s *AuthService) ListAPIUsers(ctx context.Context, requestingUser *entities
 		return nil, fmt.Errorf("permission denied: only admins can view API users")
 	}
 	return s.apiUserRepo.List(ctx, repositories.ListOptions{})
+}
+
+// ListAPIUsersPage returns one keyset-paginated page of API users. Admin-only.
+// The repo's scope check returns no rows for any non-admin scope, but we also
+// gate explicitly at the service layer for the clear 403.
+func (s *AuthService) ListAPIUsersPage(ctx context.Context, scope authz.Scope, filter repositories.APIUserListFilter) ([]*entities.APIUser, string, error) {
+	if !scope.IsAdmin() {
+		return nil, "", fmt.Errorf("permission denied: only admins can view API users")
+	}
+	return s.apiUserRepo.ListPage(ctx, scope, filter)
 }
 
 // UpdatePasswordRequest contains data for updating a password

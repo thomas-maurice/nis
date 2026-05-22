@@ -99,15 +99,23 @@ message GetScopedSigningKeyByNameResponse {
   ScopedSigningKey key = 1;
 }
 
-// ListScopedSigningKeysRequest is the request to list scoped signing keys
+// ListScopedSigningKeysRequest is the request to list scoped signing keys.
+// account_id is optional; when set the page is narrowed to that account.
+// options is the legacy offset-pagination field, retained for back-compat —
+// new clients should use page. name_like is a case-insensitive substring
+// match on name.
 message ListScopedSigningKeysRequest {
   string account_id = 1;
   ListOptions options = 2;
+  string name_like = 3;
+  PageRequest page = 4;
 }
 
-// ListScopedSigningKeysResponse is the response from listing scoped signing keys
+// ListScopedSigningKeysResponse is the response from listing scoped signing
+// keys. next_cursor is empty on the final page.
 message ListScopedSigningKeysResponse {
   repeated ScopedSigningKey keys = 1;
+  string next_cursor = 2;
 }
 
 // UpdateScopedSigningKeyRequest is the request to update a scoped signing key

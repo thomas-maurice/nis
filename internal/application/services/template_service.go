@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -213,6 +214,12 @@ func (s *TemplateService) GetTemplateByName(ctx context.Context, operatorID uuid
 		return nil, nil, err
 	}
 	return s.GetTemplate(ctx, tpl.ID, versionNumber)
+}
+
+// ListTemplatesPage returns one keyset-paginated page of templates visible
+// under scope. See package authz and SKILL §15.
+func (s *TemplateService) ListTemplatesPage(ctx context.Context, scope authz.Scope, filter repositories.TemplateListFilter) ([]*entities.Template, string, error) {
+	return s.factory.TemplateRepository().ListPage(ctx, scope, filter)
 }
 
 func (s *TemplateService) ListTemplates(ctx context.Context, operatorID uuid.UUID, opts repositories.ListOptions) ([]*entities.Template, error) {

@@ -59,10 +59,14 @@ message GetWebhookSubscriptionResponse {
 message ListWebhookSubscriptionsRequest {
   string operator_id = 1;
   ListOptions options = 2;
+  optional bool enabled = 3;
+  string event_type_match = 4;
+  PageRequest page = 5;
 }
 
 message ListWebhookSubscriptionsResponse {
   repeated WebhookSubscription subscriptions = 1;
+  string next_cursor = 2;
 }
 
 message UpdateWebhookSubscriptionRequest {
@@ -96,10 +100,12 @@ message ListWebhookDeliveriesRequest {
   string subscription_id = 1;
   string status = 2;
   ListOptions options = 3;
+  PageRequest page = 4;
 }
 
 message ListWebhookDeliveriesResponse {
   repeated WebhookDelivery deliveries = 1;
+  string next_cursor = 2;
 }
 
 service WebhookService {

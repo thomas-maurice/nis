@@ -1,13 +1,22 @@
 <template>
   <div class="container-fluid py-4">
     <div class="row mb-3">
-      <div class="col-md-4">
+      <div class="col-md-3">
+        <input
+          v-model="nameLikeInput"
+          type="search"
+          class="form-control"
+          placeholder="Filter by name..."
+          @input="onNameLikeInput"
+        />
+      </div>
+      <div class="col-md-3">
         <label for="operatorFilter" class="form-label">Filter by Operator</label>
         <select
           id="operatorFilter"
           v-model="selectedOperatorFilter"
           class="form-select"
-          @change="selectedAccountFilter = ''"
+          @change="onOperatorFilterChange"
         >
           <option value="">All Operators</option>
           <option v-for="op in operators" :key="op.id" :value="op.id">
@@ -15,13 +24,14 @@
           </option>
         </select>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <label for="accountFilter" class="form-label">Filter by Account</label>
         <select
           id="accountFilter"
           v-model="selectedAccountFilter"
           class="form-select"
           :disabled="!selectedOperatorFilter"
+          @change="loadFirstPage"
         >
           <option value="">All Accounts</option>
           <option v-for="acc in filteredAccountsForFilter" :key="acc.id" :value="acc.id">
@@ -34,7 +44,7 @@
     <EntityList
       title="Users"
       entity-name="User"
-      :items="filteredUsers"
+      :items="users"
       :columns="columns"
       :loading="loading"
       :error="error"
@@ -70,6 +80,13 @@
       </template>
 
     </EntityList>
+
+    <div class="d-flex align-items-center gap-2 mt-3">
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+      <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
+    </div>
 
     <EntityForm
       v-if="showModal"
@@ -174,13 +191,18 @@ const operators = ref([])
 const scopedKeys = ref([])
 const loading = ref(false)
 const error = ref('')
+const nextCursor = ref('')
+const cursorStack = ref([])
+const nameLikeFilter = ref('')
+const nameLikeInput = ref('')
+let nameLikeTimer = null
+const selectedOperatorFilter = ref('')
+const selectedAccountFilter = ref('')
 const showModal = ref(false)
 const editingUser = ref(null)
 const formData = ref({})
 const saving = ref(false)
 const formError = ref('')
-const selectedOperatorFilter = ref('')
-const selectedAccountFilter = ref('')
 
 const columns = [
   { key: 'name', label: 'Name' },
@@ -198,30 +220,17 @@ const filteredAccountsForFilter = computed(() => {
   return accounts.value.filter(account => account.operatorId === selectedOperatorFilter.value)
 })
 
-const filteredUsers = computed(() => {
-  let result = users.value
-
-  // Filter by account (which implicitly filters by operator too)
-  if (selectedAccountFilter.value) {
-    result = result.filter(user => user.accountId === selectedAccountFilter.value)
-  }
-  // Filter by operator (if no account filter is set)
-  else if (selectedOperatorFilter.value) {
-    const operatorAccountIds = accounts.value
-      .filter(account => account.operatorId === selectedOperatorFilter.value)
-      .map(account => account.id)
-    result = result.filter(user => operatorAccountIds.includes(user.accountId))
-  }
-
-  return result
-})
-
-const loadUsers = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
   try {
-    const response = await apiClient.post('/nis.v1.UserService/ListUsers', {})
+    const req = { nameLike: nameLikeFilter.value, page: { limit: 50, cursor: cursor || '' } }
+    if (selectedAccountFilter.value) {
+      req.accountId = selectedAccountFilter.value
+    }
+    const response = await apiClient.post('/nis.v1.UserService/ListUsers', req)
     users.value = response.data.users || []
+    nextCursor.value = response.data.nextCursor || ''
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load users'
   } finally {
@@ -229,9 +238,42 @@ const loadUsers = async () => {
   }
 }
 
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
+}
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+const onNameLikeInput = () => {
+  clearTimeout(nameLikeTimer)
+  nameLikeTimer = setTimeout(() => {
+    nameLikeFilter.value = nameLikeInput.value
+    loadFirstPage()
+  }, 300)
+}
+
+const onOperatorFilterChange = () => {
+  selectedAccountFilter.value = ''
+  loadFirstPage()
+}
+
 const loadAccounts = async () => {
   try {
-    const response = await apiClient.post('/nis.v1.AccountService/ListAccounts', {})
+    const response = await apiClient.post('/nis.v1.AccountService/ListAccounts', {
+      page: { limit: 200, cursor: '' }
+    })
     accounts.value = response.data.accounts || []
   } catch (err) {
     console.error('Failed to load accounts:', err)
@@ -240,7 +282,9 @@ const loadAccounts = async () => {
 
 const loadOperators = async () => {
   try {
-    const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {})
+    const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {
+      page: { limit: 200, cursor: '' }
+    })
     operators.value = response.data.operators || []
   } catch (err) {
     console.error('Failed to load operators:', err)
@@ -330,7 +374,7 @@ const handleSubmit = async (data) => {
       await apiClient.post('/nis.v1.UserService/CreateUser', data)
     }
     closeModal()
-    await loadUsers()
+    loadFirstPage()
   } catch (err) {
     formError.value = err.response?.data?.message || 'Failed to save user'
   } finally {
@@ -347,7 +391,7 @@ const handleDelete = async (user) => {
     await apiClient.post('/nis.v1.UserService/DeleteUser', {
       id: user.id
     })
-    await loadUsers()
+    loadFirstPage()
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to delete user'
   }
@@ -363,7 +407,7 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => {
-  loadUsers()
+  loadFirstPage()
   loadAccounts()
   loadOperators()
 })

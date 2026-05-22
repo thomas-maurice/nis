@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"context"
+	"strings"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
@@ -130,45 +132,43 @@ func (h *AccountHandler) GetAccountByName(
 	}), nil
 }
 
-// ListAccounts lists accounts for an operator
+// ListAccounts lists accounts with cursor pagination and SQL-level scope enforcement.
 func (h *AccountHandler) ListAccounts(
 	ctx context.Context,
 	req *connect.Request[pb.ListAccountsRequest],
 ) (*connect.Response[pb.ListAccountsResponse], error) {
-	// Get requesting user from context
 	requestingUser, err := authedUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var accounts []*entities.Account
+	scope := authz.ScopeFromAPIUser(requestingUser)
 
-	// If operator_id is empty, list all accounts across all operators
-	if req.Msg.OperatorId == "" {
-		accounts, err = h.service.ListAllAccounts(ctx, mappers.ProtoToListOptions(req.Msg.Options))
-		if err != nil {
-			return nil, err
-		}
-	} else {
+	filter := repositories.AccountListFilter{
+		NameLike: strings.TrimSpace(req.Msg.NameLike),
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.Limit)
+		filter.Cursor = req.Msg.Page.Cursor
+	}
+
+	// Apply optional operator_id filter.
+	if req.Msg.OperatorId != "" {
 		operatorID, parseErr := mappers.ParseUUID(req.Msg.OperatorId)
 		if parseErr != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, parseErr)
 		}
-
-		accounts, err = h.service.ListAccountsByOperator(ctx, operatorID, mappers.ProtoToListOptions(req.Msg.Options))
-		if err != nil {
-			return nil, err
-		}
+		filter.OperatorID = &operatorID
 	}
 
-	// Filter accounts based on user permissions
-	filtered, err := h.permService.FilterAccounts(ctx, requestingUser, accounts)
+	accounts, nextCursor, err := h.service.ListAccountsPage(ctx, scope, filter)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	return connect.NewResponse(&pb.ListAccountsResponse{
-		Accounts: mappers.AccountsToProto(filtered),
+		Accounts:   mappers.AccountsToProto(accounts),
+		NextCursor: nextCursor,
 	}), nil
 }
 

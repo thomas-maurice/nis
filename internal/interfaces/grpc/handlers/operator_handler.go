@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
@@ -103,30 +106,38 @@ func (h *OperatorHandler) GetOperatorByName(
 	}), nil
 }
 
-// ListOperators lists all operators
+// ListOperators lists operators with cursor pagination and SQL-level scope enforcement.
 func (h *OperatorHandler) ListOperators(
 	ctx context.Context,
 	req *connect.Request[pb.ListOperatorsRequest],
 ) (*connect.Response[pb.ListOperatorsResponse], error) {
-	// Get requesting user from context
 	requestingUser, err := authedUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	operators, err := h.service.ListOperators(ctx, mappers.ProtoToListOptions(req.Msg.Options))
-	if err != nil {
-		return nil, err
+	if err := h.permService.CanListOperators(requestingUser); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
-	// Filter operators based on user permissions
-	filtered, err := h.permService.FilterOperators(ctx, requestingUser, operators)
+	scope := authz.ScopeFromAPIUser(requestingUser)
+
+	filter := repositories.OperatorListFilter{
+		NameLike: strings.TrimSpace(req.Msg.NameLike),
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.Limit)
+		filter.Cursor = req.Msg.Page.Cursor
+	}
+
+	operators, nextCursor, err := h.service.ListOperatorsPage(ctx, scope, filter)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	return connect.NewResponse(&pb.ListOperatorsResponse{
-		Operators: mappers.OperatorsToProto(filtered),
+		Operators:  mappers.OperatorsToProto(operators),
+		NextCursor: nextCursor,
 	}), nil
 }
 

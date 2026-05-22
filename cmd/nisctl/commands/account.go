@@ -66,10 +66,15 @@ var (
 	accountDescription      string
 	accountMaxMemory        int64
 	accountMaxStorage       int64
-	accountMaxStreams       int32
+	accountMaxStreams        int32
 	accountMaxConsumers     int32
 	accountForce            bool
 	accountJSUsageIncludeUH bool
+
+	// list flags
+	accountListNameLike string
+	accountListLimit    int32
+	accountListCursor   string
 )
 
 func init() {
@@ -98,6 +103,11 @@ func init() {
 	accountDeleteCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
 	accountDeleteCmd.Flags().BoolVarP(&accountForce, "force", "f", false, "skip confirmation prompt")
 	_ = accountDeleteCmd.MarkFlagRequired("operator")
+
+	// List flags
+	accountListCmd.Flags().StringVar(&accountListNameLike, "name-like", "", "filter by name (substring match)")
+	accountListCmd.Flags().Int32Var(&accountListLimit, "limit", 0, "page size (0 = fetch all pages)")
+	accountListCmd.Flags().StringVar(&accountListCursor, "cursor", "", "start at this pagination cursor (implies single-page mode)")
 
 	// JetStream usage flags
 	accountJetStreamUsageCmd.Flags().StringVar(&accountOperatorID, "operator", "", "operator ID or name (required)")
@@ -280,16 +290,52 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	req := connect.NewRequest(&nisv1.ListAccountsRequest{
-		OperatorId: operatorID,
-	})
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
 
-	resp, err := GetClient().Account.ListAccounts(context.Background(), req)
-	if err != nil {
-		return fmt.Errorf("failed to list accounts: %w", err)
+	var allAccounts []*nisv1.Account
+	cursor := accountListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := accountListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+
+		req := connect.NewRequest(&nisv1.ListAccountsRequest{
+			OperatorId: operatorID,
+			NameLike:   accountListNameLike,
+			Page: &nisv1.PageRequest{
+				Limit:  pageLimit,
+				Cursor: cursor,
+			},
+		})
+
+		resp, err := GetClient().Account.ListAccounts(context.Background(), req)
+		if err != nil {
+			return fmt.Errorf("failed to list accounts: %w", err)
+		}
+
+		allAccounts = append(allAccounts, resp.Msg.Accounts...)
+		pageNum++
+
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Accounts) == 0 {
+	if len(allAccounts) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No accounts found")
 		}
@@ -298,12 +344,12 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "OPERATOR", "CREATED AT"}
-		rows := make([][]string, len(resp.Msg.Accounts))
+		rows := make([][]string, len(allAccounts))
 
-		for i, acc := range resp.Msg.Accounts {
+		for i, acc := range allAccounts {
 			createdAt := "-"
 			if acc.CreatedAt != nil {
-				createdAt = acc.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				createdAt = acc.CreatedAt.AsTime().Local().Format("2006-01-02 15:04:05")
 			}
 
 			rows[i] = []string{
@@ -317,7 +363,7 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Accounts)
+	return printer.PrintList(allAccounts)
 }
 
 func runAccountGet(cmd *cobra.Command, args []string) error {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -103,6 +105,84 @@ func (r *OperatorRepo) List(ctx context.Context, opts repositories.ListOptions) 
 	}
 
 	return operators, nil
+}
+
+// ListPage returns one keyset-paginated page of operators visible under scope.
+// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+func (r *OperatorRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.OperatorListFilter) ([]*entities.Operator, string, error) {
+	// Zero scope: no access.
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx)
+
+	// Apply scope → SQL narrowing.
+	switch {
+	case scope.IsAdmin():
+		// No narrowing — admin sees all.
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("id = ?", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		// Account-admin can see the operator that owns their account.
+		if scope.ScopeAccountID == nil {
+			return nil, "", nil
+		}
+		var acc AccountModel
+		if err := r.db.WithContext(ctx).Select("operator_id").First(&acc, "id = ?", scope.ScopeAccountID.String()).Error; err != nil {
+			// Account not found: return empty.
+			return nil, "", nil
+		}
+		query = query.Where("id = ?", acc.OperatorID)
+	}
+
+	// NameLike filter. escapeLikeParam escapes %, _, and \ so they are treated as
+	// literals; the ESCAPE '\' clause activates SQLite's backslash-escape mode.
+	if filter.NameLike != "" {
+		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.NameLike)) + "%"
+		query = query.Where("LOWER(name) LIKE LOWER(?) ESCAPE '\\'", pattern)
+	}
+
+	// Time bound filters.
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	// Cursor predicate: strictly-after (created_at DESC, id DESC).
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []OperatorModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list operators page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	operators := make([]*entities.Operator, len(models))
+	for i, m := range models {
+		operators[i] = m.ToEntity()
+	}
+	return operators, nextCursor, nil
 }
 
 // Update updates an existing operator

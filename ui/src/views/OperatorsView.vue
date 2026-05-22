@@ -1,5 +1,17 @@
 <template>
   <div class="container-fluid py-4">
+    <div class="row mb-3">
+      <div class="col-md-4">
+        <input
+          v-model="nameLikeInput"
+          type="search"
+          class="form-control"
+          placeholder="Filter by name..."
+          @input="onNameLikeInput"
+        />
+      </div>
+    </div>
+
     <EntityList
       title="Operators"
       entity-name="Operator"
@@ -25,6 +37,7 @@
           Import from NSC
         </button>
       </template>
+
       <template #cell-publicKey="{ item }">
         <ClickablePubKey :pubkey="item.publicKey" />
       </template>
@@ -40,6 +53,13 @@
         {{ formatDate(item.createdAt) }}
       </template>
     </EntityList>
+
+    <div class="d-flex align-items-center gap-2 mt-3">
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+      <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
+    </div>
 
     <EntityForm
       v-if="showModal"
@@ -198,6 +218,11 @@ const authStore = useAuthStore()
 const operators = ref([])
 const loading = ref(false)
 const error = ref('')
+const nextCursor = ref('')
+const cursorStack = ref([])
+const nameLikeFilter = ref('')
+const nameLikeInput = ref('')
+let nameLikeTimer = null
 const showModal = ref(false)
 const editingOperator = ref(null)
 const formData = ref({})
@@ -222,17 +247,47 @@ const columns = [
   { key: 'createdAt', label: 'Created' }
 ]
 
-const loadOperators = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
   try {
-    const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {})
+    const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {
+      nameLike: nameLikeFilter.value,
+      page: { limit: 50, cursor: cursor || '' }
+    })
     operators.value = response.data.operators || []
+    nextCursor.value = response.data.nextCursor || ''
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load operators'
   } finally {
     loading.value = false
   }
+}
+
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
+}
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+const onNameLikeInput = () => {
+  clearTimeout(nameLikeTimer)
+  nameLikeTimer = setTimeout(() => {
+    nameLikeFilter.value = nameLikeInput.value
+    loadFirstPage()
+  }, 300)
 }
 
 const showCreateModal = () => {
@@ -269,7 +324,7 @@ const handleSubmit = async (data) => {
       await apiClient.post('/nis.v1.OperatorService/CreateOperator', data)
     }
     closeModal()
-    await loadOperators()
+    loadFirstPage()
   } catch (err) {
     formError.value = err.response?.data?.message || 'Failed to save operator'
   } finally {
@@ -286,7 +341,7 @@ const handleDelete = async (operator) => {
     await apiClient.post('/nis.v1.OperatorService/DeleteOperator', {
       id: operator.id
     })
-    await loadOperators()
+    loadFirstPage()
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to delete operator'
   }
@@ -336,7 +391,7 @@ const handleImport = async () => {
         })
 
         closeImportModal()
-        await loadOperators()
+        loadFirstPage()
       } catch (err) {
         importError.value = err.response?.data?.message || 'Failed to import operator'
       } finally {
@@ -391,7 +446,7 @@ const handleNSCImport = async () => {
         })
 
         closeNSCImportModal()
-        await loadOperators()
+        loadFirstPage()
       } catch (err) {
         nscImportError.value = err.response?.data?.message || 'Failed to import from NSC'
       } finally {
@@ -415,6 +470,6 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => {
-  loadOperators()
+  loadFirstPage()
 })
 </script>

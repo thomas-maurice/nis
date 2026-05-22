@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
-import { ListOptions } from "./common_pb.js";
+import { ListOptions, PageRequest } from "./common_pb.js";
 
 /**
  * APIToken is a long-lived opaque service-account credential. Plaintext is
@@ -321,8 +321,9 @@ export class GetAPITokenResponse extends Message<GetAPITokenResponse> {
  */
 export class ListAPITokensRequest extends Message<ListAPITokensRequest> {
   /**
-   * When set by admins, filters to tokens minted by that api_user. Ignored for
-   * non-admins (always scoped to caller's own tokens).
+   * created_by_user_id is admin-only and reserved; non-admin callers see only
+   * their own tokens via repo-layer scope and any value here is ignored. New
+   * clients should leave this empty.
    *
    * @generated from field: string created_by_user_id = 1;
    */
@@ -338,6 +339,11 @@ export class ListAPITokensRequest extends Message<ListAPITokensRequest> {
    */
   options?: ListOptions;
 
+  /**
+   * @generated from field: nis.v1.PageRequest page = 4;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListAPITokensRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -349,6 +355,7 @@ export class ListAPITokensRequest extends Message<ListAPITokensRequest> {
     { no: 1, name: "created_by_user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "include_revoked", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 3, name: "options", kind: "message", T: ListOptions },
+    { no: 4, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAPITokensRequest {
@@ -377,6 +384,11 @@ export class ListAPITokensResponse extends Message<ListAPITokensResponse> {
    */
   tokens: APIToken[] = [];
 
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListAPITokensResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -386,6 +398,7 @@ export class ListAPITokensResponse extends Message<ListAPITokensResponse> {
   static readonly typeName = "nis.v1.ListAPITokensResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "tokens", kind: "message", T: APIToken, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAPITokensResponse {

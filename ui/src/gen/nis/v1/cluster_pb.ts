@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { ListOptions } from "./common_pb.js";
+import { ListOptions, PageRequest } from "./common_pb.js";
 
 /**
  * DriftStatus describes the relationship between the account JWT held in NIS's
@@ -467,7 +467,7 @@ export class GetClusterByNameResponse extends Message<GetClusterByNameResponse> 
 }
 
 /**
- * ListClustersRequest is the request to list clusters
+ * ListClustersRequest is the request to list clusters.
  *
  * @generated from message nis.v1.ListClustersRequest
  */
@@ -482,6 +482,16 @@ export class ListClustersRequest extends Message<ListClustersRequest> {
    */
   options?: ListOptions;
 
+  /**
+   * @generated from field: string name_like = 3;
+   */
+  nameLike = "";
+
+  /**
+   * @generated from field: nis.v1.PageRequest page = 4;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListClustersRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -492,6 +502,8 @@ export class ListClustersRequest extends Message<ListClustersRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "options", kind: "message", T: ListOptions },
+    { no: 3, name: "name_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListClustersRequest {
@@ -512,7 +524,8 @@ export class ListClustersRequest extends Message<ListClustersRequest> {
 }
 
 /**
- * ListClustersResponse is the response from listing clusters
+ * ListClustersResponse is the response from listing clusters. next_cursor is
+ * empty on the final page.
  *
  * @generated from message nis.v1.ListClustersResponse
  */
@@ -521,6 +534,11 @@ export class ListClustersResponse extends Message<ListClustersResponse> {
    * @generated from field: repeated nis.v1.Cluster clusters = 1;
    */
   clusters: Cluster[] = [];
+
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
 
   constructor(data?: PartialMessage<ListClustersResponse>) {
     super();
@@ -531,6 +549,7 @@ export class ListClustersResponse extends Message<ListClustersResponse> {
   static readonly typeName = "nis.v1.ListClustersResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "clusters", kind: "message", T: Cluster, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListClustersResponse {

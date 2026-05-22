@@ -583,6 +583,8 @@ type ListTemplatesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
 	Options       *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	NameLike      string                 `protobuf:"bytes,3,opt,name=name_like,json=nameLike,proto3" json:"name_like,omitempty"`
+	Page          *PageRequest           `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -631,9 +633,24 @@ func (x *ListTemplatesRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListTemplatesRequest) GetNameLike() string {
+	if x != nil {
+		return x.NameLike
+	}
+	return ""
+}
+
+func (x *ListTemplatesRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListTemplatesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Templates     []*Template            `protobuf:"bytes,1,rep,name=templates,proto3" json:"templates,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -673,6 +690,13 @@ func (x *ListTemplatesResponse) GetTemplates() []*Template {
 		return x.Templates
 	}
 	return nil
+}
+
+func (x *ListTemplatesResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 type UpdateTemplateRequest struct {
@@ -1307,13 +1331,17 @@ const file_nis_v1_template_proto_rawDesc = "" +
 	"\x0eversion_number\x18\x03 \x01(\x05R\rversionNumber\"|\n" +
 	"\x19GetTemplateByNameResponse\x12,\n" +
 	"\btemplate\x18\x01 \x01(\v2\x10.nis.v1.TemplateR\btemplate\x121\n" +
-	"\aversion\x18\x02 \x01(\v2\x17.nis.v1.TemplateVersionR\aversion\"f\n" +
+	"\aversion\x18\x02 \x01(\v2\x17.nis.v1.TemplateVersionR\aversion\"\xac\x01\n" +
 	"\x14ListTemplatesRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\x12-\n" +
-	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"G\n" +
+	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1b\n" +
+	"\tname_like\x18\x03 \x01(\tR\bnameLike\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"h\n" +
 	"\x15ListTemplatesResponse\x12.\n" +
-	"\ttemplates\x18\x01 \x03(\v2\x10.nis.v1.TemplateR\ttemplates\"\x87\x02\n" +
+	"\ttemplates\x18\x01 \x03(\v2\x10.nis.v1.TemplateR\ttemplates\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\x87\x02\n" +
 	"\x15UpdateTemplateRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
 	"\vdescription\x18\x02 \x01(\tH\x00R\vdescription\x88\x01\x01\x129\n" +
@@ -1405,7 +1433,8 @@ var file_nis_v1_template_proto_goTypes = []any{
 	(*UserPermissions)(nil),                  // 22: nis.v1.UserPermissions
 	(*ResponsePermission)(nil),               // 23: nis.v1.ResponsePermission
 	(*ListOptions)(nil),                      // 24: nis.v1.ListOptions
-	(*ScopedSigningKey)(nil),                 // 25: nis.v1.ScopedSigningKey
+	(*PageRequest)(nil),                      // 25: nis.v1.PageRequest
+	(*ScopedSigningKey)(nil),                 // 26: nis.v1.ScopedSigningKey
 }
 var file_nis_v1_template_proto_depIdxs = []int32{
 	21, // 0: nis.v1.Template.created_at:type_name -> google.protobuf.Timestamp
@@ -1422,37 +1451,38 @@ var file_nis_v1_template_proto_depIdxs = []int32{
 	0,  // 11: nis.v1.GetTemplateByNameResponse.template:type_name -> nis.v1.Template
 	1,  // 12: nis.v1.GetTemplateByNameResponse.version:type_name -> nis.v1.TemplateVersion
 	24, // 13: nis.v1.ListTemplatesRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 14: nis.v1.ListTemplatesResponse.templates:type_name -> nis.v1.Template
-	22, // 15: nis.v1.UpdateTemplateRequest.permissions:type_name -> nis.v1.UserPermissions
-	23, // 16: nis.v1.UpdateTemplateRequest.response_permission:type_name -> nis.v1.ResponsePermission
-	0,  // 17: nis.v1.UpdateTemplateResponse.template:type_name -> nis.v1.Template
-	1,  // 18: nis.v1.UpdateTemplateResponse.version:type_name -> nis.v1.TemplateVersion
-	1,  // 19: nis.v1.ListTemplateVersionsResponse.versions:type_name -> nis.v1.TemplateVersion
-	18, // 20: nis.v1.ListTemplateDependentsResponse.dependents:type_name -> nis.v1.ScopedSigningKeyRef
-	25, // 21: nis.v1.ApplyTemplateToScopedKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
-	2,  // 22: nis.v1.TemplateService.CreateTemplate:input_type -> nis.v1.CreateTemplateRequest
-	4,  // 23: nis.v1.TemplateService.GetTemplate:input_type -> nis.v1.GetTemplateRequest
-	6,  // 24: nis.v1.TemplateService.GetTemplateByName:input_type -> nis.v1.GetTemplateByNameRequest
-	8,  // 25: nis.v1.TemplateService.ListTemplates:input_type -> nis.v1.ListTemplatesRequest
-	10, // 26: nis.v1.TemplateService.UpdateTemplate:input_type -> nis.v1.UpdateTemplateRequest
-	12, // 27: nis.v1.TemplateService.DeleteTemplate:input_type -> nis.v1.DeleteTemplateRequest
-	14, // 28: nis.v1.TemplateService.ListTemplateVersions:input_type -> nis.v1.ListTemplateVersionsRequest
-	16, // 29: nis.v1.TemplateService.ListTemplateDependents:input_type -> nis.v1.ListTemplateDependentsRequest
-	19, // 30: nis.v1.TemplateService.ApplyTemplateToScopedKey:input_type -> nis.v1.ApplyTemplateToScopedKeyRequest
-	3,  // 31: nis.v1.TemplateService.CreateTemplate:output_type -> nis.v1.CreateTemplateResponse
-	5,  // 32: nis.v1.TemplateService.GetTemplate:output_type -> nis.v1.GetTemplateResponse
-	7,  // 33: nis.v1.TemplateService.GetTemplateByName:output_type -> nis.v1.GetTemplateByNameResponse
-	9,  // 34: nis.v1.TemplateService.ListTemplates:output_type -> nis.v1.ListTemplatesResponse
-	11, // 35: nis.v1.TemplateService.UpdateTemplate:output_type -> nis.v1.UpdateTemplateResponse
-	13, // 36: nis.v1.TemplateService.DeleteTemplate:output_type -> nis.v1.DeleteTemplateResponse
-	15, // 37: nis.v1.TemplateService.ListTemplateVersions:output_type -> nis.v1.ListTemplateVersionsResponse
-	17, // 38: nis.v1.TemplateService.ListTemplateDependents:output_type -> nis.v1.ListTemplateDependentsResponse
-	20, // 39: nis.v1.TemplateService.ApplyTemplateToScopedKey:output_type -> nis.v1.ApplyTemplateToScopedKeyResponse
-	31, // [31:40] is the sub-list for method output_type
-	22, // [22:31] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	25, // 14: nis.v1.ListTemplatesRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 15: nis.v1.ListTemplatesResponse.templates:type_name -> nis.v1.Template
+	22, // 16: nis.v1.UpdateTemplateRequest.permissions:type_name -> nis.v1.UserPermissions
+	23, // 17: nis.v1.UpdateTemplateRequest.response_permission:type_name -> nis.v1.ResponsePermission
+	0,  // 18: nis.v1.UpdateTemplateResponse.template:type_name -> nis.v1.Template
+	1,  // 19: nis.v1.UpdateTemplateResponse.version:type_name -> nis.v1.TemplateVersion
+	1,  // 20: nis.v1.ListTemplateVersionsResponse.versions:type_name -> nis.v1.TemplateVersion
+	18, // 21: nis.v1.ListTemplateDependentsResponse.dependents:type_name -> nis.v1.ScopedSigningKeyRef
+	26, // 22: nis.v1.ApplyTemplateToScopedKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
+	2,  // 23: nis.v1.TemplateService.CreateTemplate:input_type -> nis.v1.CreateTemplateRequest
+	4,  // 24: nis.v1.TemplateService.GetTemplate:input_type -> nis.v1.GetTemplateRequest
+	6,  // 25: nis.v1.TemplateService.GetTemplateByName:input_type -> nis.v1.GetTemplateByNameRequest
+	8,  // 26: nis.v1.TemplateService.ListTemplates:input_type -> nis.v1.ListTemplatesRequest
+	10, // 27: nis.v1.TemplateService.UpdateTemplate:input_type -> nis.v1.UpdateTemplateRequest
+	12, // 28: nis.v1.TemplateService.DeleteTemplate:input_type -> nis.v1.DeleteTemplateRequest
+	14, // 29: nis.v1.TemplateService.ListTemplateVersions:input_type -> nis.v1.ListTemplateVersionsRequest
+	16, // 30: nis.v1.TemplateService.ListTemplateDependents:input_type -> nis.v1.ListTemplateDependentsRequest
+	19, // 31: nis.v1.TemplateService.ApplyTemplateToScopedKey:input_type -> nis.v1.ApplyTemplateToScopedKeyRequest
+	3,  // 32: nis.v1.TemplateService.CreateTemplate:output_type -> nis.v1.CreateTemplateResponse
+	5,  // 33: nis.v1.TemplateService.GetTemplate:output_type -> nis.v1.GetTemplateResponse
+	7,  // 34: nis.v1.TemplateService.GetTemplateByName:output_type -> nis.v1.GetTemplateByNameResponse
+	9,  // 35: nis.v1.TemplateService.ListTemplates:output_type -> nis.v1.ListTemplatesResponse
+	11, // 36: nis.v1.TemplateService.UpdateTemplate:output_type -> nis.v1.UpdateTemplateResponse
+	13, // 37: nis.v1.TemplateService.DeleteTemplate:output_type -> nis.v1.DeleteTemplateResponse
+	15, // 38: nis.v1.TemplateService.ListTemplateVersions:output_type -> nis.v1.ListTemplateVersionsResponse
+	17, // 39: nis.v1.TemplateService.ListTemplateDependents:output_type -> nis.v1.ListTemplateDependentsResponse
+	20, // 40: nis.v1.TemplateService.ApplyTemplateToScopedKey:output_type -> nis.v1.ApplyTemplateToScopedKeyResponse
+	32, // [32:41] is the sub-list for method output_type
+	23, // [23:32] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_template_proto_init() }

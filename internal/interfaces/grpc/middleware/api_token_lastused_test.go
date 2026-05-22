@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 )
@@ -38,6 +39,9 @@ func (f *fakeAPITokenRepo) GetByHash(context.Context, string) (*entities.APIToke
 }
 func (f *fakeAPITokenRepo) List(context.Context, repositories.APITokenFilter) ([]*entities.APIToken, error) {
 	return nil, nil
+}
+func (f *fakeAPITokenRepo) ListPage(context.Context, authz.Scope, repositories.APITokenListFilter) ([]*entities.APIToken, string, error) {
+	return nil, "", nil
 }
 func (f *fakeAPITokenRepo) Revoke(context.Context, uuid.UUID, time.Time) error { return nil }
 func (f *fakeAPITokenRepo) Delete(context.Context, uuid.UUID) error            { return nil }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -218,6 +219,13 @@ func (s *ClusterService) ListClusters(ctx context.Context, opts repositories.Lis
 // ListClustersByOperator retrieves all clusters for an operator with pagination
 func (s *ClusterService) ListClustersByOperator(ctx context.Context, operatorID uuid.UUID, opts repositories.ListOptions) ([]*entities.Cluster, error) {
 	return s.repo.ListByOperator(ctx, operatorID, opts)
+}
+
+// ListClustersPage returns one keyset-paginated page of clusters visible
+// under scope. Tenant scoping is enforced at the repo via SQL WHERE — no
+// post-fetch filter here. See package authz and SKILL §15.
+func (s *ClusterService) ListClustersPage(ctx context.Context, scope authz.Scope, filter repositories.ClusterListFilter) ([]*entities.Cluster, string, error) {
+	return s.repo.ListPage(ctx, scope, filter)
 }
 
 // UpdateClusterRequest contains the fields that can be updated

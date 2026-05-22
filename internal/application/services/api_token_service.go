@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -150,6 +151,13 @@ func (s *APITokenService) GetToken(ctx context.Context, id uuid.UUID) (*entities
 
 // ListTokens returns tokens matching the filter. Caller is responsible for
 // supplying a filter that respects the caller's permission scope.
+// ListTokensPage returns one keyset-paginated page of API tokens. The repo
+// enforces self-scope using scope.CallerUserID — non-admin callers see only
+// their own tokens, admin/system sees all.
+func (s *APITokenService) ListTokensPage(ctx context.Context, scope authz.Scope, filter repositories.APITokenListFilter) ([]*entities.APIToken, string, error) {
+	return s.factory.APITokenRepository().ListPage(ctx, scope, filter)
+}
+
 func (s *APITokenService) ListTokens(ctx context.Context, filter repositories.APITokenFilter) ([]*entities.APIToken, error) {
 	return s.factory.APITokenRepository().List(ctx, filter)
 }

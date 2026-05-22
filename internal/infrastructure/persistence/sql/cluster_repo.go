@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -128,6 +130,91 @@ func (r *ClusterRepo) ListByOperator(ctx context.Context, operatorID uuid.UUID, 
 	}
 
 	return clusters, nil
+}
+
+// ListPage returns one keyset-paginated page of clusters visible under scope.
+// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+//
+// Scope mapping:
+//   - admin/system: no narrowing.
+//   - operator-admin: WHERE operator_id = scope.ScopeOperatorID.
+//   - account-admin: clusters belong to operators, so resolve the owning
+//     operator from the scoped account; WHERE operator_id = that.
+//   - zero scope: no rows.
+func (r *ClusterRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.ClusterListFilter) ([]*entities.Cluster, string, error) {
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx)
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("operator_id = ?", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return nil, "", nil
+		}
+		var acc AccountModel
+		if err := r.db.WithContext(ctx).Select("operator_id").First(&acc, "id = ?", scope.ScopeAccountID.String()).Error; err != nil {
+			return nil, "", nil
+		}
+		query = query.Where("operator_id = ?", acc.OperatorID)
+	}
+
+	if filter.OperatorID != nil {
+		if scope.IsOperatorAdmin() && scope.ScopeOperatorID != nil && *filter.OperatorID != *scope.ScopeOperatorID {
+			return nil, "", nil
+		}
+		query = query.Where("operator_id = ?", filter.OperatorID.String())
+	}
+	if filter.Healthy != nil {
+		query = query.Where("healthy = ?", *filter.Healthy)
+	}
+	if filter.NameLike != "" {
+		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.NameLike)) + "%"
+		query = query.Where("LOWER(name) LIKE LOWER(?) ESCAPE '\\'", pattern)
+	}
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []ClusterModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list clusters page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	out := make([]*entities.Cluster, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nextCursor, nil
 }
 
 // Update updates an existing cluster

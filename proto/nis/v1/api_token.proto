@@ -54,15 +54,18 @@ message GetAPITokenResponse {
 }
 
 message ListAPITokensRequest {
-  // When set by admins, filters to tokens minted by that api_user. Ignored for
-  // non-admins (always scoped to caller's own tokens).
+  // created_by_user_id is admin-only and reserved; non-admin callers see only
+  // their own tokens via repo-layer scope and any value here is ignored. New
+  // clients should leave this empty.
   string created_by_user_id = 1;
   bool include_revoked = 2;
   ListOptions options = 3;
+  PageRequest page = 4;
 }
 
 message ListAPITokensResponse {
   repeated APIToken tokens = 1;
+  string next_cursor = 2;
 }
 
 // Revoke marks a token as revoked. Tokens are intentionally immutable in every

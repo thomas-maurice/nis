@@ -344,3 +344,97 @@ export class Metadata extends Message<Metadata> {
   }
 }
 
+/**
+ * PageRequest carries keyset-pagination parameters for list RPCs.
+ * Use alongside the existing ListOptions for new paginated endpoints.
+ *
+ * @generated from message nis.v1.PageRequest
+ */
+export class PageRequest extends Message<PageRequest> {
+  /**
+   * limit is the maximum number of items to return (0 = server default 50;
+   * server clamps to max 200).
+   *
+   * @generated from field: int32 limit = 1;
+   */
+  limit = 0;
+
+  /**
+   * cursor is the opaque continuation token from the previous response.
+   * Empty string starts from the first page.
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor = "";
+
+  constructor(data?: PartialMessage<PageRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.PageRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "limit", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 2, name: "cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PageRequest {
+    return new PageRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PageRequest {
+    return new PageRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PageRequest {
+    return new PageRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: PageRequest | PlainMessage<PageRequest> | undefined, b: PageRequest | PlainMessage<PageRequest> | undefined): boolean {
+    return proto3.util.equals(PageRequest, a, b);
+  }
+}
+
+/**
+ * PageResponse carries the continuation token for the next page.
+ *
+ * @generated from message nis.v1.PageResponse
+ */
+export class PageResponse extends Message<PageResponse> {
+  /**
+   * next_cursor is the opaque token to pass in the next PageRequest.
+   * Empty string means there are no more pages.
+   *
+   * @generated from field: string next_cursor = 1;
+   */
+  nextCursor = "";
+
+  constructor(data?: PartialMessage<PageResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.PageResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PageResponse {
+    return new PageResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PageResponse {
+    return new PageResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PageResponse {
+    return new PageResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: PageResponse | PlainMessage<PageResponse> | undefined, b: PageResponse | PlainMessage<PageResponse> | undefined): boolean {
+    return proto3.util.equals(PageResponse, a, b);
+  }
+}
+

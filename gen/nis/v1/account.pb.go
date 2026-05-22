@@ -513,9 +513,14 @@ func (x *GetAccountByNameResponse) GetAccount() *Account {
 
 // ListAccountsRequest is the request to list accounts
 type ListAccountsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	Options       *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	// options is the legacy pagination parameter (kept for back-compat; prefer page).
+	Options *ListOptions `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	// name_like is a case-insensitive substring filter on account name.
+	NameLike string `protobuf:"bytes,3,opt,name=name_like,json=nameLike,proto3" json:"name_like,omitempty"`
+	// page carries keyset-pagination parameters.
+	Page          *PageRequest `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -564,10 +569,26 @@ func (x *ListAccountsRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListAccountsRequest) GetNameLike() string {
+	if x != nil {
+		return x.NameLike
+	}
+	return ""
+}
+
+func (x *ListAccountsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 // ListAccountsResponse is the response from listing accounts
 type ListAccountsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accounts      []*Account             `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Accounts []*Account             `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	// next_cursor is the cursor for the next page (empty = no more pages).
+	NextCursor    string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -607,6 +628,13 @@ func (x *ListAccountsResponse) GetAccounts() []*Account {
 		return x.Accounts
 	}
 	return nil
+}
+
+func (x *ListAccountsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // UpdateAccountRequest is the request to update an account
@@ -1505,13 +1533,17 @@ const file_nis_v1_account_proto_rawDesc = "" +
 	"operatorId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"E\n" +
 	"\x18GetAccountByNameResponse\x12)\n" +
-	"\aaccount\x18\x01 \x01(\v2\x0f.nis.v1.AccountR\aaccount\"e\n" +
+	"\aaccount\x18\x01 \x01(\v2\x0f.nis.v1.AccountR\aaccount\"\xab\x01\n" +
 	"\x13ListAccountsRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\x12-\n" +
-	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"C\n" +
+	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1b\n" +
+	"\tname_like\x18\x03 \x01(\tR\bnameLike\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"d\n" +
 	"\x14ListAccountsResponse\x12+\n" +
-	"\baccounts\x18\x01 \x03(\v2\x0f.nis.v1.AccountR\baccounts\"\x7f\n" +
+	"\baccounts\x18\x01 \x03(\v2\x0f.nis.v1.AccountR\baccounts\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\x7f\n" +
 	"\x14UpdateAccountRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -1638,6 +1670,7 @@ var file_nis_v1_account_proto_goTypes = []any{
 	(*JetStreamLimits)(nil),                   // 25: nis.v1.JetStreamLimits
 	(*timestamppb.Timestamp)(nil),             // 26: google.protobuf.Timestamp
 	(*ListOptions)(nil),                       // 27: nis.v1.ListOptions
+	(*PageRequest)(nil),                       // 28: nis.v1.PageRequest
 }
 var file_nis_v1_account_proto_depIdxs = []int32{
 	25, // 0: nis.v1.Account.jetstream_limits:type_name -> nis.v1.JetStreamLimits
@@ -1648,41 +1681,42 @@ var file_nis_v1_account_proto_depIdxs = []int32{
 	1,  // 5: nis.v1.GetAccountResponse.account:type_name -> nis.v1.Account
 	1,  // 6: nis.v1.GetAccountByNameResponse.account:type_name -> nis.v1.Account
 	27, // 7: nis.v1.ListAccountsRequest.options:type_name -> nis.v1.ListOptions
-	1,  // 8: nis.v1.ListAccountsResponse.accounts:type_name -> nis.v1.Account
-	1,  // 9: nis.v1.UpdateAccountResponse.account:type_name -> nis.v1.Account
-	25, // 10: nis.v1.UpdateJetStreamLimitsRequest.limits:type_name -> nis.v1.JetStreamLimits
-	1,  // 11: nis.v1.UpdateJetStreamLimitsResponse.account:type_name -> nis.v1.Account
-	26, // 12: nis.v1.AccountJWTRevocation.revoked_at:type_name -> google.protobuf.Timestamp
-	26, // 13: nis.v1.AccountJWTRevocation.jwt_exp:type_name -> google.protobuf.Timestamp
-	18, // 14: nis.v1.ListAccountJWTRevocationsResponse.revocations:type_name -> nis.v1.AccountJWTRevocation
-	0,  // 15: nis.v1.ClusterJetStreamUsage.status:type_name -> nis.v1.JetStreamProbeStatus
-	21, // 16: nis.v1.ClusterJetStreamUsage.usage:type_name -> nis.v1.JetStreamUsage
-	22, // 17: nis.v1.GetAccountJetStreamUsageResponse.clusters:type_name -> nis.v1.ClusterJetStreamUsage
-	2,  // 18: nis.v1.AccountService.CreateAccount:input_type -> nis.v1.CreateAccountRequest
-	4,  // 19: nis.v1.AccountService.GetAccount:input_type -> nis.v1.GetAccountRequest
-	6,  // 20: nis.v1.AccountService.GetAccountByName:input_type -> nis.v1.GetAccountByNameRequest
-	8,  // 21: nis.v1.AccountService.ListAccounts:input_type -> nis.v1.ListAccountsRequest
-	10, // 22: nis.v1.AccountService.UpdateAccount:input_type -> nis.v1.UpdateAccountRequest
-	12, // 23: nis.v1.AccountService.UpdateJetStreamLimits:input_type -> nis.v1.UpdateJetStreamLimitsRequest
-	14, // 24: nis.v1.AccountService.DeleteAccount:input_type -> nis.v1.DeleteAccountRequest
-	16, // 25: nis.v1.AccountService.PushAccountJWT:input_type -> nis.v1.PushAccountJWTRequest
-	19, // 26: nis.v1.AccountService.ListAccountJWTRevocations:input_type -> nis.v1.ListAccountJWTRevocationsRequest
-	23, // 27: nis.v1.AccountService.GetAccountJetStreamUsage:input_type -> nis.v1.GetAccountJetStreamUsageRequest
-	3,  // 28: nis.v1.AccountService.CreateAccount:output_type -> nis.v1.CreateAccountResponse
-	5,  // 29: nis.v1.AccountService.GetAccount:output_type -> nis.v1.GetAccountResponse
-	7,  // 30: nis.v1.AccountService.GetAccountByName:output_type -> nis.v1.GetAccountByNameResponse
-	9,  // 31: nis.v1.AccountService.ListAccounts:output_type -> nis.v1.ListAccountsResponse
-	11, // 32: nis.v1.AccountService.UpdateAccount:output_type -> nis.v1.UpdateAccountResponse
-	13, // 33: nis.v1.AccountService.UpdateJetStreamLimits:output_type -> nis.v1.UpdateJetStreamLimitsResponse
-	15, // 34: nis.v1.AccountService.DeleteAccount:output_type -> nis.v1.DeleteAccountResponse
-	17, // 35: nis.v1.AccountService.PushAccountJWT:output_type -> nis.v1.PushAccountJWTResponse
-	20, // 36: nis.v1.AccountService.ListAccountJWTRevocations:output_type -> nis.v1.ListAccountJWTRevocationsResponse
-	24, // 37: nis.v1.AccountService.GetAccountJetStreamUsage:output_type -> nis.v1.GetAccountJetStreamUsageResponse
-	28, // [28:38] is the sub-list for method output_type
-	18, // [18:28] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	28, // 8: nis.v1.ListAccountsRequest.page:type_name -> nis.v1.PageRequest
+	1,  // 9: nis.v1.ListAccountsResponse.accounts:type_name -> nis.v1.Account
+	1,  // 10: nis.v1.UpdateAccountResponse.account:type_name -> nis.v1.Account
+	25, // 11: nis.v1.UpdateJetStreamLimitsRequest.limits:type_name -> nis.v1.JetStreamLimits
+	1,  // 12: nis.v1.UpdateJetStreamLimitsResponse.account:type_name -> nis.v1.Account
+	26, // 13: nis.v1.AccountJWTRevocation.revoked_at:type_name -> google.protobuf.Timestamp
+	26, // 14: nis.v1.AccountJWTRevocation.jwt_exp:type_name -> google.protobuf.Timestamp
+	18, // 15: nis.v1.ListAccountJWTRevocationsResponse.revocations:type_name -> nis.v1.AccountJWTRevocation
+	0,  // 16: nis.v1.ClusterJetStreamUsage.status:type_name -> nis.v1.JetStreamProbeStatus
+	21, // 17: nis.v1.ClusterJetStreamUsage.usage:type_name -> nis.v1.JetStreamUsage
+	22, // 18: nis.v1.GetAccountJetStreamUsageResponse.clusters:type_name -> nis.v1.ClusterJetStreamUsage
+	2,  // 19: nis.v1.AccountService.CreateAccount:input_type -> nis.v1.CreateAccountRequest
+	4,  // 20: nis.v1.AccountService.GetAccount:input_type -> nis.v1.GetAccountRequest
+	6,  // 21: nis.v1.AccountService.GetAccountByName:input_type -> nis.v1.GetAccountByNameRequest
+	8,  // 22: nis.v1.AccountService.ListAccounts:input_type -> nis.v1.ListAccountsRequest
+	10, // 23: nis.v1.AccountService.UpdateAccount:input_type -> nis.v1.UpdateAccountRequest
+	12, // 24: nis.v1.AccountService.UpdateJetStreamLimits:input_type -> nis.v1.UpdateJetStreamLimitsRequest
+	14, // 25: nis.v1.AccountService.DeleteAccount:input_type -> nis.v1.DeleteAccountRequest
+	16, // 26: nis.v1.AccountService.PushAccountJWT:input_type -> nis.v1.PushAccountJWTRequest
+	19, // 27: nis.v1.AccountService.ListAccountJWTRevocations:input_type -> nis.v1.ListAccountJWTRevocationsRequest
+	23, // 28: nis.v1.AccountService.GetAccountJetStreamUsage:input_type -> nis.v1.GetAccountJetStreamUsageRequest
+	3,  // 29: nis.v1.AccountService.CreateAccount:output_type -> nis.v1.CreateAccountResponse
+	5,  // 30: nis.v1.AccountService.GetAccount:output_type -> nis.v1.GetAccountResponse
+	7,  // 31: nis.v1.AccountService.GetAccountByName:output_type -> nis.v1.GetAccountByNameResponse
+	9,  // 32: nis.v1.AccountService.ListAccounts:output_type -> nis.v1.ListAccountsResponse
+	11, // 33: nis.v1.AccountService.UpdateAccount:output_type -> nis.v1.UpdateAccountResponse
+	13, // 34: nis.v1.AccountService.UpdateJetStreamLimits:output_type -> nis.v1.UpdateJetStreamLimitsResponse
+	15, // 35: nis.v1.AccountService.DeleteAccount:output_type -> nis.v1.DeleteAccountResponse
+	17, // 36: nis.v1.AccountService.PushAccountJWT:output_type -> nis.v1.PushAccountJWTResponse
+	20, // 37: nis.v1.AccountService.ListAccountJWTRevocations:output_type -> nis.v1.ListAccountJWTRevocationsResponse
+	24, // 38: nis.v1.AccountService.GetAccountJetStreamUsage:output_type -> nis.v1.GetAccountJetStreamUsageResponse
+	29, // [29:39] is the sub-list for method output_type
+	19, // [19:29] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_account_proto_init() }

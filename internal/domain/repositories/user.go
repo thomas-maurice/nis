@@ -5,8 +5,31 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
+
+// UserListFilter holds the filtering and pagination parameters for UserRepository.ListPage.
+type UserListFilter struct {
+	// Limit is the maximum number of rows to return (0 → default 50; clamped to max 200).
+	Limit int
+	// Cursor is the opaque pagination cursor ("" → first page).
+	Cursor string
+	// NameLike is a case-insensitive substring match on name ("" disables).
+	NameLike string
+	// CreatedSince is an inclusive lower bound on created_at (nil disables).
+	CreatedSince *time.Time
+	// CreatedUntil is an exclusive upper bound on created_at (nil disables).
+	CreatedUntil *time.Time
+	// AccountID, if set, further filters to users belonging to this account.
+	AccountID *uuid.UUID
+	// ScopedSigningKeyID, if set, further filters to users signed by this key.
+	ScopedSigningKeyID *uuid.UUID
+	// Revoked, if non-nil, filters by revocation status (true = revoked, false = active).
+	Revoked *bool
+	// ExpiresBefore, if non-nil, filters to users whose JWT expires before this time.
+	ExpiresBefore *time.Time
+}
 
 // ExpirySweepKind selects which subset of users the JWT expiry sweeper wants
 // to process on a given pass. Each kind is matched at the SQL level so we
@@ -40,14 +63,18 @@ type UserRepository interface {
 	// GetByPublicKey retrieves a user by its NATS public key
 	GetByPublicKey(ctx context.Context, publicKey string) (*entities.User, error)
 
-	// List retrieves all users with pagination
+	// List retrieves all users with pagination (legacy — kept for internal sweepers).
 	List(ctx context.Context, opts ListOptions) ([]*entities.User, error)
 
-	// ListByAccount retrieves users for a specific account
+	// ListByAccount retrieves users for a specific account (legacy — kept for internal sweepers).
 	ListByAccount(ctx context.Context, accountID uuid.UUID, opts ListOptions) ([]*entities.User, error)
 
-	// ListByScopedSigningKey retrieves users signed by a specific scoped signing key
+	// ListByScopedSigningKey retrieves users signed by a specific scoped signing key (legacy).
 	ListByScopedSigningKey(ctx context.Context, scopedKeyID uuid.UUID, opts ListOptions) ([]*entities.User, error)
+
+	// ListPage returns one keyset-paginated page of users visible under scope.
+	// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+	ListPage(ctx context.Context, scope authz.Scope, filter UserListFilter) ([]*entities.User, string, error)
 
 	// ListForExpirySweep returns users that match the given sweep kind, scanned
 	// at most `limit` rows per call. Revoked users (revoked_at IS NOT NULL) are

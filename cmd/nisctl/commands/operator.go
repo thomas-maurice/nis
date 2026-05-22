@@ -82,11 +82,16 @@ var (
 	operatorDescription         string
 	operatorForce               bool
 
+	// list flags
+	operatorListNameLike string
+	operatorListLimit    int32
+	operatorListCursor   string
+
 	// set-jwt-policy flags
-	jwtPolicyUserTTL     string
-	jwtPolicyAccountTTL  string
-	jwtPolicyWarnWindow  string
-	jwtPolicyAutoRenew   bool
+	jwtPolicyUserTTL    string
+	jwtPolicyAccountTTL string
+	jwtPolicyWarnWindow string
+	jwtPolicyAutoRenew  bool
 )
 
 func init() {
@@ -107,6 +112,11 @@ func init() {
 	// Set system account flags
 	operatorSetSystemAccountCmd.Flags().StringVar(&operatorSystemAccountPubKey, "system-account-pubkey", "", "system account public key (required)")
 	_ = operatorSetSystemAccountCmd.MarkFlagRequired("system-account-pubkey")
+
+	// List flags
+	operatorListCmd.Flags().StringVar(&operatorListNameLike, "name-like", "", "filter by name (substring match)")
+	operatorListCmd.Flags().Int32Var(&operatorListLimit, "limit", 0, "page size (0 = fetch all pages)")
+	operatorListCmd.Flags().StringVar(&operatorListCursor, "cursor", "", "start at this pagination cursor (implies single-page mode)")
 
 	// Delete flags
 	operatorDeleteCmd.Flags().BoolVarP(&operatorForce, "force", "f", false, "skip confirmation prompt")
@@ -144,14 +154,53 @@ func runOperatorCreate(cmd *cobra.Command, args []string) error {
 func runOperatorList(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
-	req := connect.NewRequest(&nisv1.ListOperatorsRequest{})
+	// Single-page mode when --limit or --cursor is explicitly set.
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
 
-	resp, err := GetClient().Operator.ListOperators(context.Background(), req)
-	if err != nil {
-		return fmt.Errorf("failed to list operators: %w", err)
+	var allOperators []*nisv1.Operator
+	cursor := operatorListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := operatorListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+
+		req := connect.NewRequest(&nisv1.ListOperatorsRequest{
+			NameLike: operatorListNameLike,
+			Page: &nisv1.PageRequest{
+				Limit:  pageLimit,
+				Cursor: cursor,
+			},
+		})
+
+		resp, err := GetClient().Operator.ListOperators(context.Background(), req)
+		if err != nil {
+			return fmt.Errorf("failed to list operators: %w", err)
+		}
+
+		allOperators = append(allOperators, resp.Msg.Operators...)
+		pageNum++
+
+		if singlePage {
+			// Print next cursor to stderr for table output so stdout stays pipeable.
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Operators) == 0 {
+	if len(allOperators) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No operators found")
 		}
@@ -160,9 +209,9 @@ func runOperatorList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "SYSTEM ACCOUNT", "CREATED AT"}
-		rows := make([][]string, len(resp.Msg.Operators))
+		rows := make([][]string, len(allOperators))
 
-		for i, op := range resp.Msg.Operators {
+		for i, op := range allOperators {
 			systemAccount := "-"
 			if op.SystemAccountPubKey != "" {
 				systemAccount = client.AccountKey(op.SystemAccountPubKey)
@@ -170,7 +219,7 @@ func runOperatorList(cmd *cobra.Command, args []string) error {
 
 			createdAt := "-"
 			if op.CreatedAt != nil {
-				createdAt = op.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				createdAt = op.CreatedAt.AsTime().Local().Format("2006-01-02 15:04:05")
 			}
 
 			rows[i] = []string{
@@ -184,7 +233,7 @@ func runOperatorList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Operators)
+	return printer.PrintList(allOperators)
 }
 
 func runOperatorGet(cmd *cobra.Command, args []string) error {

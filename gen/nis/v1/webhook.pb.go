@@ -480,11 +480,14 @@ func (x *GetWebhookSubscriptionResponse) GetSubscription() *WebhookSubscription 
 }
 
 type ListWebhookSubscriptionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	Options       *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId     string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	Options        *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	Enabled        *bool                  `protobuf:"varint,3,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
+	EventTypeMatch string                 `protobuf:"bytes,4,opt,name=event_type_match,json=eventTypeMatch,proto3" json:"event_type_match,omitempty"`
+	Page           *PageRequest           `protobuf:"bytes,5,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ListWebhookSubscriptionsRequest) Reset() {
@@ -531,9 +534,31 @@ func (x *ListWebhookSubscriptionsRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListWebhookSubscriptionsRequest) GetEnabled() bool {
+	if x != nil && x.Enabled != nil {
+		return *x.Enabled
+	}
+	return false
+}
+
+func (x *ListWebhookSubscriptionsRequest) GetEventTypeMatch() string {
+	if x != nil {
+		return x.EventTypeMatch
+	}
+	return ""
+}
+
+func (x *ListWebhookSubscriptionsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListWebhookSubscriptionsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Subscriptions []*WebhookSubscription `protobuf:"bytes,1,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -573,6 +598,13 @@ func (x *ListWebhookSubscriptionsResponse) GetSubscriptions() []*WebhookSubscrip
 		return x.Subscriptions
 	}
 	return nil
+}
+
+func (x *ListWebhookSubscriptionsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 type UpdateWebhookSubscriptionRequest struct {
@@ -876,6 +908,7 @@ type ListWebhookDeliveriesRequest struct {
 	SubscriptionId string                 `protobuf:"bytes,1,opt,name=subscription_id,json=subscriptionId,proto3" json:"subscription_id,omitempty"`
 	Status         string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	Options        *ListOptions           `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	Page           *PageRequest           `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -931,9 +964,17 @@ func (x *ListWebhookDeliveriesRequest) GetOptions() *ListOptions {
 	return nil
 }
 
+func (x *ListWebhookDeliveriesRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListWebhookDeliveriesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Deliveries    []*WebhookDelivery     `protobuf:"bytes,1,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -973,6 +1014,13 @@ func (x *ListWebhookDeliveriesResponse) GetDeliveries() []*WebhookDelivery {
 		return x.Deliveries
 	}
 	return nil
+}
+
+func (x *ListWebhookDeliveriesResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 var File_nis_v1_webhook_proto protoreflect.FileDescriptor
@@ -1026,13 +1074,20 @@ const file_nis_v1_webhook_proto_rawDesc = "" +
 	"\x1dGetWebhookSubscriptionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"a\n" +
 	"\x1eGetWebhookSubscriptionResponse\x12?\n" +
-	"\fsubscription\x18\x01 \x01(\v2\x1b.nis.v1.WebhookSubscriptionR\fsubscription\"q\n" +
+	"\fsubscription\x18\x01 \x01(\v2\x1b.nis.v1.WebhookSubscriptionR\fsubscription\"\xef\x01\n" +
 	"\x1fListWebhookSubscriptionsRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\x12-\n" +
-	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"e\n" +
+	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1d\n" +
+	"\aenabled\x18\x03 \x01(\bH\x00R\aenabled\x88\x01\x01\x12(\n" +
+	"\x10event_type_match\x18\x04 \x01(\tR\x0eeventTypeMatch\x12'\n" +
+	"\x04page\x18\x05 \x01(\v2\x13.nis.v1.PageRequestR\x04pageB\n" +
+	"\n" +
+	"\b_enabled\"\x86\x01\n" +
 	" ListWebhookSubscriptionsResponse\x12A\n" +
-	"\rsubscriptions\x18\x01 \x03(\v2\x1b.nis.v1.WebhookSubscriptionR\rsubscriptions\"\xf6\x01\n" +
+	"\rsubscriptions\x18\x01 \x03(\v2\x1b.nis.v1.WebhookSubscriptionR\rsubscriptions\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\xf6\x01\n" +
 	" UpdateWebhookSubscriptionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -1055,15 +1110,18 @@ const file_nis_v1_webhook_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"B\n" +
 	"\x1fTestWebhookSubscriptionResponse\x12\x1f\n" +
 	"\vdelivery_id\x18\x01 \x01(\tR\n" +
-	"deliveryId\"\x8e\x01\n" +
+	"deliveryId\"\xb7\x01\n" +
 	"\x1cListWebhookDeliveriesRequest\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\tR\x0esubscriptionId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12-\n" +
-	"\aoptions\x18\x03 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"X\n" +
+	"\aoptions\x18\x03 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"y\n" +
 	"\x1dListWebhookDeliveriesResponse\x127\n" +
 	"\n" +
 	"deliveries\x18\x01 \x03(\v2\x17.nis.v1.WebhookDeliveryR\n" +
-	"deliveries2\x90\x06\n" +
+	"deliveries\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor2\x90\x06\n" +
 	"\x0eWebhookService\x12p\n" +
 	"\x19CreateWebhookSubscription\x12(.nis.v1.CreateWebhookSubscriptionRequest\x1a).nis.v1.CreateWebhookSubscriptionResponse\x12g\n" +
 	"\x16GetWebhookSubscription\x12%.nis.v1.GetWebhookSubscriptionRequest\x1a&.nis.v1.GetWebhookSubscriptionResponse\x12m\n" +
@@ -1107,6 +1165,7 @@ var file_nis_v1_webhook_proto_goTypes = []any{
 	(*ListWebhookDeliveriesResponse)(nil),     // 15: nis.v1.ListWebhookDeliveriesResponse
 	(*timestamppb.Timestamp)(nil),             // 16: google.protobuf.Timestamp
 	(*ListOptions)(nil),                       // 17: nis.v1.ListOptions
+	(*PageRequest)(nil),                       // 18: nis.v1.PageRequest
 }
 var file_nis_v1_webhook_proto_depIdxs = []int32{
 	16, // 0: nis.v1.WebhookSubscription.created_at:type_name -> google.protobuf.Timestamp
@@ -1118,29 +1177,31 @@ var file_nis_v1_webhook_proto_depIdxs = []int32{
 	0,  // 6: nis.v1.CreateWebhookSubscriptionResponse.subscription:type_name -> nis.v1.WebhookSubscription
 	0,  // 7: nis.v1.GetWebhookSubscriptionResponse.subscription:type_name -> nis.v1.WebhookSubscription
 	17, // 8: nis.v1.ListWebhookSubscriptionsRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 9: nis.v1.ListWebhookSubscriptionsResponse.subscriptions:type_name -> nis.v1.WebhookSubscription
-	0,  // 10: nis.v1.UpdateWebhookSubscriptionResponse.subscription:type_name -> nis.v1.WebhookSubscription
-	17, // 11: nis.v1.ListWebhookDeliveriesRequest.options:type_name -> nis.v1.ListOptions
-	1,  // 12: nis.v1.ListWebhookDeliveriesResponse.deliveries:type_name -> nis.v1.WebhookDelivery
-	2,  // 13: nis.v1.WebhookService.CreateWebhookSubscription:input_type -> nis.v1.CreateWebhookSubscriptionRequest
-	4,  // 14: nis.v1.WebhookService.GetWebhookSubscription:input_type -> nis.v1.GetWebhookSubscriptionRequest
-	6,  // 15: nis.v1.WebhookService.ListWebhookSubscriptions:input_type -> nis.v1.ListWebhookSubscriptionsRequest
-	8,  // 16: nis.v1.WebhookService.UpdateWebhookSubscription:input_type -> nis.v1.UpdateWebhookSubscriptionRequest
-	10, // 17: nis.v1.WebhookService.DeleteWebhookSubscription:input_type -> nis.v1.DeleteWebhookSubscriptionRequest
-	12, // 18: nis.v1.WebhookService.TestWebhookSubscription:input_type -> nis.v1.TestWebhookSubscriptionRequest
-	14, // 19: nis.v1.WebhookService.ListWebhookDeliveries:input_type -> nis.v1.ListWebhookDeliveriesRequest
-	3,  // 20: nis.v1.WebhookService.CreateWebhookSubscription:output_type -> nis.v1.CreateWebhookSubscriptionResponse
-	5,  // 21: nis.v1.WebhookService.GetWebhookSubscription:output_type -> nis.v1.GetWebhookSubscriptionResponse
-	7,  // 22: nis.v1.WebhookService.ListWebhookSubscriptions:output_type -> nis.v1.ListWebhookSubscriptionsResponse
-	9,  // 23: nis.v1.WebhookService.UpdateWebhookSubscription:output_type -> nis.v1.UpdateWebhookSubscriptionResponse
-	11, // 24: nis.v1.WebhookService.DeleteWebhookSubscription:output_type -> nis.v1.DeleteWebhookSubscriptionResponse
-	13, // 25: nis.v1.WebhookService.TestWebhookSubscription:output_type -> nis.v1.TestWebhookSubscriptionResponse
-	15, // 26: nis.v1.WebhookService.ListWebhookDeliveries:output_type -> nis.v1.ListWebhookDeliveriesResponse
-	20, // [20:27] is the sub-list for method output_type
-	13, // [13:20] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	18, // 9: nis.v1.ListWebhookSubscriptionsRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 10: nis.v1.ListWebhookSubscriptionsResponse.subscriptions:type_name -> nis.v1.WebhookSubscription
+	0,  // 11: nis.v1.UpdateWebhookSubscriptionResponse.subscription:type_name -> nis.v1.WebhookSubscription
+	17, // 12: nis.v1.ListWebhookDeliveriesRequest.options:type_name -> nis.v1.ListOptions
+	18, // 13: nis.v1.ListWebhookDeliveriesRequest.page:type_name -> nis.v1.PageRequest
+	1,  // 14: nis.v1.ListWebhookDeliveriesResponse.deliveries:type_name -> nis.v1.WebhookDelivery
+	2,  // 15: nis.v1.WebhookService.CreateWebhookSubscription:input_type -> nis.v1.CreateWebhookSubscriptionRequest
+	4,  // 16: nis.v1.WebhookService.GetWebhookSubscription:input_type -> nis.v1.GetWebhookSubscriptionRequest
+	6,  // 17: nis.v1.WebhookService.ListWebhookSubscriptions:input_type -> nis.v1.ListWebhookSubscriptionsRequest
+	8,  // 18: nis.v1.WebhookService.UpdateWebhookSubscription:input_type -> nis.v1.UpdateWebhookSubscriptionRequest
+	10, // 19: nis.v1.WebhookService.DeleteWebhookSubscription:input_type -> nis.v1.DeleteWebhookSubscriptionRequest
+	12, // 20: nis.v1.WebhookService.TestWebhookSubscription:input_type -> nis.v1.TestWebhookSubscriptionRequest
+	14, // 21: nis.v1.WebhookService.ListWebhookDeliveries:input_type -> nis.v1.ListWebhookDeliveriesRequest
+	3,  // 22: nis.v1.WebhookService.CreateWebhookSubscription:output_type -> nis.v1.CreateWebhookSubscriptionResponse
+	5,  // 23: nis.v1.WebhookService.GetWebhookSubscription:output_type -> nis.v1.GetWebhookSubscriptionResponse
+	7,  // 24: nis.v1.WebhookService.ListWebhookSubscriptions:output_type -> nis.v1.ListWebhookSubscriptionsResponse
+	9,  // 25: nis.v1.WebhookService.UpdateWebhookSubscription:output_type -> nis.v1.UpdateWebhookSubscriptionResponse
+	11, // 26: nis.v1.WebhookService.DeleteWebhookSubscription:output_type -> nis.v1.DeleteWebhookSubscriptionResponse
+	13, // 27: nis.v1.WebhookService.TestWebhookSubscription:output_type -> nis.v1.TestWebhookSubscriptionResponse
+	15, // 28: nis.v1.WebhookService.ListWebhookDeliveries:output_type -> nis.v1.ListWebhookDeliveriesResponse
+	22, // [22:29] is the sub-list for method output_type
+	15, // [15:22] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_webhook_proto_init() }
@@ -1149,6 +1210,7 @@ func file_nis_v1_webhook_proto_init() {
 		return
 	}
 	file_nis_v1_common_proto_init()
+	file_nis_v1_webhook_proto_msgTypes[6].OneofWrappers = []any{}
 	file_nis_v1_webhook_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

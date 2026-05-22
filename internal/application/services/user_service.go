@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/thomas-maurice/nis/internal/clock"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -233,9 +234,14 @@ func (s *UserService) ListUsersByAccount(ctx context.Context, accountID uuid.UUI
 	return s.repo.ListByAccount(ctx, accountID, opts)
 }
 
-// ListAllUsers lists all users across all accounts
+// ListAllUsers lists all users across all accounts (legacy — kept for internal callers).
 func (s *UserService) ListAllUsers(ctx context.Context, opts repositories.ListOptions) ([]*entities.User, error) {
 	return s.repo.List(ctx, opts)
+}
+
+// ListUsersPage returns one keyset-paginated page of users visible under scope.
+func (s *UserService) ListUsersPage(ctx context.Context, scope authz.Scope, filter repositories.UserListFilter) ([]*entities.User, string, error) {
+	return s.repo.ListPage(ctx, scope, filter)
 }
 
 // ListUsersByScopedKey retrieves all users signed by a scoped signing key

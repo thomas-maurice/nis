@@ -126,11 +126,11 @@
       </div>
     </div>
 
-    <div class="mt-3 text-center" v-if="nextCursor">
-      <button class="btn btn-outline-primary" @click="loadMore" :disabled="loadingMore">
-        <span v-if="loadingMore" class="spinner-border spinner-border-sm me-2"></span>
-        Load more
-      </button>
+    <div class="d-flex align-items-center gap-2 mt-3">
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+      <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
     </div>
 
     <!-- Detail modal -->
@@ -264,10 +264,10 @@ const DEFAULT_STATUSES = [
 
 const jobs = ref([])
 const loading = ref(false)
-const loadingMore = ref(false)
 const acting = ref(false)
 const error = ref('')
 const nextCursor = ref('')
+const cursorStack = ref([])
 const selectedJob = ref(null)
 
 const filterTypes = ref([])
@@ -301,13 +301,11 @@ function buildFilter(cursor) {
   return f
 }
 
-const loadJobs = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
-  jobs.value = []
-  nextCursor.value = ''
   try {
-    const resp = await jobClient.listJobs({ filter: buildFilter('') })
+    const resp = await jobClient.listJobs({ filter: buildFilter(cursor || '') })
     jobs.value = resp.jobs || []
     nextCursor.value = resp.nextCursor || ''
   } catch (err) {
@@ -317,26 +315,37 @@ const loadJobs = async () => {
   }
 }
 
-const loadMore = async () => {
-  loadingMore.value = true
-  try {
-    const resp = await jobClient.listJobs({ filter: buildFilter(nextCursor.value) })
-    jobs.value.push(...(resp.jobs || []))
-    nextCursor.value = resp.nextCursor || ''
-  } catch (err) {
-    error.value = err.message || 'Failed to load more jobs'
-  } finally {
-    loadingMore.value = false
-  }
+// CRITICAL: filter changes must reset items + nextCursor + cursorStack before
+// re-fetching, or stale rows from a previous filter linger past the change.
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
 }
 
-const applyFilters = () => loadJobs()
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+// Keep loadJobs as an alias for the existing callers (button click handlers,
+// post-mutation reloads) — semantically "reload from page 1".
+const loadJobs = loadFirstPage
+
+const applyFilters = () => loadFirstPage()
 const clearFilters = () => {
   filterTypes.value = []
   filterStatuses.value = [...DEFAULT_STATUSES]
   filterSince.value = '24h'
   showSucceeded.value = false
-  loadJobs()
+  loadFirstPage()
 }
 
 const openDetail = (job) => {

@@ -428,6 +428,111 @@ func (x *Metadata) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// PageRequest carries keyset-pagination parameters for list RPCs.
+// Use alongside the existing ListOptions for new paginated endpoints.
+type PageRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// limit is the maximum number of items to return (0 = server default 50;
+	// server clamps to max 200).
+	Limit int32 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	// cursor is the opaque continuation token from the previous response.
+	// Empty string starts from the first page.
+	Cursor        string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PageRequest) Reset() {
+	*x = PageRequest{}
+	mi := &file_nis_v1_common_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PageRequest) ProtoMessage() {}
+
+func (x *PageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_common_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PageRequest.ProtoReflect.Descriptor instead.
+func (*PageRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_common_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PageRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *PageRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+// PageResponse carries the continuation token for the next page.
+type PageResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// next_cursor is the opaque token to pass in the next PageRequest.
+	// Empty string means there are no more pages.
+	NextCursor    string `protobuf:"bytes,1,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PageResponse) Reset() {
+	*x = PageResponse{}
+	mi := &file_nis_v1_common_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PageResponse) ProtoMessage() {}
+
+func (x *PageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_common_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PageResponse.ProtoReflect.Descriptor instead.
+func (*PageResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_common_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PageResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
 var File_nis_v1_common_proto protoreflect.FileDescriptor
 
 const file_nis_v1_common_proto_rawDesc = "" +
@@ -469,7 +574,13 @@ const file_nis_v1_common_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x82\x01\n" +
+	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\";\n" +
+	"\vPageRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"/\n" +
+	"\fPageResponse\x12\x1f\n" +
+	"\vnext_cursor\x18\x01 \x01(\tR\n" +
+	"nextCursorB\x82\x01\n" +
 	"\n" +
 	"com.nis.v1B\vCommonProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -485,7 +596,7 @@ func file_nis_v1_common_proto_rawDescGZIP() []byte {
 	return file_nis_v1_common_proto_rawDescData
 }
 
-var file_nis_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_nis_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_nis_v1_common_proto_goTypes = []any{
 	(*ListOptions)(nil),           // 0: nis.v1.ListOptions
 	(*Error)(nil),                 // 1: nis.v1.Error
@@ -493,13 +604,15 @@ var file_nis_v1_common_proto_goTypes = []any{
 	(*UserPermissions)(nil),       // 3: nis.v1.UserPermissions
 	(*ResponsePermission)(nil),    // 4: nis.v1.ResponsePermission
 	(*Metadata)(nil),              // 5: nis.v1.Metadata
-	nil,                           // 6: nis.v1.Error.DetailsEntry
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*PageRequest)(nil),           // 6: nis.v1.PageRequest
+	(*PageResponse)(nil),          // 7: nis.v1.PageResponse
+	nil,                           // 8: nis.v1.Error.DetailsEntry
+	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
 }
 var file_nis_v1_common_proto_depIdxs = []int32{
-	6, // 0: nis.v1.Error.details:type_name -> nis.v1.Error.DetailsEntry
-	7, // 1: nis.v1.Metadata.created_at:type_name -> google.protobuf.Timestamp
-	7, // 2: nis.v1.Metadata.updated_at:type_name -> google.protobuf.Timestamp
+	8, // 0: nis.v1.Error.details:type_name -> nis.v1.Error.DetailsEntry
+	9, // 1: nis.v1.Metadata.created_at:type_name -> google.protobuf.Timestamp
+	9, // 2: nis.v1.Metadata.updated_at:type_name -> google.protobuf.Timestamp
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
@@ -518,7 +631,7 @@ func file_nis_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_common_proto_rawDesc), len(file_nis_v1_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

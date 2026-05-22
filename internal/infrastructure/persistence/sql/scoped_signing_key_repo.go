@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -128,6 +130,94 @@ func (r *ScopedSigningKeyRepo) ListByAccount(ctx context.Context, accountID uuid
 	}
 
 	return keys, nil
+}
+
+// ListPage returns one keyset-paginated page of SSKs visible under scope.
+// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+//
+// Scope mapping:
+//   - admin/system: no narrowing.
+//   - operator-admin: WHERE account_id IN (SELECT id FROM accounts WHERE operator_id = scope_op).
+//   - account-admin: WHERE account_id = scope_acc.
+//   - zero scope: no rows.
+func (r *ScopedSigningKeyRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.ScopedSigningKeyListFilter) ([]*entities.ScopedSigningKey, string, error) {
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx)
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("account_id IN (SELECT id FROM accounts WHERE operator_id = ?)", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("account_id = ?", scope.ScopeAccountID.String())
+	}
+
+	// Filter intersection: explicit AccountID further narrows. If incompatible
+	// with scope (e.g. account-admin asking for a different account), return empty.
+	if filter.AccountID != nil {
+		if scope.IsAccountAdmin() && scope.ScopeAccountID != nil && *filter.AccountID != *scope.ScopeAccountID {
+			return nil, "", nil
+		}
+		query = query.Where("account_id = ?", filter.AccountID.String())
+	}
+	if filter.TemplateID != nil {
+		query = query.Where("template_id = ?", filter.TemplateID.String())
+	}
+	if filter.IsPlainSigner != nil {
+		query = query.Where("is_plain_signer = ?", *filter.IsPlainSigner)
+	}
+	if filter.TemplateDrifted != nil {
+		query = query.Where("template_drifted = ?", *filter.TemplateDrifted)
+	}
+	if filter.NameLike != "" {
+		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.NameLike)) + "%"
+		query = query.Where("LOWER(name) LIKE LOWER(?) ESCAPE '\\'", pattern)
+	}
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []ScopedSigningKeyModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list scoped signing keys page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	out := make([]*entities.ScopedSigningKey, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nextCursor, nil
 }
 
 // Update updates an existing scoped signing key

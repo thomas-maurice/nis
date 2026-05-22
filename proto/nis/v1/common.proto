@@ -52,3 +52,21 @@ message Metadata {
   google.protobuf.Timestamp created_at = 2;
   google.protobuf.Timestamp updated_at = 3;
 }
+
+// PageRequest carries keyset-pagination parameters for list RPCs.
+// Use alongside the existing ListOptions for new paginated endpoints.
+message PageRequest {
+  // limit is the maximum number of items to return (0 = server default 50;
+  // server clamps to max 200).
+  int32 limit = 1;
+  // cursor is the opaque continuation token from the previous response.
+  // Empty string starts from the first page.
+  string cursor = 2;
+}
+
+// PageResponse carries the continuation token for the next page.
+message PageResponse {
+  // next_cursor is the opaque token to pass in the next PageRequest.
+  // Empty string means there are no more pages.
+  string next_cursor = 1;
+}

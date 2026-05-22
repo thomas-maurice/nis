@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -328,6 +329,15 @@ func (s *BackupService) ListBackups(ctx context.Context, operatorID uuid.UUID) (
 		return nil, ErrBackupsDisabled
 	}
 	return s.factory.OperatorBackupRepository().ListByOperator(ctx, operatorID)
+}
+
+// ListBackupsPage returns one keyset-paginated page of backups visible under
+// scope. Tenant narrowing happens in the repo via authz.Scope.
+func (s *BackupService) ListBackupsPage(ctx context.Context, scope authz.Scope, filter repositories.OperatorBackupListFilter) ([]*entities.OperatorBackup, string, error) {
+	if !s.Enabled() {
+		return nil, "", ErrBackupsDisabled
+	}
+	return s.factory.OperatorBackupRepository().ListPage(ctx, scope, filter)
 }
 
 // GetBackup fetches one row.

@@ -563,11 +563,13 @@ func (x *GetClusterByNameResponse) GetCluster() *Cluster {
 	return nil
 }
 
-// ListClustersRequest is the request to list clusters
+// ListClustersRequest is the request to list clusters.
 type ListClustersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
 	Options       *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	NameLike      string                 `protobuf:"bytes,3,opt,name=name_like,json=nameLike,proto3" json:"name_like,omitempty"`
+	Page          *PageRequest           `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -616,10 +618,26 @@ func (x *ListClustersRequest) GetOptions() *ListOptions {
 	return nil
 }
 
-// ListClustersResponse is the response from listing clusters
+func (x *ListClustersRequest) GetNameLike() string {
+	if x != nil {
+		return x.NameLike
+	}
+	return ""
+}
+
+func (x *ListClustersRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// ListClustersResponse is the response from listing clusters. next_cursor is
+// empty on the final page.
 type ListClustersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Clusters      []*Cluster             `protobuf:"bytes,1,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -659,6 +677,13 @@ func (x *ListClustersResponse) GetClusters() []*Cluster {
 		return x.Clusters
 	}
 	return nil
+}
+
+func (x *ListClustersResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // UpdateClusterRequest is the request to update a cluster
@@ -1904,13 +1929,17 @@ const file_nis_v1_cluster_proto_rawDesc = "" +
 	"operatorId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"E\n" +
 	"\x18GetClusterByNameResponse\x12)\n" +
-	"\acluster\x18\x01 \x01(\v2\x0f.nis.v1.ClusterR\acluster\"e\n" +
+	"\acluster\x18\x01 \x01(\v2\x0f.nis.v1.ClusterR\acluster\"\xab\x01\n" +
 	"\x13ListClustersRequest\x12\x1f\n" +
 	"\voperator_id\x18\x01 \x01(\tR\n" +
 	"operatorId\x12-\n" +
-	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"C\n" +
+	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1b\n" +
+	"\tname_like\x18\x03 \x01(\tR\bnameLike\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"d\n" +
 	"\x14ListClustersResponse\x12+\n" +
-	"\bclusters\x18\x01 \x03(\v2\x0f.nis.v1.ClusterR\bclusters\"\xe1\x01\n" +
+	"\bclusters\x18\x01 \x03(\v2\x0f.nis.v1.ClusterR\bclusters\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\xe1\x01\n" +
 	"\x14UpdateClusterRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -2068,6 +2097,7 @@ var file_nis_v1_cluster_proto_goTypes = []any{
 	(*ReconcileAccountOnClusterResponse)(nil), // 31: nis.v1.ReconcileAccountOnClusterResponse
 	(*timestamppb.Timestamp)(nil),             // 32: google.protobuf.Timestamp
 	(*ListOptions)(nil),                       // 33: nis.v1.ListOptions
+	(*PageRequest)(nil),                       // 34: nis.v1.PageRequest
 }
 var file_nis_v1_cluster_proto_depIdxs = []int32{
 	32, // 0: nis.v1.Cluster.created_at:type_name -> google.protobuf.Timestamp
@@ -2077,45 +2107,46 @@ var file_nis_v1_cluster_proto_depIdxs = []int32{
 	1,  // 4: nis.v1.GetClusterResponse.cluster:type_name -> nis.v1.Cluster
 	1,  // 5: nis.v1.GetClusterByNameResponse.cluster:type_name -> nis.v1.Cluster
 	33, // 6: nis.v1.ListClustersRequest.options:type_name -> nis.v1.ListOptions
-	1,  // 7: nis.v1.ListClustersResponse.clusters:type_name -> nis.v1.Cluster
-	1,  // 8: nis.v1.UpdateClusterResponse.cluster:type_name -> nis.v1.Cluster
-	1,  // 9: nis.v1.UpdateClusterCredentialsResponse.cluster:type_name -> nis.v1.Cluster
-	22, // 10: nis.v1.SyncClusterResponse.errors:type_name -> nis.v1.SyncError
-	0,  // 11: nis.v1.AccountDriftRow.status:type_name -> nis.v1.DriftStatus
-	27, // 12: nis.v1.GetClusterDriftStatusResponse.rows:type_name -> nis.v1.AccountDriftRow
-	2,  // 13: nis.v1.ClusterService.CreateCluster:input_type -> nis.v1.CreateClusterRequest
-	4,  // 14: nis.v1.ClusterService.GetCluster:input_type -> nis.v1.GetClusterRequest
-	6,  // 15: nis.v1.ClusterService.GetClusterByName:input_type -> nis.v1.GetClusterByNameRequest
-	8,  // 16: nis.v1.ClusterService.ListClusters:input_type -> nis.v1.ListClustersRequest
-	10, // 17: nis.v1.ClusterService.UpdateCluster:input_type -> nis.v1.UpdateClusterRequest
-	12, // 18: nis.v1.ClusterService.UpdateClusterCredentials:input_type -> nis.v1.UpdateClusterCredentialsRequest
-	14, // 19: nis.v1.ClusterService.DeleteCluster:input_type -> nis.v1.DeleteClusterRequest
-	16, // 20: nis.v1.ClusterService.GetClusterCredentials:input_type -> nis.v1.GetClusterCredentialsRequest
-	18, // 21: nis.v1.ClusterService.GenerateServerConfig:input_type -> nis.v1.GenerateServerConfigRequest
-	20, // 22: nis.v1.ClusterService.SyncCluster:input_type -> nis.v1.SyncClusterRequest
-	23, // 23: nis.v1.ClusterService.ListResolverAccounts:input_type -> nis.v1.ListResolverAccountsRequest
-	25, // 24: nis.v1.ClusterService.DeleteResolverAccount:input_type -> nis.v1.DeleteResolverAccountRequest
-	28, // 25: nis.v1.ClusterService.GetClusterDriftStatus:input_type -> nis.v1.GetClusterDriftStatusRequest
-	30, // 26: nis.v1.ClusterService.ReconcileAccountOnCluster:input_type -> nis.v1.ReconcileAccountOnClusterRequest
-	3,  // 27: nis.v1.ClusterService.CreateCluster:output_type -> nis.v1.CreateClusterResponse
-	5,  // 28: nis.v1.ClusterService.GetCluster:output_type -> nis.v1.GetClusterResponse
-	7,  // 29: nis.v1.ClusterService.GetClusterByName:output_type -> nis.v1.GetClusterByNameResponse
-	9,  // 30: nis.v1.ClusterService.ListClusters:output_type -> nis.v1.ListClustersResponse
-	11, // 31: nis.v1.ClusterService.UpdateCluster:output_type -> nis.v1.UpdateClusterResponse
-	13, // 32: nis.v1.ClusterService.UpdateClusterCredentials:output_type -> nis.v1.UpdateClusterCredentialsResponse
-	15, // 33: nis.v1.ClusterService.DeleteCluster:output_type -> nis.v1.DeleteClusterResponse
-	17, // 34: nis.v1.ClusterService.GetClusterCredentials:output_type -> nis.v1.GetClusterCredentialsResponse
-	19, // 35: nis.v1.ClusterService.GenerateServerConfig:output_type -> nis.v1.GenerateServerConfigResponse
-	21, // 36: nis.v1.ClusterService.SyncCluster:output_type -> nis.v1.SyncClusterResponse
-	24, // 37: nis.v1.ClusterService.ListResolverAccounts:output_type -> nis.v1.ListResolverAccountsResponse
-	26, // 38: nis.v1.ClusterService.DeleteResolverAccount:output_type -> nis.v1.DeleteResolverAccountResponse
-	29, // 39: nis.v1.ClusterService.GetClusterDriftStatus:output_type -> nis.v1.GetClusterDriftStatusResponse
-	31, // 40: nis.v1.ClusterService.ReconcileAccountOnCluster:output_type -> nis.v1.ReconcileAccountOnClusterResponse
-	27, // [27:41] is the sub-list for method output_type
-	13, // [13:27] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	34, // 7: nis.v1.ListClustersRequest.page:type_name -> nis.v1.PageRequest
+	1,  // 8: nis.v1.ListClustersResponse.clusters:type_name -> nis.v1.Cluster
+	1,  // 9: nis.v1.UpdateClusterResponse.cluster:type_name -> nis.v1.Cluster
+	1,  // 10: nis.v1.UpdateClusterCredentialsResponse.cluster:type_name -> nis.v1.Cluster
+	22, // 11: nis.v1.SyncClusterResponse.errors:type_name -> nis.v1.SyncError
+	0,  // 12: nis.v1.AccountDriftRow.status:type_name -> nis.v1.DriftStatus
+	27, // 13: nis.v1.GetClusterDriftStatusResponse.rows:type_name -> nis.v1.AccountDriftRow
+	2,  // 14: nis.v1.ClusterService.CreateCluster:input_type -> nis.v1.CreateClusterRequest
+	4,  // 15: nis.v1.ClusterService.GetCluster:input_type -> nis.v1.GetClusterRequest
+	6,  // 16: nis.v1.ClusterService.GetClusterByName:input_type -> nis.v1.GetClusterByNameRequest
+	8,  // 17: nis.v1.ClusterService.ListClusters:input_type -> nis.v1.ListClustersRequest
+	10, // 18: nis.v1.ClusterService.UpdateCluster:input_type -> nis.v1.UpdateClusterRequest
+	12, // 19: nis.v1.ClusterService.UpdateClusterCredentials:input_type -> nis.v1.UpdateClusterCredentialsRequest
+	14, // 20: nis.v1.ClusterService.DeleteCluster:input_type -> nis.v1.DeleteClusterRequest
+	16, // 21: nis.v1.ClusterService.GetClusterCredentials:input_type -> nis.v1.GetClusterCredentialsRequest
+	18, // 22: nis.v1.ClusterService.GenerateServerConfig:input_type -> nis.v1.GenerateServerConfigRequest
+	20, // 23: nis.v1.ClusterService.SyncCluster:input_type -> nis.v1.SyncClusterRequest
+	23, // 24: nis.v1.ClusterService.ListResolverAccounts:input_type -> nis.v1.ListResolverAccountsRequest
+	25, // 25: nis.v1.ClusterService.DeleteResolverAccount:input_type -> nis.v1.DeleteResolverAccountRequest
+	28, // 26: nis.v1.ClusterService.GetClusterDriftStatus:input_type -> nis.v1.GetClusterDriftStatusRequest
+	30, // 27: nis.v1.ClusterService.ReconcileAccountOnCluster:input_type -> nis.v1.ReconcileAccountOnClusterRequest
+	3,  // 28: nis.v1.ClusterService.CreateCluster:output_type -> nis.v1.CreateClusterResponse
+	5,  // 29: nis.v1.ClusterService.GetCluster:output_type -> nis.v1.GetClusterResponse
+	7,  // 30: nis.v1.ClusterService.GetClusterByName:output_type -> nis.v1.GetClusterByNameResponse
+	9,  // 31: nis.v1.ClusterService.ListClusters:output_type -> nis.v1.ListClustersResponse
+	11, // 32: nis.v1.ClusterService.UpdateCluster:output_type -> nis.v1.UpdateClusterResponse
+	13, // 33: nis.v1.ClusterService.UpdateClusterCredentials:output_type -> nis.v1.UpdateClusterCredentialsResponse
+	15, // 34: nis.v1.ClusterService.DeleteCluster:output_type -> nis.v1.DeleteClusterResponse
+	17, // 35: nis.v1.ClusterService.GetClusterCredentials:output_type -> nis.v1.GetClusterCredentialsResponse
+	19, // 36: nis.v1.ClusterService.GenerateServerConfig:output_type -> nis.v1.GenerateServerConfigResponse
+	21, // 37: nis.v1.ClusterService.SyncCluster:output_type -> nis.v1.SyncClusterResponse
+	24, // 38: nis.v1.ClusterService.ListResolverAccounts:output_type -> nis.v1.ListResolverAccountsResponse
+	26, // 39: nis.v1.ClusterService.DeleteResolverAccount:output_type -> nis.v1.DeleteResolverAccountResponse
+	29, // 40: nis.v1.ClusterService.GetClusterDriftStatus:output_type -> nis.v1.GetClusterDriftStatusResponse
+	31, // 41: nis.v1.ClusterService.ReconcileAccountOnCluster:output_type -> nis.v1.ReconcileAccountOnClusterResponse
+	28, // [28:42] is the sub-list for method output_type
+	14, // [14:28] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_cluster_proto_init() }

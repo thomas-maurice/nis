@@ -71,6 +71,13 @@ var (
 	webhookEnabled      bool
 	webhookForce        bool
 	webhookDelStatus    string
+
+	webhookListLimit    int32
+	webhookListCursor   string
+	webhookListEnabled  string
+
+	webhookDelListLimit  int32
+	webhookDelListCursor string
 )
 
 func init() {
@@ -93,6 +100,9 @@ func init() {
 	webhookCreateCmd.Flags().StringSliceVar(&webhookEventTypes, "event-types", nil, "event types to subscribe to (e.g. account.created or '*')")
 
 	webhookListCmd.Flags().StringVar(&webhookOperator, "operator", "", "filter by operator ID or name")
+	webhookListCmd.Flags().Int32Var(&webhookListLimit, "limit", 0, "fetch only this many rows in one page (default: fetch all)")
+	webhookListCmd.Flags().StringVar(&webhookListCursor, "cursor", "", "start from this opaque cursor (single-page mode)")
+	webhookListCmd.Flags().StringVar(&webhookListEnabled, "enabled", "", "filter by enabled state: true | false (default: any)")
 
 	webhookUpdateCmd.Flags().StringVar(&webhookName, "name", "", "new name")
 	webhookUpdateCmd.Flags().StringVar(&webhookDescription, "description", "", "new description")
@@ -103,6 +113,8 @@ func init() {
 	webhookDeleteCmd.Flags().BoolVarP(&webhookForce, "force", "f", false, "skip confirmation prompt")
 
 	webhookDeliveriesCmd.Flags().StringVar(&webhookDelStatus, "status", "", "filter by delivery status (pending|succeeded|failed|dead_letter)")
+	webhookDeliveriesCmd.Flags().Int32Var(&webhookDelListLimit, "limit", 0, "fetch only this many rows in one page (default: fetch all)")
+	webhookDeliveriesCmd.Flags().StringVar(&webhookDelListCursor, "cursor", "", "start from this opaque cursor (single-page mode)")
 }
 
 func runWebhookCreate(cmd *cobra.Command, args []string) error {
@@ -136,21 +148,55 @@ func runWebhookCreate(cmd *cobra.Command, args []string) error {
 func runWebhookList(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
-	req := &nisv1.ListWebhookSubscriptionsRequest{}
+	var opID string
 	if webhookOperator != "" {
-		opID, err := resolveOperatorID(webhookOperator)
+		var err error
+		opID, err = resolveOperatorID(webhookOperator)
 		if err != nil {
 			return err
 		}
-		req.OperatorId = opID
 	}
 
-	resp, err := GetClient().Webhook.ListWebhookSubscriptions(context.Background(), connect.NewRequest(req))
-	if err != nil {
-		return fmt.Errorf("failed to list webhook subscriptions: %w", err)
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
+	var allSubs []*nisv1.WebhookSubscription
+	cursor := webhookListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := webhookListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+		req := &nisv1.ListWebhookSubscriptionsRequest{
+			OperatorId: opID,
+			Page:       &nisv1.PageRequest{Limit: pageLimit, Cursor: cursor},
+		}
+		if webhookListEnabled == "true" || webhookListEnabled == "false" {
+			b := webhookListEnabled == "true"
+			req.Enabled = &b
+		}
+		resp, err := GetClient().Webhook.ListWebhookSubscriptions(context.Background(), connect.NewRequest(req))
+		if err != nil {
+			return fmt.Errorf("failed to list webhook subscriptions: %w", err)
+		}
+		allSubs = append(allSubs, resp.Msg.Subscriptions...)
+		pageNum++
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Subscriptions) == 0 {
+	if len(allSubs) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No webhook subscriptions found")
 		}
@@ -159,8 +205,8 @@ func runWebhookList(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "URL", "ENABLED", "OPERATOR"}
-		rows := make([][]string, len(resp.Msg.Subscriptions))
-		for i, s := range resp.Msg.Subscriptions {
+		rows := make([][]string, len(allSubs))
+		for i, s := range allSubs {
 			rows[i] = []string{
 				client.WebhookID(s.Id),
 				s.Name,
@@ -172,7 +218,7 @@ func runWebhookList(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Subscriptions)
+	return printer.PrintList(allSubs)
 }
 
 func runWebhookGet(cmd *cobra.Command, args []string) error {
@@ -266,15 +312,42 @@ func runWebhookTest(cmd *cobra.Command, args []string) error {
 func runWebhookDeliveries(cmd *cobra.Command, args []string) error {
 	printer := client.NewPrinter(GetOutputFormat())
 
-	resp, err := GetClient().Webhook.ListWebhookDeliveries(context.Background(), connect.NewRequest(&nisv1.ListWebhookDeliveriesRequest{
-		SubscriptionId: args[0],
-		Status:         webhookDelStatus,
-	}))
-	if err != nil {
-		return fmt.Errorf("failed to list webhook deliveries: %w", err)
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
+	var allDels []*nisv1.WebhookDelivery
+	cursor := webhookDelListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := webhookDelListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+		resp, err := GetClient().Webhook.ListWebhookDeliveries(context.Background(), connect.NewRequest(&nisv1.ListWebhookDeliveriesRequest{
+			SubscriptionId: args[0],
+			Status:         webhookDelStatus,
+			Page:           &nisv1.PageRequest{Limit: pageLimit, Cursor: cursor},
+		}))
+		if err != nil {
+			return fmt.Errorf("failed to list webhook deliveries: %w", err)
+		}
+		allDels = append(allDels, resp.Msg.Deliveries...)
+		pageNum++
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
 
-	if len(resp.Msg.Deliveries) == 0 {
+	if len(allDels) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No deliveries found")
 		}
@@ -283,8 +356,8 @@ func runWebhookDeliveries(cmd *cobra.Command, args []string) error {
 
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "EVENT ID", "ATTEMPT", "STATUS", "RESPONSE CODE"}
-		rows := make([][]string, len(resp.Msg.Deliveries))
-		for i, d := range resp.Msg.Deliveries {
+		rows := make([][]string, len(allDels))
+		for i, d := range allDels {
 			rows[i] = []string{
 				client.WebhookID(d.Id),
 				d.EventId,
@@ -296,5 +369,5 @@ func runWebhookDeliveries(cmd *cobra.Command, args []string) error {
 		return printer.PrintTable(headers, rows)
 	}
 
-	return printer.PrintList(resp.Msg.Deliveries)
+	return printer.PrintList(allDels)
 }

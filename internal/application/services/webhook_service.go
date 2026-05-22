@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -70,6 +71,18 @@ func (s *WebhookService) CreateSubscription(ctx context.Context, req CreateWebho
 
 func (s *WebhookService) GetSubscription(ctx context.Context, id uuid.UUID) (*entities.WebhookSubscription, error) {
 	return s.factory.WebhookSubscriptionRepository().GetByID(ctx, id)
+}
+
+// ListSubscriptionsPage returns one keyset-paginated page of webhook
+// subscriptions visible under scope. See package authz and SKILL §15.
+func (s *WebhookService) ListSubscriptionsPage(ctx context.Context, scope authz.Scope, filter repositories.WebhookSubscriptionListFilter) ([]*entities.WebhookSubscription, string, error) {
+	return s.factory.WebhookSubscriptionRepository().ListPage(ctx, scope, filter)
+}
+
+// ListDeliveriesPage returns one keyset-paginated page of deliveries visible
+// under scope.
+func (s *WebhookService) ListDeliveriesPage(ctx context.Context, scope authz.Scope, filter repositories.WebhookDeliveryListFilter) ([]*entities.WebhookDelivery, string, error) {
+	return s.factory.WebhookDeliveryRepository().ListPage(ctx, scope, filter)
 }
 
 func (s *WebhookService) ListSubscriptions(ctx context.Context, filter repositories.WebhookSubscriptionFilter) ([]*entities.WebhookSubscription, error) {

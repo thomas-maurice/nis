@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
@@ -147,52 +149,46 @@ func (h *ScopedSigningKeyHandler) GetScopedSigningKeyByName(
 	}), nil
 }
 
-// ListScopedSigningKeys lists scoped signing keys for an account
+// ListScopedSigningKeys lists scoped signing keys visible to the caller, with
+// optional narrowing by account_id and substring match on name. Tenant scope
+// is enforced inside the repo via the authz.Scope argument; no post-fetch
+// filtering happens here.
 func (h *ScopedSigningKeyHandler) ListScopedSigningKeys(
 	ctx context.Context,
 	req *connect.Request[pb.ListScopedSigningKeysRequest],
 ) (*connect.Response[pb.ListScopedSigningKeysResponse], error) {
-	// Get requesting user from context
 	requestingUser, err := authedUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// If account_id is empty, list all scoped signing keys (filtered by permissions)
-	if req.Msg.AccountId == "" {
-		keys, err := h.service.ListAllScopedSigningKeys(ctx, mappers.ProtoToListOptions(req.Msg.Options))
+	filter := repositories.ScopedSigningKeyListFilter{
+		NameLike: req.Msg.NameLike,
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.Limit)
+		filter.Cursor = req.Msg.Page.Cursor
+	}
+	if req.Msg.AccountId != "" {
+		accountID, err := mappers.ParseUUID(req.Msg.AccountId)
 		if err != nil {
-			return nil, err
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		// Filter keys based on account permissions
-		var filteredKeys []*entities.ScopedSigningKey
-		for _, key := range keys {
-			if err := h.permService.CanReadAccount(ctx, requestingUser, key.AccountID); err == nil {
-				filteredKeys = append(filteredKeys, key)
-			}
+		filter.AccountID = &accountID
+	}
+
+	scope := authz.ScopeFromAPIUser(requestingUser)
+	keys, nextCursor, err := h.service.ListScopedSigningKeysPage(ctx, scope, filter)
+	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		return connect.NewResponse(&pb.ListScopedSigningKeysResponse{
-			Keys: mappers.ScopedSigningKeysToProto(filteredKeys),
-		}), nil
-	}
-
-	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	// Check permission to read this account
-	if err := h.permService.CanReadAccount(ctx, requestingUser, accountID); err != nil {
-		return nil, connect.NewError(connect.CodePermissionDenied, err)
-	}
-
-	keys, err := h.service.ListScopedSigningKeysByAccount(ctx, accountID, mappers.ProtoToListOptions(req.Msg.Options))
-	if err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&pb.ListScopedSigningKeysResponse{
-		Keys: mappers.ScopedSigningKeysToProto(keys),
+		Keys:       mappers.ScopedSigningKeysToProto(keys),
+		NextCursor: nextCursor,
 	}), nil
 }
 

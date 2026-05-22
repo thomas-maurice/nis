@@ -156,7 +156,7 @@ func (s *PermissionService) CanDeleteOperator(apiUser *entities.APIUser, operato
 	return s.requireRole(apiUser, entities.RoleAdmin)
 }
 
-// CanListOperators: every authenticated user can ask, FilterOperators narrows the result.
+// CanListOperators: every authenticated user can ask; SQL-level scope in ListPage narrows the result.
 func (s *PermissionService) CanListOperators(apiUser *entities.APIUser) error {
 	if apiUser == nil {
 		return ErrPermissionDenied
@@ -165,6 +165,8 @@ func (s *PermissionService) CanListOperators(apiUser *entities.APIUser) error {
 }
 
 // FilterOperators returns only the operators visible to apiUser.
+// Retained for use by SearchService (P11). The list handlers use SQL-level
+// scope via ListPage instead.
 func (s *PermissionService) FilterOperators(ctx context.Context, apiUser *entities.APIUser, operators []*entities.Operator) ([]*entities.Operator, error) {
 	out := make([]*entities.Operator, 0, len(operators))
 	for _, op := range operators {
@@ -239,6 +241,8 @@ func (s *PermissionService) CanDeleteAccount(ctx context.Context, apiUser *entit
 }
 
 // FilterAccounts returns only the accounts visible to apiUser.
+// Retained for use by SearchService (P11). The list handlers use SQL-level
+// scope via ListPage instead.
 func (s *PermissionService) FilterAccounts(ctx context.Context, apiUser *entities.APIUser, accounts []*entities.Account) ([]*entities.Account, error) {
 	out := make([]*entities.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -371,9 +375,11 @@ func (s *PermissionService) CanRunJWTExpirySweep(apiUser *entities.APIUser) erro
 	return s.requireRole(apiUser, entities.RoleAdmin)
 }
 
-// FilterUsers returns only the users visible to apiUser. Note that this still
-// makes O(n) account lookups; see proposal A7 (filter+cursor pagination) for the
-// proper SQL-level fix.
+// FilterUsers returns only the users visible to apiUser.
+// Retained for use by SearchService (P11). The list handlers use SQL-level
+// scope via ListPage instead. On a per-row account lookup failure, the
+// user is dropped (best-effort — a single account gone should not abort
+// the entire search result).
 func (s *PermissionService) FilterUsers(ctx context.Context, apiUser *entities.APIUser, users []*entities.User) ([]*entities.User, error) {
 	out := make([]*entities.User, 0, len(users))
 	for _, u := range users {

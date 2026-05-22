@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
-import { ListOptions } from "./common_pb.js";
+import { ListOptions, PageRequest } from "./common_pb.js";
 
 /**
  * User represents a NATS user
@@ -398,9 +398,25 @@ export class ListUsersRequest extends Message<ListUsersRequest> {
   accountId = "";
 
   /**
+   * options is the legacy pagination parameter (kept for back-compat; prefer page).
+   *
    * @generated from field: nis.v1.ListOptions options = 2;
    */
   options?: ListOptions;
+
+  /**
+   * name_like is a case-insensitive substring filter on user name.
+   *
+   * @generated from field: string name_like = 3;
+   */
+  nameLike = "";
+
+  /**
+   * page carries keyset-pagination parameters.
+   *
+   * @generated from field: nis.v1.PageRequest page = 4;
+   */
+  page?: PageRequest;
 
   constructor(data?: PartialMessage<ListUsersRequest>) {
     super();
@@ -412,6 +428,8 @@ export class ListUsersRequest extends Message<ListUsersRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "options", kind: "message", T: ListOptions },
+    { no: 3, name: "name_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListUsersRequest {
@@ -442,6 +460,13 @@ export class ListUsersResponse extends Message<ListUsersResponse> {
    */
   users: User[] = [];
 
+  /**
+   * next_cursor is the cursor for the next page (empty = no more pages).
+   *
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListUsersResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -451,6 +476,7 @@ export class ListUsersResponse extends Message<ListUsersResponse> {
   static readonly typeName = "nis.v1.ListUsersResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "users", kind: "message", T: User, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListUsersResponse {

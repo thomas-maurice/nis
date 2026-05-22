@@ -3,12 +3,15 @@ package handlers
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
@@ -131,52 +134,43 @@ func (h *UserHandler) GetUserByName(
 	}), nil
 }
 
-// ListUsers lists users for an account
+// ListUsers lists users with cursor pagination and SQL-level scope enforcement.
 func (h *UserHandler) ListUsers(
 	ctx context.Context,
 	req *connect.Request[pb.ListUsersRequest],
 ) (*connect.Response[pb.ListUsersResponse], error) {
-	// Get requesting user from context
 	requestingUser, err := authedUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// If account_id is empty, list all users across all accounts (filtered by permissions)
-	if req.Msg.AccountId == "" {
-		users, err := h.service.ListAllUsers(ctx, mappers.ProtoToListOptions(req.Msg.Options))
-		if err != nil {
-			return nil, err
-		}
+	scope := authz.ScopeFromAPIUser(requestingUser)
 
-		// Filter users based on permissions
-		filtered, err := h.permService.FilterUsers(ctx, requestingUser, users)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-
-		return connect.NewResponse(&pb.ListUsersResponse{
-			Users: mappers.UsersToProto(filtered),
-		}), nil
+	filter := repositories.UserListFilter{
+		NameLike: strings.TrimSpace(req.Msg.NameLike),
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.Limit)
+		filter.Cursor = req.Msg.Page.Cursor
 	}
 
-	accountID, err := mappers.ParseUUID(req.Msg.AccountId)
+	// Apply optional account_id filter.
+	if req.Msg.AccountId != "" {
+		accountID, parseErr := mappers.ParseUUID(req.Msg.AccountId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, parseErr)
+		}
+		filter.AccountID = &accountID
+	}
+
+	users, nextCursor, err := h.service.ListUsersPage(ctx, scope, filter)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	// Check permission to read this account
-	if err := h.permService.CanReadAccount(ctx, requestingUser, accountID); err != nil {
-		return nil, connect.NewError(connect.CodePermissionDenied, err)
-	}
-
-	users, err := h.service.ListUsersByAccount(ctx, accountID, mappers.ProtoToListOptions(req.Msg.Options))
-	if err != nil {
-		return nil, err
-	}
-
 	return connect.NewResponse(&pb.ListUsersResponse{
-		Users: mappers.UsersToProto(users),
+		Users:      mappers.UsersToProto(users),
+		NextCursor: nextCursor,
 	}), nil
 }
 

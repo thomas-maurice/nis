@@ -588,11 +588,17 @@ func (x *GetScopedSigningKeyByNameResponse) GetKey() *ScopedSigningKey {
 	return nil
 }
 
-// ListScopedSigningKeysRequest is the request to list scoped signing keys
+// ListScopedSigningKeysRequest is the request to list scoped signing keys.
+// account_id is optional; when set the page is narrowed to that account.
+// options is the legacy offset-pagination field, retained for back-compat —
+// new clients should use page. name_like is a case-insensitive substring
+// match on name.
 type ListScopedSigningKeysRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	Options       *ListOptions           `protobuf:"bytes,2,opt,name=options,proto3" json:"options,omitempty"`
+	NameLike      string                 `protobuf:"bytes,3,opt,name=name_like,json=nameLike,proto3" json:"name_like,omitempty"`
+	Page          *PageRequest           `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -641,10 +647,26 @@ func (x *ListScopedSigningKeysRequest) GetOptions() *ListOptions {
 	return nil
 }
 
-// ListScopedSigningKeysResponse is the response from listing scoped signing keys
+func (x *ListScopedSigningKeysRequest) GetNameLike() string {
+	if x != nil {
+		return x.NameLike
+	}
+	return ""
+}
+
+func (x *ListScopedSigningKeysRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// ListScopedSigningKeysResponse is the response from listing scoped signing
+// keys. next_cursor is empty on the final page.
 type ListScopedSigningKeysResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Keys          []*ScopedSigningKey    `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -684,6 +706,13 @@ func (x *ListScopedSigningKeysResponse) GetKeys() []*ScopedSigningKey {
 		return x.Keys
 	}
 	return nil
+}
+
+func (x *ListScopedSigningKeysResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // UpdateScopedSigningKeyRequest is the request to update a scoped signing key
@@ -1443,13 +1472,17 @@ const file_nis_v1_scoped_key_proto_rawDesc = "" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"O\n" +
 	"!GetScopedSigningKeyByNameResponse\x12*\n" +
-	"\x03key\x18\x01 \x01(\v2\x18.nis.v1.ScopedSigningKeyR\x03key\"l\n" +
+	"\x03key\x18\x01 \x01(\v2\x18.nis.v1.ScopedSigningKeyR\x03key\"\xb2\x01\n" +
 	"\x1cListScopedSigningKeysRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12-\n" +
-	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\"M\n" +
+	"\aoptions\x18\x02 \x01(\v2\x13.nis.v1.ListOptionsR\aoptions\x12\x1b\n" +
+	"\tname_like\x18\x03 \x01(\tR\bnameLike\x12'\n" +
+	"\x04page\x18\x04 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"n\n" +
 	"\x1dListScopedSigningKeysResponse\x12,\n" +
-	"\x04keys\x18\x01 \x03(\v2\x18.nis.v1.ScopedSigningKeyR\x04keys\"\x88\x01\n" +
+	"\x04keys\x18\x01 \x03(\v2\x18.nis.v1.ScopedSigningKeyR\x04keys\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\x88\x01\n" +
 	"\x1dUpdateScopedSigningKeyRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
@@ -1546,6 +1579,7 @@ var file_nis_v1_scoped_key_proto_goTypes = []any{
 	(*ResponsePermission)(nil),                // 24: nis.v1.ResponsePermission
 	(*timestamppb.Timestamp)(nil),             // 25: google.protobuf.Timestamp
 	(*ListOptions)(nil),                       // 26: nis.v1.ListOptions
+	(*PageRequest)(nil),                       // 27: nis.v1.PageRequest
 }
 var file_nis_v1_scoped_key_proto_depIdxs = []int32{
 	23, // 0: nis.v1.ScopedSigningKey.permissions:type_name -> nis.v1.UserPermissions
@@ -1559,40 +1593,41 @@ var file_nis_v1_scoped_key_proto_depIdxs = []int32{
 	0,  // 8: nis.v1.GetScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
 	0,  // 9: nis.v1.GetScopedSigningKeyByNameResponse.key:type_name -> nis.v1.ScopedSigningKey
 	26, // 10: nis.v1.ListScopedSigningKeysRequest.options:type_name -> nis.v1.ListOptions
-	0,  // 11: nis.v1.ListScopedSigningKeysResponse.keys:type_name -> nis.v1.ScopedSigningKey
-	0,  // 12: nis.v1.UpdateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
-	23, // 13: nis.v1.UpdatePermissionsRequest.permissions:type_name -> nis.v1.UserPermissions
-	24, // 14: nis.v1.UpdatePermissionsRequest.response_permission:type_name -> nis.v1.ResponsePermission
-	0,  // 15: nis.v1.UpdatePermissionsResponse.key:type_name -> nis.v1.ScopedSigningKey
-	0,  // 16: nis.v1.DetachFromTemplateResponse.key:type_name -> nis.v1.ScopedSigningKey
-	0,  // 17: nis.v1.SetTrackLatestResponse.key:type_name -> nis.v1.ScopedSigningKey
-	0,  // 18: nis.v1.RotateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
-	21, // 19: nis.v1.RotateScopedSigningKeyResponse.push_outcomes:type_name -> nis.v1.ClusterPushOutcome
-	1,  // 20: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:input_type -> nis.v1.CreateScopedSigningKeyRequest
-	4,  // 21: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:input_type -> nis.v1.GetScopedSigningKeyRequest
-	6,  // 22: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:input_type -> nis.v1.GetScopedSigningKeyByNameRequest
-	8,  // 23: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:input_type -> nis.v1.ListScopedSigningKeysRequest
-	10, // 24: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:input_type -> nis.v1.UpdateScopedSigningKeyRequest
-	12, // 25: nis.v1.ScopedSigningKeyService.UpdatePermissions:input_type -> nis.v1.UpdatePermissionsRequest
-	14, // 26: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:input_type -> nis.v1.DeleteScopedSigningKeyRequest
-	16, // 27: nis.v1.ScopedSigningKeyService.DetachFromTemplate:input_type -> nis.v1.DetachFromTemplateRequest
-	18, // 28: nis.v1.ScopedSigningKeyService.SetTrackLatest:input_type -> nis.v1.SetTrackLatestRequest
-	20, // 29: nis.v1.ScopedSigningKeyService.RotateScopedSigningKey:input_type -> nis.v1.RotateScopedSigningKeyRequest
-	3,  // 30: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:output_type -> nis.v1.CreateScopedSigningKeyResponse
-	5,  // 31: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:output_type -> nis.v1.GetScopedSigningKeyResponse
-	7,  // 32: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:output_type -> nis.v1.GetScopedSigningKeyByNameResponse
-	9,  // 33: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:output_type -> nis.v1.ListScopedSigningKeysResponse
-	11, // 34: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:output_type -> nis.v1.UpdateScopedSigningKeyResponse
-	13, // 35: nis.v1.ScopedSigningKeyService.UpdatePermissions:output_type -> nis.v1.UpdatePermissionsResponse
-	15, // 36: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:output_type -> nis.v1.DeleteScopedSigningKeyResponse
-	17, // 37: nis.v1.ScopedSigningKeyService.DetachFromTemplate:output_type -> nis.v1.DetachFromTemplateResponse
-	19, // 38: nis.v1.ScopedSigningKeyService.SetTrackLatest:output_type -> nis.v1.SetTrackLatestResponse
-	22, // 39: nis.v1.ScopedSigningKeyService.RotateScopedSigningKey:output_type -> nis.v1.RotateScopedSigningKeyResponse
-	30, // [30:40] is the sub-list for method output_type
-	20, // [20:30] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	27, // 11: nis.v1.ListScopedSigningKeysRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 12: nis.v1.ListScopedSigningKeysResponse.keys:type_name -> nis.v1.ScopedSigningKey
+	0,  // 13: nis.v1.UpdateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
+	23, // 14: nis.v1.UpdatePermissionsRequest.permissions:type_name -> nis.v1.UserPermissions
+	24, // 15: nis.v1.UpdatePermissionsRequest.response_permission:type_name -> nis.v1.ResponsePermission
+	0,  // 16: nis.v1.UpdatePermissionsResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 17: nis.v1.DetachFromTemplateResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 18: nis.v1.SetTrackLatestResponse.key:type_name -> nis.v1.ScopedSigningKey
+	0,  // 19: nis.v1.RotateScopedSigningKeyResponse.key:type_name -> nis.v1.ScopedSigningKey
+	21, // 20: nis.v1.RotateScopedSigningKeyResponse.push_outcomes:type_name -> nis.v1.ClusterPushOutcome
+	1,  // 21: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:input_type -> nis.v1.CreateScopedSigningKeyRequest
+	4,  // 22: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:input_type -> nis.v1.GetScopedSigningKeyRequest
+	6,  // 23: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:input_type -> nis.v1.GetScopedSigningKeyByNameRequest
+	8,  // 24: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:input_type -> nis.v1.ListScopedSigningKeysRequest
+	10, // 25: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:input_type -> nis.v1.UpdateScopedSigningKeyRequest
+	12, // 26: nis.v1.ScopedSigningKeyService.UpdatePermissions:input_type -> nis.v1.UpdatePermissionsRequest
+	14, // 27: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:input_type -> nis.v1.DeleteScopedSigningKeyRequest
+	16, // 28: nis.v1.ScopedSigningKeyService.DetachFromTemplate:input_type -> nis.v1.DetachFromTemplateRequest
+	18, // 29: nis.v1.ScopedSigningKeyService.SetTrackLatest:input_type -> nis.v1.SetTrackLatestRequest
+	20, // 30: nis.v1.ScopedSigningKeyService.RotateScopedSigningKey:input_type -> nis.v1.RotateScopedSigningKeyRequest
+	3,  // 31: nis.v1.ScopedSigningKeyService.CreateScopedSigningKey:output_type -> nis.v1.CreateScopedSigningKeyResponse
+	5,  // 32: nis.v1.ScopedSigningKeyService.GetScopedSigningKey:output_type -> nis.v1.GetScopedSigningKeyResponse
+	7,  // 33: nis.v1.ScopedSigningKeyService.GetScopedSigningKeyByName:output_type -> nis.v1.GetScopedSigningKeyByNameResponse
+	9,  // 34: nis.v1.ScopedSigningKeyService.ListScopedSigningKeys:output_type -> nis.v1.ListScopedSigningKeysResponse
+	11, // 35: nis.v1.ScopedSigningKeyService.UpdateScopedSigningKey:output_type -> nis.v1.UpdateScopedSigningKeyResponse
+	13, // 36: nis.v1.ScopedSigningKeyService.UpdatePermissions:output_type -> nis.v1.UpdatePermissionsResponse
+	15, // 37: nis.v1.ScopedSigningKeyService.DeleteScopedSigningKey:output_type -> nis.v1.DeleteScopedSigningKeyResponse
+	17, // 38: nis.v1.ScopedSigningKeyService.DetachFromTemplate:output_type -> nis.v1.DetachFromTemplateResponse
+	19, // 39: nis.v1.ScopedSigningKeyService.SetTrackLatest:output_type -> nis.v1.SetTrackLatestResponse
+	22, // 40: nis.v1.ScopedSigningKeyService.RotateScopedSigningKey:output_type -> nis.v1.RotateScopedSigningKeyResponse
+	31, // [31:41] is the sub-list for method output_type
+	21, // [21:31] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_scoped_key_proto_init() }

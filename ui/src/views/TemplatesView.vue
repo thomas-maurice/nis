@@ -15,13 +15,17 @@
 
     <div class="card">
       <div class="card-body">
-        <div class="row align-items-center mb-3">
-          <div class="col-md-6">
-            <label class="form-label mb-0">Operator</label>
-            <select v-model="selectedOperator" class="form-select" @change="loadTemplates">
+        <div class="row align-items-end mb-3 g-2">
+          <div class="col-md-5">
+            <label class="form-label mb-1">Operator</label>
+            <select v-model="selectedOperator" class="form-select form-select-sm" @change="loadFirstPage">
               <option value="">Select operator...</option>
               <option v-for="op in operators" :key="op.id" :value="op.id">{{ op.name }}</option>
             </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label mb-1">Name contains</label>
+            <input v-model="nameLikeInput" type="text" class="form-control form-control-sm" placeholder="substring..." @input="onNameLikeInput" />
           </div>
         </div>
 
@@ -66,6 +70,13 @@
             </tr>
           </tbody>
         </table>
+
+        <div v-if="selectedOperator && (templates.length > 0 || cursorStack.length > 0 || nextCursor)" class="d-flex align-items-center gap-2 mt-3">
+          <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+          <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
+        </div>
       </div>
     </div>
 
@@ -191,6 +202,11 @@ const templates = ref([])
 const selectedOperator = ref('')
 const loading = ref(false)
 const error = ref('')
+const nextCursor = ref('')
+const cursorStack = ref([])
+const nameLikeFilter = ref('')
+const nameLikeInput = ref('')
+let nameLikeTimer = null
 const showModal = ref(false)
 const saving = ref(false)
 const formError = ref('')
@@ -225,24 +241,58 @@ const loadOperators = async () => {
   }
 }
 
-const loadTemplates = async () => {
+const loadPage = async (cursor) => {
   if (!selectedOperator.value) {
     templates.value = []
+    nextCursor.value = ''
     return
   }
   loading.value = true
   error.value = ''
   try {
     const resp = await apiClient.post('/nis.v1.TemplateService/ListTemplates', {
-      operatorId: selectedOperator.value
+      operatorId: selectedOperator.value,
+      nameLike: nameLikeFilter.value,
+      page: { limit: 50, cursor: cursor || '' }
     })
     templates.value = resp.data.templates || []
+    nextCursor.value = resp.data.nextCursor || ''
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load templates'
   } finally {
     loading.value = false
   }
 }
+
+// CRITICAL: filter changes (operator or name-like) must reset items + cursor + stack.
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
+}
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+const onNameLikeInput = () => {
+  clearTimeout(nameLikeTimer)
+  nameLikeTimer = setTimeout(() => {
+    nameLikeFilter.value = nameLikeInput.value
+    loadFirstPage()
+  }, 300)
+}
+
+// Backward compat alias: anything still calling loadTemplates() reloads page 1.
+const loadTemplates = loadFirstPage
 
 const showCreateModal = () => {
   formData.value = {

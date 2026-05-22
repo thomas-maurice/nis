@@ -64,12 +64,19 @@ message GetUserByNameResponse {
 // ListUsersRequest is the request to list users
 message ListUsersRequest {
   string account_id = 1;
+  // options is the legacy pagination parameter (kept for back-compat; prefer page).
   ListOptions options = 2;
+  // name_like is a case-insensitive substring filter on user name.
+  string name_like = 3;
+  // page carries keyset-pagination parameters.
+  PageRequest page = 4;
 }
 
 // ListUsersResponse is the response from listing users
 message ListUsersResponse {
   repeated User users = 1;
+  // next_cursor is the cursor for the next page (empty = no more pages).
+  string next_cursor = 2;
 }
 
 // UpdateUserRequest is the request to update a user

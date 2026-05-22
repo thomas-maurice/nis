@@ -80,10 +80,13 @@ message GetTemplateByNameResponse {
 message ListTemplatesRequest {
   string operator_id = 1;
   ListOptions options = 2;
+  string name_like = 3;
+  PageRequest page = 4;
 }
 
 message ListTemplatesResponse {
   repeated Template templates = 1;
+  string next_cursor = 2;
 }
 
 message UpdateTemplateRequest {

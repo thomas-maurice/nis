@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -128,6 +130,86 @@ func (r *AccountRepo) ListByOperator(ctx context.Context, operatorID uuid.UUID, 
 	}
 
 	return accounts, nil
+}
+
+// ListPage returns one keyset-paginated page of accounts visible under scope.
+// Order: (created_at DESC, id DESC). Empty next_cursor means no more pages.
+func (r *AccountRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.AccountListFilter) ([]*entities.Account, string, error) {
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx)
+
+	// Scope → SQL narrowing.
+	switch {
+	case scope.IsAdmin():
+		// No narrowing — admin sees all. Apply filter.OperatorID below if set.
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return nil, "", nil
+		}
+		// Intersection with filter.OperatorID if set and different from scope.
+		if filter.OperatorID != nil && *filter.OperatorID != *scope.ScopeOperatorID {
+			return nil, "", nil
+		}
+		query = query.Where("operator_id = ?", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("id = ?", scope.ScopeAccountID.String())
+	}
+
+	// Apply filter.OperatorID for admin scope if set.
+	if scope.IsAdmin() && filter.OperatorID != nil {
+		query = query.Where("operator_id = ?", filter.OperatorID.String())
+	}
+
+	// NameLike filter. escapeLikeParam escapes %, _, and \ so they are treated as
+	// literals; the ESCAPE '\' clause activates SQLite's backslash-escape mode.
+	if filter.NameLike != "" {
+		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.NameLike)) + "%"
+		query = query.Where("LOWER(name) LIKE LOWER(?) ESCAPE '\\'", pattern)
+	}
+
+	// Time bound filters.
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	// Cursor predicate.
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []AccountModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list accounts page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	accounts := make([]*entities.Account, len(models))
+	for i, m := range models {
+		accounts[i] = m.ToEntity()
+	}
+	return accounts, nextCursor, nil
 }
 
 // Search returns accounts whose name, description, or public_key contain `q`

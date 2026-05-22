@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/thomas-maurice/nis/internal/clock"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
@@ -231,9 +232,14 @@ func (s *OperatorService) GetOperatorByPublicKey(ctx context.Context, publicKey 
 	return s.factory.OperatorRepository().GetByPublicKey(ctx, publicKey)
 }
 
-// ListOperators retrieves all operators with pagination
+// ListOperators retrieves all operators with pagination (legacy — kept for internal callers).
 func (s *OperatorService) ListOperators(ctx context.Context, opts repositories.ListOptions) ([]*entities.Operator, error) {
 	return s.factory.OperatorRepository().List(ctx, opts)
+}
+
+// ListOperatorsPage returns one keyset-paginated page of operators visible under scope.
+func (s *OperatorService) ListOperatorsPage(ctx context.Context, scope authz.Scope, filter repositories.OperatorListFilter) ([]*entities.Operator, string, error) {
+	return s.factory.OperatorRepository().ListPage(ctx, scope, filter)
 }
 
 // UpdateOperatorRequest contains the fields that can be updated

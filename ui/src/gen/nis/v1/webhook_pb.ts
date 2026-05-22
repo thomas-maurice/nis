@@ -5,7 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
-import { ListOptions } from "./common_pb.js";
+import { ListOptions, PageRequest } from "./common_pb.js";
 
 /**
  * @generated from message nis.v1.WebhookSubscription
@@ -389,6 +389,21 @@ export class ListWebhookSubscriptionsRequest extends Message<ListWebhookSubscrip
    */
   options?: ListOptions;
 
+  /**
+   * @generated from field: optional bool enabled = 3;
+   */
+  enabled?: boolean;
+
+  /**
+   * @generated from field: string event_type_match = 4;
+   */
+  eventTypeMatch = "";
+
+  /**
+   * @generated from field: nis.v1.PageRequest page = 5;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListWebhookSubscriptionsRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -399,6 +414,9 @@ export class ListWebhookSubscriptionsRequest extends Message<ListWebhookSubscrip
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "options", kind: "message", T: ListOptions },
+    { no: 3, name: "enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 4, name: "event_type_match", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListWebhookSubscriptionsRequest {
@@ -427,6 +445,11 @@ export class ListWebhookSubscriptionsResponse extends Message<ListWebhookSubscri
    */
   subscriptions: WebhookSubscription[] = [];
 
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListWebhookSubscriptionsResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -436,6 +459,7 @@ export class ListWebhookSubscriptionsResponse extends Message<ListWebhookSubscri
   static readonly typeName = "nis.v1.ListWebhookSubscriptionsResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "subscriptions", kind: "message", T: WebhookSubscription, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListWebhookSubscriptionsResponse {
@@ -720,6 +744,11 @@ export class ListWebhookDeliveriesRequest extends Message<ListWebhookDeliveriesR
    */
   options?: ListOptions;
 
+  /**
+   * @generated from field: nis.v1.PageRequest page = 4;
+   */
+  page?: PageRequest;
+
   constructor(data?: PartialMessage<ListWebhookDeliveriesRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -731,6 +760,7 @@ export class ListWebhookDeliveriesRequest extends Message<ListWebhookDeliveriesR
     { no: 1, name: "subscription_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "status", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "options", kind: "message", T: ListOptions },
+    { no: 4, name: "page", kind: "message", T: PageRequest },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListWebhookDeliveriesRequest {
@@ -759,6 +789,11 @@ export class ListWebhookDeliveriesResponse extends Message<ListWebhookDeliveries
    */
   deliveries: WebhookDelivery[] = [];
 
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor = "";
+
   constructor(data?: PartialMessage<ListWebhookDeliveriesResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -768,6 +803,7 @@ export class ListWebhookDeliveriesResponse extends Message<ListWebhookDeliveries
   static readonly typeName = "nis.v1.ListWebhookDeliveriesResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "deliveries", kind: "message", T: WebhookDelivery, repeated: true },
+    { no: 2, name: "next_cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListWebhookDeliveriesResponse {

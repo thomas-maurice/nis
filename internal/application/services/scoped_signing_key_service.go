@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nkeys"
 
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -350,6 +351,13 @@ func (s *ScopedSigningKeyService) ListScopedSigningKeysByAccount(ctx context.Con
 // ListAllScopedSigningKeys retrieves all scoped signing keys across all accounts with pagination
 func (s *ScopedSigningKeyService) ListAllScopedSigningKeys(ctx context.Context, opts repositories.ListOptions) ([]*entities.ScopedSigningKey, error) {
 	return s.factory.ScopedSigningKeyRepository().List(ctx, opts)
+}
+
+// ListScopedSigningKeysPage returns one keyset-paginated page of SSKs visible
+// under scope. The scope determines tenant narrowing at the SQL layer — no
+// post-fetch filtering happens here. See pkg authz and SKILL §15.
+func (s *ScopedSigningKeyService) ListScopedSigningKeysPage(ctx context.Context, scope authz.Scope, filter repositories.ScopedSigningKeyListFilter) ([]*entities.ScopedSigningKey, string, error) {
+	return s.factory.ScopedSigningKeyRepository().ListPage(ctx, scope, filter)
 }
 
 // UpdateScopedSigningKeyRequest contains the fields that can be updated

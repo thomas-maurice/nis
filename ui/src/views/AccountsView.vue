@@ -2,11 +2,21 @@
   <div class="container-fluid py-4">
     <div class="row mb-3">
       <div class="col-md-4">
+        <input
+          v-model="nameLikeInput"
+          type="search"
+          class="form-control"
+          placeholder="Filter by name..."
+          @input="onNameLikeInput"
+        />
+      </div>
+      <div class="col-md-4">
         <label for="operatorFilter" class="form-label">Filter by Operator</label>
         <select
           id="operatorFilter"
           v-model="selectedOperatorFilter"
           class="form-select"
+          @change="loadFirstPage"
         >
           <option value="">All Operators</option>
           <option v-for="op in operators" :key="op.id" :value="op.id">
@@ -19,7 +29,7 @@
     <EntityList
       title="Accounts"
       entity-name="Account"
-      :items="filteredAccounts"
+      :items="accounts"
       :columns="columns"
       :loading="loading"
       :error="error"
@@ -60,6 +70,13 @@
       </template>
 
     </EntityList>
+
+    <div class="d-flex align-items-center gap-2 mt-3">
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+      <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+      <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
+    </div>
 
     <EntityForm
       v-if="showModal"
@@ -176,7 +193,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
@@ -190,12 +207,17 @@ const accounts = ref([])
 const operators = ref([])
 const loading = ref(false)
 const error = ref('')
+const nextCursor = ref('')
+const cursorStack = ref([])
+const nameLikeFilter = ref('')
+const nameLikeInput = ref('')
+let nameLikeTimer = null
+const selectedOperatorFilter = ref('')
 const showModal = ref(false)
 const editingAccount = ref(null)
 const formData = ref({})
 const saving = ref(false)
 const formError = ref('')
-const selectedOperatorFilter = ref('')
 
 const columns = [
   { key: 'name', label: 'Name' },
@@ -206,19 +228,17 @@ const columns = [
   { key: 'createdAt', label: 'Created' }
 ]
 
-const filteredAccounts = computed(() => {
-  if (!selectedOperatorFilter.value) {
-    return accounts.value
-  }
-  return accounts.value.filter(account => account.operatorId === selectedOperatorFilter.value)
-})
-
-const loadAccounts = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
   try {
-    const response = await apiClient.post('/nis.v1.AccountService/ListAccounts', {})
+    const req = { nameLike: nameLikeFilter.value, page: { limit: 50, cursor: cursor || '' } }
+    if (selectedOperatorFilter.value) {
+      req.operatorId = selectedOperatorFilter.value
+    }
+    const response = await apiClient.post('/nis.v1.AccountService/ListAccounts', req)
     accounts.value = response.data.accounts || []
+    nextCursor.value = response.data.nextCursor || ''
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load accounts'
   } finally {
@@ -226,9 +246,37 @@ const loadAccounts = async () => {
   }
 }
 
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
+}
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+const onNameLikeInput = () => {
+  clearTimeout(nameLikeTimer)
+  nameLikeTimer = setTimeout(() => {
+    nameLikeFilter.value = nameLikeInput.value
+    loadFirstPage()
+  }, 300)
+}
+
 const loadOperators = async () => {
   try {
-    const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {})
+    const response = await apiClient.post('/nis.v1.OperatorService/ListOperators', {
+      page: { limit: 200, cursor: '' }
+    })
     operators.value = response.data.operators || []
   } catch (err) {
     console.error('Failed to load operators:', err)
@@ -321,7 +369,7 @@ const handleSubmit = async (data) => {
       })
     }
     closeModal()
-    await loadAccounts()
+    loadFirstPage()
   } catch (err) {
     formError.value = err.response?.data?.message || 'Failed to save account'
   } finally {
@@ -338,7 +386,7 @@ const handleDelete = async (account) => {
     await apiClient.post('/nis.v1.AccountService/DeleteAccount', {
       id: account.id
     })
-    await loadAccounts()
+    loadFirstPage()
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to delete account'
   }
@@ -354,7 +402,7 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => {
-  loadAccounts()
+  loadFirstPage()
   loadOperators()
 })
 </script>

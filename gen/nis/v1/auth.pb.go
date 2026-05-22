@@ -621,9 +621,12 @@ func (x *GetAPIUserByUsernameResponse) GetUser() *APIUser {
 	return nil
 }
 
-// ListAPIUsersRequest is the request to list API users
+// ListAPIUsersRequest is the request to list API users.
 type ListAPIUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
+	UsernameLike  string                 `protobuf:"bytes,2,opt,name=username_like,json=usernameLike,proto3" json:"username_like,omitempty"`
+	Page          *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -658,10 +661,32 @@ func (*ListAPIUsersRequest) Descriptor() ([]byte, []int) {
 	return file_nis_v1_auth_proto_rawDescGZIP(), []int{11}
 }
 
-// ListAPIUsersResponse is the response from listing API users
+func (x *ListAPIUsersRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *ListAPIUsersRequest) GetUsernameLike() string {
+	if x != nil {
+		return x.UsernameLike
+	}
+	return ""
+}
+
+func (x *ListAPIUsersRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// ListAPIUsersResponse is the response from listing API users.
 type ListAPIUsersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Users         []*APIUser             `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -701,6 +726,13 @@ func (x *ListAPIUsersResponse) GetUsers() []*APIUser {
 		return x.Users
 	}
 	return nil
+}
+
+func (x *ListAPIUsersResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // UpdateAPIUserPasswordRequest is the request to update an API user's password
@@ -1001,7 +1033,7 @@ var File_nis_v1_auth_proto protoreflect.FileDescriptor
 
 const file_nis_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x11nis/v1/auth.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb6\x02\n" +
+	"\x11nis/v1/auth.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13nis/v1/common.proto\"\xb6\x02\n" +
 	"\aAPIUser\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12 \n" +
@@ -1046,10 +1078,15 @@ const file_nis_v1_auth_proto_rawDesc = "" +
 	"\x1bGetAPIUserByUsernameRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\"C\n" +
 	"\x1cGetAPIUserByUsernameResponse\x12#\n" +
-	"\x04user\x18\x01 \x01(\v2\x0f.nis.v1.APIUserR\x04user\"\x15\n" +
-	"\x13ListAPIUsersRequest\"=\n" +
+	"\x04user\x18\x01 \x01(\v2\x0f.nis.v1.APIUserR\x04user\"w\n" +
+	"\x13ListAPIUsersRequest\x12\x12\n" +
+	"\x04role\x18\x01 \x01(\tR\x04role\x12#\n" +
+	"\rusername_like\x18\x02 \x01(\tR\fusernameLike\x12'\n" +
+	"\x04page\x18\x03 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"^\n" +
 	"\x14ListAPIUsersResponse\x12%\n" +
-	"\x05users\x18\x01 \x03(\v2\x0f.nis.v1.APIUserR\x05users\"J\n" +
+	"\x05users\x18\x01 \x03(\v2\x0f.nis.v1.APIUserR\x05users\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"J\n" +
 	"\x1cUpdateAPIUserPasswordRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"D\n" +
@@ -1117,6 +1154,7 @@ var file_nis_v1_auth_proto_goTypes = []any{
 	(*DeleteAPIUserRequest)(nil),             // 17: nis.v1.DeleteAPIUserRequest
 	(*DeleteAPIUserResponse)(nil),            // 18: nis.v1.DeleteAPIUserResponse
 	(*timestamppb.Timestamp)(nil),            // 19: google.protobuf.Timestamp
+	(*PageRequest)(nil),                      // 20: nis.v1.PageRequest
 }
 var file_nis_v1_auth_proto_depIdxs = []int32{
 	19, // 0: nis.v1.APIUser.created_at:type_name -> google.protobuf.Timestamp
@@ -1126,32 +1164,33 @@ var file_nis_v1_auth_proto_depIdxs = []int32{
 	0,  // 4: nis.v1.CreateAPIUserResponse.user:type_name -> nis.v1.APIUser
 	0,  // 5: nis.v1.GetAPIUserResponse.user:type_name -> nis.v1.APIUser
 	0,  // 6: nis.v1.GetAPIUserByUsernameResponse.user:type_name -> nis.v1.APIUser
-	0,  // 7: nis.v1.ListAPIUsersResponse.users:type_name -> nis.v1.APIUser
-	0,  // 8: nis.v1.UpdateAPIUserPasswordResponse.user:type_name -> nis.v1.APIUser
-	0,  // 9: nis.v1.UpdateAPIUserPermissionsResponse.user:type_name -> nis.v1.APIUser
-	1,  // 10: nis.v1.AuthService.Login:input_type -> nis.v1.LoginRequest
-	3,  // 11: nis.v1.AuthService.ValidateToken:input_type -> nis.v1.ValidateTokenRequest
-	5,  // 12: nis.v1.AuthService.CreateAPIUser:input_type -> nis.v1.CreateAPIUserRequest
-	7,  // 13: nis.v1.AuthService.GetAPIUser:input_type -> nis.v1.GetAPIUserRequest
-	9,  // 14: nis.v1.AuthService.GetAPIUserByUsername:input_type -> nis.v1.GetAPIUserByUsernameRequest
-	11, // 15: nis.v1.AuthService.ListAPIUsers:input_type -> nis.v1.ListAPIUsersRequest
-	13, // 16: nis.v1.AuthService.UpdateAPIUserPassword:input_type -> nis.v1.UpdateAPIUserPasswordRequest
-	15, // 17: nis.v1.AuthService.UpdateAPIUserPermissions:input_type -> nis.v1.UpdateAPIUserPermissionsRequest
-	17, // 18: nis.v1.AuthService.DeleteAPIUser:input_type -> nis.v1.DeleteAPIUserRequest
-	2,  // 19: nis.v1.AuthService.Login:output_type -> nis.v1.LoginResponse
-	4,  // 20: nis.v1.AuthService.ValidateToken:output_type -> nis.v1.ValidateTokenResponse
-	6,  // 21: nis.v1.AuthService.CreateAPIUser:output_type -> nis.v1.CreateAPIUserResponse
-	8,  // 22: nis.v1.AuthService.GetAPIUser:output_type -> nis.v1.GetAPIUserResponse
-	10, // 23: nis.v1.AuthService.GetAPIUserByUsername:output_type -> nis.v1.GetAPIUserByUsernameResponse
-	12, // 24: nis.v1.AuthService.ListAPIUsers:output_type -> nis.v1.ListAPIUsersResponse
-	14, // 25: nis.v1.AuthService.UpdateAPIUserPassword:output_type -> nis.v1.UpdateAPIUserPasswordResponse
-	16, // 26: nis.v1.AuthService.UpdateAPIUserPermissions:output_type -> nis.v1.UpdateAPIUserPermissionsResponse
-	18, // 27: nis.v1.AuthService.DeleteAPIUser:output_type -> nis.v1.DeleteAPIUserResponse
-	19, // [19:28] is the sub-list for method output_type
-	10, // [10:19] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	20, // 7: nis.v1.ListAPIUsersRequest.page:type_name -> nis.v1.PageRequest
+	0,  // 8: nis.v1.ListAPIUsersResponse.users:type_name -> nis.v1.APIUser
+	0,  // 9: nis.v1.UpdateAPIUserPasswordResponse.user:type_name -> nis.v1.APIUser
+	0,  // 10: nis.v1.UpdateAPIUserPermissionsResponse.user:type_name -> nis.v1.APIUser
+	1,  // 11: nis.v1.AuthService.Login:input_type -> nis.v1.LoginRequest
+	3,  // 12: nis.v1.AuthService.ValidateToken:input_type -> nis.v1.ValidateTokenRequest
+	5,  // 13: nis.v1.AuthService.CreateAPIUser:input_type -> nis.v1.CreateAPIUserRequest
+	7,  // 14: nis.v1.AuthService.GetAPIUser:input_type -> nis.v1.GetAPIUserRequest
+	9,  // 15: nis.v1.AuthService.GetAPIUserByUsername:input_type -> nis.v1.GetAPIUserByUsernameRequest
+	11, // 16: nis.v1.AuthService.ListAPIUsers:input_type -> nis.v1.ListAPIUsersRequest
+	13, // 17: nis.v1.AuthService.UpdateAPIUserPassword:input_type -> nis.v1.UpdateAPIUserPasswordRequest
+	15, // 18: nis.v1.AuthService.UpdateAPIUserPermissions:input_type -> nis.v1.UpdateAPIUserPermissionsRequest
+	17, // 19: nis.v1.AuthService.DeleteAPIUser:input_type -> nis.v1.DeleteAPIUserRequest
+	2,  // 20: nis.v1.AuthService.Login:output_type -> nis.v1.LoginResponse
+	4,  // 21: nis.v1.AuthService.ValidateToken:output_type -> nis.v1.ValidateTokenResponse
+	6,  // 22: nis.v1.AuthService.CreateAPIUser:output_type -> nis.v1.CreateAPIUserResponse
+	8,  // 23: nis.v1.AuthService.GetAPIUser:output_type -> nis.v1.GetAPIUserResponse
+	10, // 24: nis.v1.AuthService.GetAPIUserByUsername:output_type -> nis.v1.GetAPIUserByUsernameResponse
+	12, // 25: nis.v1.AuthService.ListAPIUsers:output_type -> nis.v1.ListAPIUsersResponse
+	14, // 26: nis.v1.AuthService.UpdateAPIUserPassword:output_type -> nis.v1.UpdateAPIUserPasswordResponse
+	16, // 27: nis.v1.AuthService.UpdateAPIUserPermissions:output_type -> nis.v1.UpdateAPIUserPermissionsResponse
+	18, // 28: nis.v1.AuthService.DeleteAPIUser:output_type -> nis.v1.DeleteAPIUserResponse
+	20, // [20:29] is the sub-list for method output_type
+	11, // [11:20] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_auth_proto_init() }
@@ -1159,6 +1198,7 @@ func file_nis_v1_auth_proto_init() {
 	if File_nis_v1_auth_proto != nil {
 		return
 	}
+	file_nis_v1_common_proto_init()
 	file_nis_v1_auth_proto_msgTypes[0].OneofWrappers = []any{}
 	file_nis_v1_auth_proto_msgTypes[5].OneofWrappers = []any{}
 	file_nis_v1_auth_proto_msgTypes[15].OneofWrappers = []any{}

@@ -2,13 +2,15 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
@@ -133,54 +135,44 @@ func (h *ClusterHandler) GetClusterByName(
 	}), nil
 }
 
-// ListClusters lists clusters for an operator
+// ListClusters lists clusters visible to the caller with optional narrowing
+// by operator_id. Tenant scope is enforced via authz.Scope at the repo layer.
 func (h *ClusterHandler) ListClusters(
 	ctx context.Context,
 	req *connect.Request[pb.ListClustersRequest],
 ) (*connect.Response[pb.ListClustersResponse], error) {
-	// Get requesting user from context
 	requestingUser, err := authedUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// If operator_id is empty, list all clusters across all operators (filtered by permissions)
-	if req.Msg.OperatorId == "" {
-		clusters, err := h.service.ListClusters(ctx, mappers.ProtoToListOptions(req.Msg.Options))
+	filter := repositories.ClusterListFilter{
+		NameLike: req.Msg.NameLike,
+	}
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.Limit)
+		filter.Cursor = req.Msg.Page.Cursor
+	}
+	if req.Msg.OperatorId != "" {
+		operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
 		if err != nil {
-			return nil, err
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
+		filter.OperatorID = &operatorID
+	}
 
-		// Filter clusters based on operator permissions
-		var filteredClusters []*entities.Cluster
-		for _, cluster := range clusters {
-			if err := h.permService.CanReadOperator(ctx, requestingUser, cluster.OperatorID); err == nil {
-				filteredClusters = append(filteredClusters, cluster)
-			}
+	scope := authz.ScopeFromAPIUser(requestingUser)
+	clusters, nextCursor, err := h.service.ListClustersPage(ctx, scope, filter)
+	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-
-		return connect.NewResponse(&pb.ListClustersResponse{
-			Clusters: mappers.ClustersToProto(filteredClusters),
-		}), nil
-	}
-
-	operatorID, err := mappers.ParseUUID(req.Msg.OperatorId)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	// Check permission to read this operator
-	if err := h.permService.CanReadOperator(ctx, requestingUser, operatorID); err != nil {
-		return nil, connect.NewError(connect.CodePermissionDenied, err)
-	}
-
-	clusters, err := h.service.ListClustersByOperator(ctx, operatorID, mappers.ProtoToListOptions(req.Msg.Options))
-	if err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&pb.ListClustersResponse{
-		Clusters: mappers.ClustersToProto(clusters),
+		Clusters:   mappers.ClustersToProto(clusters),
+		NextCursor: nextCursor,
 	}), nil
 }
 

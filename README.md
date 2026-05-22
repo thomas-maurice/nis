@@ -659,6 +659,93 @@ grpcurl -plaintext \
 Also works with **Postman**, **Bruno**, **Kreya**, and any other Connect/gRPC
 client that supports reflection. Point them at your NIS URL.
 
+## Pagination (A7)
+
+Every List* RPC in NIS uses **keyset cursor pagination** with SQL-level
+tenant scope enforcement. There is no post-fetch filter: scope narrowing
+happens entirely inside the database query.
+
+### Covered RPCs
+
+| Service | RPC | Filters |
+|---|---|---|
+| OperatorService | ListOperators | `name_like` |
+| AccountService | ListAccounts | `operator_id`, `name_like` |
+| UserService | ListUsers | `account_id`, `name_like` |
+| ScopedSigningKeyService | ListScopedSigningKeys | `account_id`, `name_like` |
+| ClusterService | ListClusters | `operator_id`, `name_like` |
+| TemplateService | ListTemplates | `operator_id`, `name_like` |
+| WebhookService | ListWebhookSubscriptions | `operator_id`, `enabled`, `event_type_match` |
+| WebhookService | ListWebhookDeliveries | `subscription_id`, `status` |
+| APITokenService | ListAPITokens | `include_revoked` (admin: `created_by_user_id`) |
+| AuthService | ListAPIUsers (admin-only) | `role`, `username_like` |
+| BackupService | ListOperatorBackups | `operator_id`, `trigger_kind` |
+| JobService | ListJobs (already cursor-paginated pre-A7) | types, statuses, since/until |
+| EventService | ListEvents (already cursor-paginated pre-A7) | types, resource, since/until |
+
+### How it works
+
+- Results are ordered `created_at DESC, id DESC` (deliveries use
+  `scheduled_at DESC, id DESC`). The cursor encodes the
+  `(created_at, id)` of the last row seen.
+- Passing a cursor returns the page strictly after that point. An empty
+  `next_cursor` in the response means no more pages.
+- Limit defaults: most resources clamp to 200 max with a 50 default.
+  Events keeps its shipped 100 default / 1000 max.
+
+### CLI
+
+By default the list commands fetch **all pages** in a loop and print the
+full result set — `nisctl <noun> list | wc -l` and similar pipes work as
+expected:
+
+```bash
+nisctl operator list
+nisctl account list my-operator
+nisctl user list app-account --operator my-operator
+nisctl signing-key list app-account --operator my-operator
+nisctl cluster list
+nisctl template list --operator my-operator
+nisctl webhook list
+nisctl webhook deliveries SUBSCRIPTION_ID
+nisctl token list
+```
+
+Single-page mode is activated by setting `--limit` or `--cursor`
+explicitly:
+
+```bash
+# First page, 10 results, show next cursor on stderr
+nisctl operator list --limit 10
+
+# Next page using printed cursor
+nisctl operator list --limit 10 --cursor <cursor>
+
+# Filter by name
+nisctl operator list --name-like prod
+```
+
+### UI
+
+The Vue UI uses **prev/next page navigation** with a client-side cursor
+stack — never "Load more" / infinite scroll. Filter changes reset the
+cursor stack to page 1.
+
+### Scope enforcement
+
+Tenant scope lives in the `internal/application/authz.Scope` type and is
+passed as a required parameter into every `ListPage` repository method.
+Omitting it is a compile error.
+
+| Role | Sees |
+|---|---|
+| Admin / System | All records |
+| Operator-admin | Only records within their operator |
+| Account-admin | Only records within their account; operators/clusters/templates of the parent operator |
+
+`APIToken` adds per-caller self-scope on top: non-admin callers see only
+tokens they created. `APIUser` is admin-only.
+
 ## Global search (P11)
 
 The web UI has a top-bar global search and `nisctl search QUERY` exposes the

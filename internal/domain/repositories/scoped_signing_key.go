@@ -2,10 +2,26 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
+
+// ScopedSigningKeyListFilter holds the filter + pagination parameters for
+// ScopedSigningKeyRepository.ListPage.
+type ScopedSigningKeyListFilter struct {
+	Limit           int
+	Cursor          string
+	NameLike        string
+	AccountID       *uuid.UUID
+	TemplateID      *uuid.UUID
+	IsPlainSigner   *bool
+	TemplateDrifted *bool
+	CreatedSince    *time.Time
+	CreatedUntil    *time.Time
+}
 
 // ScopedSigningKeyRepository defines the interface for scoped signing key persistence
 type ScopedSigningKeyRepository interface {
@@ -21,11 +37,17 @@ type ScopedSigningKeyRepository interface {
 	// GetByPublicKey retrieves a scoped signing key by its NATS public key
 	GetByPublicKey(ctx context.Context, publicKey string) (*entities.ScopedSigningKey, error)
 
-	// List retrieves all scoped signing keys with pagination
+	// List retrieves all scoped signing keys with pagination (legacy — kept
+	// for internal callers like SSK rotation, which loads up to 10000
+	// dependent users in one tx atomically. Not API-exposed.).
 	List(ctx context.Context, opts ListOptions) ([]*entities.ScopedSigningKey, error)
 
-	// ListByAccount retrieves scoped signing keys for a specific account
+	// ListByAccount retrieves scoped signing keys for a specific account (legacy).
 	ListByAccount(ctx context.Context, accountID uuid.UUID, opts ListOptions) ([]*entities.ScopedSigningKey, error)
+
+	// ListPage returns one keyset-paginated page of SSKs visible under scope.
+	// Order: (created_at DESC, id DESC).
+	ListPage(ctx context.Context, scope authz.Scope, filter ScopedSigningKeyListFilter) ([]*entities.ScopedSigningKey, string, error)
 
 	// Update updates an existing scoped signing key
 	Update(ctx context.Context, key *entities.ScopedSigningKey) error

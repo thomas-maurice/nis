@@ -36,6 +36,10 @@ var (
 	tplChangeNote       string
 	tplGetVersionNumber int
 	tplForce            bool
+
+	tplListLimit    int32
+	tplListCursor   string
+	tplListNameLike string
 )
 
 var templateCreateCmd = &cobra.Command{
@@ -128,6 +132,9 @@ func init() {
 
 	templateListCmd.Flags().StringVar(&tplOperatorID, "operator", "", "operator ID or name (required)")
 	_ = templateListCmd.MarkFlagRequired("operator")
+	templateListCmd.Flags().Int32Var(&tplListLimit, "limit", 0, "fetch only this many rows in one page (default: fetch all)")
+	templateListCmd.Flags().StringVar(&tplListCursor, "cursor", "", "start from this opaque cursor (single-page mode)")
+	templateListCmd.Flags().StringVar(&tplListNameLike, "name-like", "", "filter by case-insensitive name substring")
 
 	templateGetCmd.Flags().StringVar(&tplOperatorID, "operator", "", "operator ID or name (required)")
 	templateGetCmd.Flags().IntVar(&tplGetVersionNumber, "version", 0, "version number (0 = latest)")
@@ -192,12 +199,44 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := GetClient().Template.ListTemplates(context.Background(),
-		connect.NewRequest(&nisv1.ListTemplatesRequest{OperatorId: operatorID}))
-	if err != nil {
-		return fmt.Errorf("failed to list templates: %w", err)
+
+	singlePage := cmd.Flags().Changed("limit") || cmd.Flags().Changed("cursor")
+	var allTpls []*nisv1.Template
+	cursor := tplListCursor
+	pageNum := 0
+
+	for {
+		pageLimit := tplListLimit
+		if !singlePage {
+			pageLimit = 200
+		}
+		resp, err := GetClient().Template.ListTemplates(context.Background(),
+			connect.NewRequest(&nisv1.ListTemplatesRequest{
+				OperatorId: operatorID,
+				NameLike:   tplListNameLike,
+				Page:       &nisv1.PageRequest{Limit: pageLimit, Cursor: cursor},
+			}))
+		if err != nil {
+			return fmt.Errorf("failed to list templates: %w", err)
+		}
+		allTpls = append(allTpls, resp.Msg.Templates...)
+		pageNum++
+		if singlePage {
+			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+			}
+			break
+		}
+		if resp.Msg.NextCursor == "" {
+			break
+		}
+		if pageNum > 1 && GetOutputFormat() == "table" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+		}
+		cursor = resp.Msg.NextCursor
 	}
-	if len(resp.Msg.Templates) == 0 {
+
+	if len(allTpls) == 0 {
 		if GetOutputFormat() != "quiet" {
 			printer.PrintMessage("No templates found")
 		}
@@ -205,13 +244,13 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 	}
 	if GetOutputFormat() == "table" {
 		headers := []string{"ID", "NAME", "LATEST VERSION", "DESCRIPTION"}
-		rows := make([][]string, len(resp.Msg.Templates))
-		for i, t := range resp.Msg.Templates {
+		rows := make([][]string, len(allTpls))
+		for i, t := range allTpls {
 			rows[i] = []string{client.TemplateID(t.Id), t.Name, fmt.Sprintf("%d", t.LatestVersion), t.Description}
 		}
 		return printer.PrintTable(headers, rows)
 	}
-	return printer.PrintList(resp.Msg.Templates)
+	return printer.PrintList(allTpls)
 }
 
 func runTemplateGet(cmd *cobra.Command, args []string) error {

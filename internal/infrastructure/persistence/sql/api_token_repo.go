@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
+	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
@@ -90,6 +92,74 @@ func (r *APITokenRepo) List(ctx context.Context, filter repositories.APITokenFil
 		out[i] = m.ToEntity()
 	}
 	return out, nil
+}
+
+// ListPage returns one keyset-paginated page of API tokens. Self-scope is the
+// load-bearing rule here: only admin/system see all tokens; every other role
+// sees only tokens they created (CreatedByUserID matches CallerUserID).
+//
+// Order: (created_at DESC, id DESC).
+func (r *APITokenRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.APITokenListFilter) ([]*entities.APIToken, string, error) {
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	limit := clampListLimit(filter.Limit)
+	query := r.db.WithContext(ctx)
+
+	// Self-scope: anyone who isn't admin/system sees only their own tokens.
+	if !scope.IsAdmin() {
+		if scope.CallerUserID == uuid.Nil {
+			return nil, "", nil
+		}
+		query = query.Where("created_by_user_id = ?", scope.CallerUserID.String())
+	}
+
+	if !filter.IncludeRevoked {
+		query = query.Where("revoked_at IS NULL")
+	}
+	if filter.Expired != nil {
+		now := clock.Now()
+		if *filter.Expired {
+			query = query.Where("expires_at IS NOT NULL AND expires_at < ?", now)
+		} else {
+			query = query.Where("expires_at IS NULL OR expires_at >= ?", now)
+		}
+	}
+	if filter.CreatedSince != nil {
+		query = query.Where("created_at >= ?", filter.CreatedSince.UTC())
+	}
+	if filter.CreatedUntil != nil {
+		query = query.Where("created_at < ?", filter.CreatedUntil.UTC())
+	}
+
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %w", repositories.ErrInvalidCursor, err)
+		}
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cursorTime.UTC(), cursorTime.UTC(), cursorID.String())
+	}
+
+	var models []APITokenModel
+	if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to list api tokens page: %w", err)
+	}
+
+	var nextCursor string
+	if len(models) > limit {
+		last := models[limit-1]
+		id, _ := uuid.Parse(last.ID)
+		nextCursor = EncodeCursor(last.CreatedAt, id)
+		models = models[:limit]
+	}
+
+	out := make([]*entities.APIToken, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nextCursor, nil
 }
 
 func (r *APITokenRepo) UpdateLastUsedAt(ctx context.Context, id uuid.UUID, ts time.Time) error {

@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
 
-// APITokenFilter narrows ListAPITokens results. CreatedByUserID is the primary
-// scoping axis for non-admin callers (handler enforces it).
+// APITokenFilter narrows ListAPITokens results (legacy). CreatedByUserID is the
+// primary scoping axis for non-admin callers (handler enforces it).
 type APITokenFilter struct {
 	CreatedByUserID *uuid.UUID
 	OperatorID      *uuid.UUID
@@ -17,6 +18,18 @@ type APITokenFilter struct {
 	IncludeRevoked  bool // when false, revoked tokens are excluded
 	Limit           int
 	Offset          int
+}
+
+// APITokenListFilter is the keyset-paginated filter shape. Self-scope (the
+// caller seeing only their own tokens) lives in authz.Scope.CallerUserID; the
+// repo applies it for non-admin scopes.
+type APITokenListFilter struct {
+	Limit          int
+	Cursor         string
+	IncludeRevoked bool
+	Expired        *bool // true → expired only; false → not-expired only; nil → either
+	CreatedSince   *time.Time
+	CreatedUntil   *time.Time
 }
 
 // APITokenRepository defines persistence for service-account API tokens.
@@ -27,6 +40,11 @@ type APITokenRepository interface {
 	// token-authed RPC. Index on token_hash makes this O(1).
 	GetByHash(ctx context.Context, hash string) (*entities.APIToken, error)
 	List(ctx context.Context, filter APITokenFilter) ([]*entities.APIToken, error)
+	// ListPage returns one keyset-paginated page of tokens. Self-scope for
+	// non-admin callers is enforced at the SQL layer using
+	// scope.CallerUserID (admins see all; everyone else sees only their own
+	// tokens).
+	ListPage(ctx context.Context, scope authz.Scope, filter APITokenListFilter) ([]*entities.APIToken, string, error)
 	// UpdateLastUsedAt is a focused write used by the coalescing flusher — it
 	// updates only the last_used_at column to avoid colliding with Revoke or other
 	// mutations that may run concurrently.

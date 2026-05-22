@@ -8,6 +8,9 @@ var (
 
 	// ErrAlreadyExists is returned when attempting to create an entity that already exists
 	ErrAlreadyExists = errors.New("entity already exists")
+
+	// ErrInvalidCursor is returned when a pagination cursor cannot be decoded.
+	ErrInvalidCursor = errors.New("invalid pagination cursor")
 )
 
 // ListOptions contains common options for list operations

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 )
@@ -209,12 +210,24 @@ func (m *mockOperatorRepo) Search(ctx context.Context, q string, limit int) ([]*
 	return nil, nil
 }
 
+func (m *mockOperatorRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.OperatorListFilter) ([]*entities.Operator, string, error) {
+	return nil, "", nil
+}
+
 func (m *mockAccountRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Account, error) {
 	return nil, nil
 }
 
+func (m *mockAccountRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.AccountListFilter) ([]*entities.Account, string, error) {
+	return nil, "", nil
+}
+
 func (m *mockUserRepo) Search(ctx context.Context, q string, limit int) ([]*entities.User, error) {
 	return nil, nil
+}
+
+func (m *mockUserRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.UserListFilter) ([]*entities.User, string, error) {
+	return nil, "", nil
 }
 
 // Test fixtures

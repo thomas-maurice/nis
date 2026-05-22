@@ -60,15 +60,19 @@ message GetClusterByNameResponse {
   Cluster cluster = 1;
 }
 
-// ListClustersRequest is the request to list clusters
+// ListClustersRequest is the request to list clusters.
 message ListClustersRequest {
   string operator_id = 1;
   ListOptions options = 2;
+  string name_like = 3;
+  PageRequest page = 4;
 }
 
-// ListClustersResponse is the response from listing clusters
+// ListClustersResponse is the response from listing clusters. next_cursor is
+// empty on the final page.
 message ListClustersResponse {
   repeated Cluster clusters = 1;
+  string next_cursor = 2;
 }
 
 // UpdateClusterRequest is the request to update a cluster

@@ -58,12 +58,19 @@ message GetOperatorByNameResponse {
 
 // ListOperatorsRequest is the request to list operators
 message ListOperatorsRequest {
+  // options is the legacy pagination parameter (kept for back-compat; prefer page).
   ListOptions options = 1;
+  // name_like is a case-insensitive substring filter on operator name.
+  string name_like = 2;
+  // page carries keyset-pagination parameters.
+  PageRequest page = 3;
 }
 
 // ListOperatorsResponse is the response from listing operators
 message ListOperatorsResponse {
   repeated Operator operators = 1;
+  // next_cursor is the cursor for the next page (empty = no more pages).
+  string next_cursor = 2;
 }
 
 // UpdateOperatorRequest is the request to update an operator

@@ -9,8 +9,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
+	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -134,18 +136,37 @@ func (h *BackupHandler) ListOperatorBackups(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	operatorID, err := uuid.Parse(req.Msg.GetOperatorId())
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+
+	filter := repositories.OperatorBackupListFilter{
+		TriggerKind: req.Msg.GetTriggerKind(),
 	}
-	if err := h.permSvc.CanReadBackup(ctx, user, operatorID); err != nil {
-		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	if req.Msg.Page != nil {
+		filter.Limit = int(req.Msg.Page.GetLimit())
+		filter.Cursor = req.Msg.Page.GetCursor()
 	}
-	rows, err := h.svc.ListBackups(ctx, operatorID)
+	if opStr := req.Msg.GetOperatorId(); opStr != "" {
+		operatorID, err := uuid.Parse(opStr)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if err := h.permSvc.CanReadBackup(ctx, user, operatorID); err != nil {
+			return nil, connect.NewError(connect.CodePermissionDenied, err)
+		}
+		filter.OperatorID = &operatorID
+	}
+
+	scope := authz.ScopeFromAPIUser(user)
+	rows, nextCursor, err := h.svc.ListBackupsPage(ctx, scope, filter)
 	if err != nil {
+		if errors.Is(err, repositories.ErrInvalidCursor) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
-	out := &nisv1.ListOperatorBackupsResponse{Backups: make([]*nisv1.OperatorBackup, len(rows))}
+	out := &nisv1.ListOperatorBackupsResponse{
+		Backups:    make([]*nisv1.OperatorBackup, len(rows)),
+		NextCursor: nextCursor,
+	}
 	for i, r := range rows {
 		out.Backups[i] = operatorBackupToProto(r)
 	}

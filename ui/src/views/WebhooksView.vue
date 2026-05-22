@@ -8,6 +8,24 @@
       </button>
     </div>
 
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-auto" v-if="authStore.isAdmin">
+        <label class="form-label small mb-1">Operator</label>
+        <select v-model="operatorFilter" class="form-select form-select-sm" @change="loadFirstPage">
+          <option value="">All operators</option>
+          <option v-for="op in operators" :key="op.id" :value="op.id">{{ op.name }}</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">Enabled</label>
+        <select v-model="enabledFilter" class="form-select form-select-sm" @change="loadFirstPage">
+          <option value="">Any</option>
+          <option value="true">Enabled only</option>
+          <option value="false">Disabled only</option>
+        </select>
+      </div>
+    </div>
+
     <div v-if="loading" class="text-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
     </div>
@@ -76,6 +94,12 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="d-flex align-items-center gap-2 p-2">
+          <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="loadFirstPage">First</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="cursorStack.length === 0 || loading" @click="prevPage">Prev</button>
+          <span class="text-muted small">Page {{ cursorStack.length + 1 }}</span>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="!nextCursor || loading" @click="nextPage">Next</button>
         </div>
       </div>
     </div>
@@ -204,6 +228,10 @@ const operators = ref([])
 const operatorNames = ref({})
 const loading = ref(false)
 const error = ref('')
+const nextCursor = ref('')
+const cursorStack = ref([])
+const operatorFilter = ref('')
+const enabledFilter = ref('') // '', 'true', 'false'
 
 const showCreateModal = ref(false)
 const createForm = ref({ operatorId: '', name: '', description: '', url: '', eventTypes: [] })
@@ -229,18 +257,50 @@ const loadOperators = async () => {
   }
 }
 
-const loadSubscriptions = async () => {
+const loadPage = async (cursor) => {
   loading.value = true
   error.value = ''
   try {
-    const resp = await webhookClient.listWebhookSubscriptions({})
+    const req = {
+      page: { limit: 50, cursor: cursor || '' },
+    }
+    if (operatorFilter.value) {
+      req.operatorId = operatorFilter.value
+    }
+    if (enabledFilter.value === 'true' || enabledFilter.value === 'false') {
+      req.enabled = enabledFilter.value === 'true'
+    }
+    const resp = await webhookClient.listWebhookSubscriptions(req)
     subscriptions.value = resp.subscriptions || []
+    nextCursor.value = resp.nextCursor || ''
   } catch (err) {
     error.value = err.message || 'Failed to load webhooks'
   } finally {
     loading.value = false
   }
 }
+
+// CRITICAL: filter changes reset items + cursor + stack before re-fetching.
+const loadFirstPage = () => {
+  cursorStack.value = []
+  loadPage('')
+}
+
+const nextPage = () => {
+  if (!nextCursor.value) return
+  cursorStack.value.push(nextCursor.value)
+  loadPage(nextCursor.value)
+}
+
+const prevPage = () => {
+  if (cursorStack.value.length === 0) return
+  cursorStack.value.pop()
+  const prev = cursorStack.value.length > 0 ? cursorStack.value[cursorStack.value.length - 1] : ''
+  loadPage(prev)
+}
+
+// Alias keeps existing callers working (post-mutation reloads etc).
+const loadSubscriptions = loadFirstPage
 
 const openCreateModal = () => {
   createForm.value = { operatorId: '', name: '', description: '', url: '', eventTypes: [] }
