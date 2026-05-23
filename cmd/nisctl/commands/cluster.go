@@ -216,7 +216,7 @@ func runClusterList(cmd *cobra.Command, args []string) error {
 		pageNum++
 		if singlePage {
 			if resp.Msg.NextCursor != "" && GetOutputFormat() == "table" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "next-cursor: %s\n", resp.Msg.NextCursor)
 			}
 			break
 		}
@@ -224,7 +224,7 @@ func runClusterList(cmd *cobra.Command, args []string) error {
 			break
 		}
 		if pageNum > 1 && GetOutputFormat() == "table" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "fetching page %d...\n", pageNum+1)
 		}
 		cursor = resp.Msg.NextCursor
 	}
