@@ -241,9 +241,30 @@ The 60s health-check loop runs in-process. With 2 replicas (as README suggests),
 
 A single 32-byte key in process memory protects every seed. Lose the key → all encrypted data bricked permanently. This restructures encryption so each row has a per-row data-encryption-key (DEK), wrapped by a key-encryption-key (KEK) stored in Vault Transit / AWS KMS / GCP KMS. NIS holds DEKs only transiently; KEK never leaves the KMS. Significant crypto surface — must be done carefully. Biggest production security win.
 
-### A5. Embed Casbin + consolidate authz — M / Med
+### A5. Close the cross-tenant leak in the handler authz layer — DONE 2026-05-23
 
-Authorization is split. Casbin (middleware) only sees `(role, resource, action)` extracted by parsing procedure names — it can't enforce "operator-admin for op X can't touch op Y". That check lives in `PermissionService`, manually invoked in every handler; forget to call it = silent cross-tenant leak. Also Casbin config files load by relative path, so running the binary outside the repo root breaks RBAC. This picks one model: either embed Casbin and extend it with ABAC matchers, or drop Casbin and standardize on `PermissionService` from a single interceptor.
+**Original framing was wrong** (kept at the bottom of this entry for context). It asked for an architectural pick — extend Casbin with ABAC matchers OR drop Casbin and centralize in `PermissionService` from a single interceptor — as if the choice itself was load-bearing. It wasn't. The actual harm the proposal pointed at was concrete: *a handler that forgets `permService.Can*` becomes a silent cross-tenant leak.* That harm gets fixed without picking either architecture, by closing the leak and making "forgot the check" structurally impossible on the next RPC. Both architectures still allow it; one defensive lint test eliminates it.
+
+**The leak that was actually open.** `AccountHandler.UpdateAccount`, `UpdateJetStreamLimits`, `DeleteAccount`, and the `PushAccountJWT` stub called `authedUser(ctx)` but never invoked `permService.Can*` before the service call. Casbin's policy gave `operator-admin` the `account.update` row, so operator-admin A could mutate operator-admin B's accounts by guessing a UUID. `UpdateJetStreamLimits` was the worst variant — JetStream quota is billing-relevant, making it a resource-exhaustion vector on top of the confidentiality leak. Discovered during the A5 plan-review pass. AccountHandler was the only broken handler; every other handler correctly invoked `permService.Can*` on mutations. One-file regression, not a systemic gap.
+
+**Shipped 2026-05-23:**
+
+1. **Closed the leaks.** Added the missing `permService.Can{Update,Delete}Account` calls to the four `AccountHandler` methods. `PushAccountJWT` is still `Unimplemented`, but a future implementer inherits the gate.
+2. **`extractAction` push mapping.** Added `push*` to the verb-prefix list in `internal/interfaces/grpc/middleware/auth.go::extractAction` so `PushAccountJWT` is gated as `account.update` rather than falling through to the default `read` — matching its actual blast radius. Same reasoning as P3's `rotate*` mapping. Also added auth preamble to `ClusterHandler.GenerateServerConfig` (another stub) for symmetry.
+3. **Permanent guardrail.** `internal/interfaces/grpc/handlers/handler_authz_lint_test.go` AST-walks every `*_handler.go`, finds every method matching the Connect handler shape (unary + server-streaming), and cross-checks against an authoritative `procedure → check_kind` map (`perRow` / `scopedList` / `casbinOnly` / `public`). Adding a new RPC handler without classifying it fails the build. For `perRow` entries, the body must reference `permService.{Can,Filter}*` or pass an authed-user identifier (`requestingUser` / `apiUser` / `user`) to a service method (covers the `AuthHandler` delegate pattern). For `scopedList` entries, the body must reference `authz.ScopeFromAPIUser`. This is the regression net that would have caught the AccountHandler leak when it shipped.
+4. **Handler-level RBAC integration suite.** `HandlerRBACIsolationTestSuite` in `internal/integration/handler_rbac_isolation_test.go` parallels the existing `RBACIsolationTestSuite` but tests real handlers with `authctx`-loaded contexts instead of `PermissionService.Can*` directly. The existing suite tested the function the AccountHandler was failing to call — that's why the leak was invisible until this work.
+5. **e2e smoke.** `tests/e2e/auth_rbac_test.go::TestE2E_RBAC_OperatorAdminCannotUpdateOtherOperatorAccount`. Verified pre-fix: operator-admin A successfully renamed operator-admin B's account to "renamed-by-attacker". Post-fix: `PermissionDenied`.
+
+**Items the original A5 implied that did NOT ship here** — re-filed as separate proposals so they're tracked, not buried:
+
+- A17 (consolidation pass): replace the parallel `extractAction` verb table + Casbin policy CSV + lint `want` map with one source of truth.
+- A18: rationalise `SyncCluster` / `ReconcileAccountOnCluster` permission semantics.
+- A19: standardise `casbinOnly` handlers on a `requireAdmin` helper for defense-in-depth.
+- A20: retire `PermissionService.Filter*` by pushing SearchService filtering into the SQL layer.
+
+**Why the hybrid stayed.** Casbin ABAC matchers can't cleanly express `ownsAccount` without a custom function bridge that loads an account row — i.e. without reinventing `PermissionService` inside Casbin's HCL. Dropping Casbin would push the coarse role check into every handler — more code, more places to forget. Neither option was a clear win; the hybrid + lint guard delivered the actual guarantee the proposal cared about ("you cannot silently forget the check") without that bet. A17 reopens the architectural question with a smaller, more concrete scope (de-duplicate the three parallel tables) rather than a "pick one model" abstraction.
+
+**Original 2026-05-13 framing** (kept for context): *"Authorization is split. Casbin (middleware) only sees `(role, resource, action)` extracted by parsing procedure names — it can't enforce 'operator-admin for op X can't touch op Y'. That check lives in `PermissionService`, manually invoked in every handler; forget to call it = silent cross-tenant leak. Also Casbin config files load by relative path, so running the binary outside the repo root breaks RBAC. This picks one model: either embed Casbin and extend it with ABAC matchers, or drop Casbin and standardize on `PermissionService` from a single interceptor."* The Casbin-embed half shipped pre-A5 via `casbin_embed.go`. The "pick one model" framing was the wrong question — the leak fix + lint guard delivered the operational guarantee without it, and the residual architectural work is now A17–A20.
 
 ### A6. Audit / domain-event substrate — M / Low
 
@@ -314,6 +335,55 @@ Audit policy is `AuditFailuresOnly` on both handlers — `CheckClusterHealth` al
 ### A16. Port WebhookDeliveryWorker onto generic substrate — DONE (2026-05-20)
 
 `webhook.deliver` job, one row per delivery, enqueued in the same tx as the `webhook_deliveries` row via `events.SetJobEnqueuer` (atomic — no orphan-pending-row window). Typed `webhook_deliveries` table kept as the UI surface (subscription_id, event_id, attempt counter, last_response_code, last_error); job row carries the schedule/state. Substrate owns retry+backoff (`MaxAttempts=5`, `BackoffBase=10s`, `BackoffCap=10min` — same defaults as the old worker). Permanent failures (subscription disabled, decrypt error, malformed payload, build_request error) signal `ErrPermanentJobFailure` (new substrate-level sentinel) so the substrate dead-letters the job in lockstep with the typed row. Final-transient-attempt also dead-letters the typed row to avoid a stuck `failed` UI state. Handler is idempotent against re-claim. `EnqueueCatchUpDeliveries` runs once at startup for orphan non-terminal rows (covers upgrade from pre-A16 worker). `webhooks.poll_interval_seconds` and `webhooks.shutdown_timeout_seconds` are now no-ops (substrate's `jobs.*` analogues apply). Same `pkg/webhooks` HMAC wire contract — receivers unchanged.
+
+### A17. De-duplicate the parallel authz tables — M / Med
+
+**Filed 2026-05-23, splitting off the architectural residual of A5.** Today, adding a per-row check on one RPC requires touching **five** places:
+
+1. A row in `internal/application/services/casbin_policy.csv` (coarse role × resource × action).
+2. The verb-prefix table in `internal/interfaces/grpc/middleware/auth.go::extractAction` (maps method name → action), if the verb is new (`apply*`, `bump*`, `rotate*`, `push*`, `retry*`, `run*`, `settracklatest*`, …).
+3. A `permService.Can*` method in `internal/application/services/permission_service.go`.
+4. The handler body that calls it.
+5. The `want` map row in `internal/interfaces/grpc/handlers/handler_authz_lint_test.go` classifying the procedure.
+
+Items 1, 2, and 5 are parallel structures expressing the same information: which procedure maps to which authority. They can — and do — drift. The A5 leak-fix work added (5) without consolidating (1)–(2); the next P3-style verb (`rotate*`) and the next A5-style leak class will both come back to bite.
+
+**Proposal.** Single declarative table — likely a Go map of `procedure → (resource, action, kind)` — that the middleware enforcer, the Casbin policy generator (or in-memory equivalent), and the lint test all read from. `extractAction` retires; `casbin_policy.csv` becomes a generated artifact or goes away entirely in favour of an in-Go policy. Lint test becomes a pure registry check ("every Connect handler method is in the table; every table entry has a handler implementation").
+
+**Open design questions.**
+- Does Casbin go away? If the table directly encodes `(resource, action)`, Casbin's enforcer adds little — a small switch on the request shape would do the same job. But losing Casbin loses tooling (policy diff, `enforcer.Enforce` reusability for non-RPC contexts) that may grow value later.
+- Where does the table live? `internal/application/authz/` (new) or alongside the lint test? The former is cleaner; the latter avoids a new package.
+- Migration shape: one PR replacing all three sites, or one source-of-truth introduced with `extractAction` retained as a thin wrapper for a release.
+
+**Out of scope.** Per-row scope (`ownsAccount`, `ownsOperator`) stays in `PermissionService` — A17 is about de-duplicating *the routing layer*, not folding repo-aware checks into a policy DSL. That's the A5-original framing that turned out not to pay off.
+
+### A18. Rationalise SyncCluster / ReconcileAccountOnCluster permissions — S / Low
+
+**Filed 2026-05-23, hoisted out of the P9 entry's "follow-up cleanup" caveat.** Both RPCs currently route through `PermissionService.CanUpdateOperator` at the handler — which is admin-only. But `PermissionService.CanSyncCluster` already exists and implements the right semantic: admin OR operator-admin scoped to own operator. Today operator-admins can't trigger a sync on their own clusters, even though the rest of their permissions imply they should.
+
+**Proposal.** Switch both handlers (`ClusterHandler.SyncCluster` and `ClusterHandler.ReconcileAccountOnCluster`) to call `CanSyncCluster` instead of `CanUpdateOperator`. The P9 "fix one without the other" caveat is binding — both must change in the same PR or operator-admins get inconsistent UX. e2e regression in `tests/e2e/auth_rbac_test.go` to pin the new semantic.
+
+**Out of scope.** Any other handler routing through `CanUpdateOperator` that should arguably be a different check — audit during the PR rather than expanding scope here.
+
+### A19. Standardise casbinOnly handlers on `requireAdmin` — S / Low
+
+**Filed 2026-05-23.** Three handlers (`JobHandler`, `ConfigHandler`, `EventHandler`) are admin-only via Casbin policy. Two of them (`JobHandler`, `ConfigHandler`) implement a local `requireAdmin(ctx)` helper for defense-in-depth — so a future Casbin-policy edit that accidentally allows `operator-admin.job.read` doesn't silently widen access. `EventHandler` doesn't; Casbin's gate is the sole authorisation, and the handler doesn't even pull `authedUser`.
+
+**Proposal.** Either every `casbinOnly` handler gets the helper, or none does — pick one. `requireAdmin` would naturally live in `internal/interfaces/grpc/handlers/util.go` alongside `authedUser` and `repoErrToConnect`. Wire the choice into the `handler_authz_lint_test.go` `casbinOnly` body check so the convention is enforced going forward.
+
+**Pro defense-in-depth side.** Cheap (three-line method on every receiver), pins the policy intent in code, makes a Casbin regression caught earlier (handler test) instead of later (e2e).
+
+**Pro single-gate side.** One source of truth (the Casbin policy); adding a helper everywhere duplicates the policy claim in code. The lint test already enforces the classification at build time, which is arguably the only gate that matters.
+
+### A20. Retire `PermissionService.Filter*` — S / Low
+
+**Filed 2026-05-23.** `PermissionService.FilterOperators`, `FilterAccounts`, `FilterUsers` survive only because `SearchService` (P11 global search) uses them for post-fetch RBAC narrowing. Every list endpoint was migrated to SQL-level Scope at the repo layer in A7 (PR1+PR2, 2026-05-22). Search is the last consumer.
+
+**Proposal.** Refactor `SearchService` to pass `authz.Scope` into each per-kind repo `Search` method (operator/account/user/scoped_key/cluster), enforcing scope in the `WHERE` clause the same way `ListPage` does. Delete the three `Filter*` methods + the corresponding tests. Search becomes consistent with List; one less RBAC-enforcement code path to audit.
+
+**Risk.** Per-kind Search methods need a Scope-aware variant. The repo files are already structured for it (LIKE filters + LOWER comparisons; see SKILL §"Global search (P11)"). The drop-empty-on-lookup-failure semantic that `FilterUsers` uses (rather than failing the whole search) needs to be preserved at the SQL layer — likely as soft-filtering via JOINs on the parent tables.
+
+**Out of scope.** Changing the search-result shape, adding new searchable kinds, or unifying with the global Casbin gate (that's A17).
 
 ---
 

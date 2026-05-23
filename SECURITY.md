@@ -182,7 +182,11 @@ Note: for `apitoken`, the Casbin "Y" only allows the verb; per-token scope ("I s
 
 ### Scope Enforcement
 
-In addition to Casbin policy checks, `operator-admin` and `account-admin` roles have scope enforcement. An `operator-admin` can only access resources belonging to their assigned operator. An `account-admin` can only access resources belonging to their assigned account. These scopes are enforced at the service layer.
+In addition to Casbin policy checks, `operator-admin` and `account-admin` roles have scope enforcement. An `operator-admin` can only access resources belonging to their assigned operator. An `account-admin` can only access resources belonging to their assigned account.
+
+Per-row scope is enforced by `PermissionService.Can*` methods (`internal/application/services/permission_service.go`), invoked from each RPC handler before the service call. List endpoints additionally enforce scope at the SQL layer via `authz.ScopeFromAPIUser` passed to repo `ListPage` methods (see SKILL.md §15).
+
+**Mandatory handler pattern.** Every RPC handler classified as `perRow` (the default for mutations and per-tenant reads) MUST invoke `permService.Can*` before the service call — without it, Casbin's coarse role gate alone permits cross-tenant writes for roles that have the action on the resource type. The `TestHandlerAuthzLint` AST guardrail in `internal/interfaces/grpc/handlers/` fails the build for any new handler that skips the classification. The historical AccountHandler leak class (operator-admin A mutating operator-admin B's account by guessing a UUID) was fixed and pinned 2026-05-23; full details in SKILL.md §16 "Handler authz pattern".
 
 ## Secrets Management
 

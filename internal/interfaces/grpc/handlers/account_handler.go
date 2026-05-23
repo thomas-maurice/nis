@@ -177,9 +177,18 @@ func (h *AccountHandler) UpdateAccount(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateAccountRequest],
 ) (*connect.Response[pb.UpdateAccountResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if err := h.permService.CanUpdateAccount(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	account, err := h.service.UpdateAccount(ctx, id, services.UpdateAccountRequest{
@@ -195,14 +204,26 @@ func (h *AccountHandler) UpdateAccount(
 	}), nil
 }
 
-// UpdateJetStreamLimits updates JetStream limits for an account
+// UpdateJetStreamLimits updates JetStream limits for an account. JetStream
+// limits gate per-account memory/storage/streams/consumers — the same authority
+// as a plain UpdateAccount, plus a quota / resource-exhaustion vector if the
+// per-row check is skipped.
 func (h *AccountHandler) UpdateJetStreamLimits(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateJetStreamLimitsRequest],
 ) (*connect.Response[pb.UpdateJetStreamLimitsResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if err := h.permService.CanUpdateAccount(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	enabled, maxMem, maxStor, maxStr, maxCons :=
@@ -229,9 +250,18 @@ func (h *AccountHandler) DeleteAccount(
 	ctx context.Context,
 	req *connect.Request[pb.DeleteAccountRequest],
 ) (*connect.Response[pb.DeleteAccountResponse], error) {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	id, err := mappers.ParseUUID(req.Msg.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if err := h.permService.CanDeleteAccount(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	err = h.service.DeleteAccount(ctx, id)
@@ -242,12 +272,29 @@ func (h *AccountHandler) DeleteAccount(
 	return connect.NewResponse(&pb.DeleteAccountResponse{}), nil
 }
 
-// PushAccountJWT pushes an account JWT to the NATS resolver
+// PushAccountJWT pushes an account JWT to the NATS resolver. The cluster
+// auto-sync substrate (A13-full) already pushes account JWTs in-tx after every
+// mutation, so this RPC has no remaining use case and is intentionally
+// unimplemented. The auth preamble is included so the handler-RBAC lint and
+// future implementers see the gate.
 func (h *AccountHandler) PushAccountJWT(
 	ctx context.Context,
 	req *connect.Request[pb.PushAccountJWTRequest],
 ) (*connect.Response[pb.PushAccountJWTResponse], error) {
-	// TODO: Implement when NATS client integration is added
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if err := h.permService.CanUpdateAccount(ctx, requestingUser, id); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 

@@ -242,7 +242,7 @@ func extractAction(method string) string {
 		// a job without the ability to remove it.
 		return "delete"
 	}
-	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") || strings.HasPrefix(method, "rotate") {
+	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") || strings.HasPrefix(method, "rotate") || strings.HasPrefix(method, "push") {
 		// P6 template ops: applying a template version, bumping an SSK to
 		// a new version, detaching from a template, or toggling
 		// track_latest all mutate the SSK's binding/perm columns and
@@ -259,6 +259,11 @@ func extractAction(method string) string {
 		// to the parent account JWT. Without this prefix, "rotate*" falls
 		// through to "read" and every role that can read the SSK could
 		// rotate it — silent privilege escalation.
+		//
+		// A5 PushAccountJWT → "update": pushing rewrites the resolver-side
+		// account JWT. Same blast radius as a plain account update. Without
+		// this prefix, "push*" falls through to "read" — every role that can
+		// read the account could trigger a resolver overwrite.
 		return "update"
 	}
 	if strings.HasPrefix(method, "get") || strings.HasPrefix(method, "list") {

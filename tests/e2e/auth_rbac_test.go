@@ -245,3 +245,47 @@ func TestE2E_RBAC_ListAccountJWTRevocationsScope(t *testing.T) {
 		t.Fatalf("expected CodePermissionDenied, got %v: %v", got, err)
 	}
 }
+
+// TestE2E_RBAC_OperatorAdminCannotUpdateOtherOperatorAccount is the e2e
+// smoke for the A5 fix: an operator-admin scoped to operator A must NOT be
+// able to mutate an account in operator B. Pre-fix (2026-05-23) the
+// AccountHandler.UpdateAccount path was missing the permService check, so
+// the call succeeded silently — cross-tenant write, the exact bug class A5
+// was filed to prevent. This test pins the handler wire-up; the broader
+// table-driven coverage lives in
+// internal/integration/handler_rbac_isolation_test.go.
+func TestE2E_RBAC_OperatorAdminCannotUpdateOtherOperatorAccount(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	operatorAID := h.createOperator(t, "rbac-update-op-a")
+	operatorBID := h.createOperator(t, "rbac-update-op-b")
+	accountBID := h.createAccount(t, operatorBID, "op-b-account")
+
+	const opAdminUser = "rbac-update-op-admin"
+	const opAdminPass = "rbac-update-op-admin-password"
+	if _, err := h.loginAs(t, adminUsername, adminPassword).authCli.CreateAPIUser(ctx, connect.NewRequest(&nisv1.CreateAPIUserRequest{
+		Username:    opAdminUser,
+		Password:    opAdminPass,
+		Permissions: []string{"operator-admin"},
+		OperatorId:  &operatorAID,
+	})); err != nil {
+		t.Fatalf("CreateAPIUser(operator-admin): %v", err)
+	}
+
+	opAdmin := h.loginAs(t, opAdminUser, opAdminPass)
+
+	renamed := "renamed-by-attacker"
+	desc := "should never apply"
+	_, err := opAdmin.accountCli.UpdateAccount(ctx, connect.NewRequest(&nisv1.UpdateAccountRequest{
+		Id:          accountBID,
+		Name:        &renamed,
+		Description: &desc,
+	}))
+	if err == nil {
+		t.Fatal("operator-admin of A must NOT update an account in operator B, but call succeeded")
+	}
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied for cross-operator UpdateAccount, got %v: %v", got, err)
+	}
+}

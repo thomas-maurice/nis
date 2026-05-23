@@ -338,13 +338,32 @@ func (h *ClusterHandler) GetClusterCredentials(
 	}), nil
 }
 
-// GenerateServerConfig generates a NATS server configuration
+// GenerateServerConfig generates a NATS server configuration. Currently a stub
+// (see the dedicated `nisctl operator generate-include` command). The auth
+// preamble is included so the handler-RBAC lint and future implementers see
+// the gate — the same precaution applied to PushAccountJWT.
 func (h *ClusterHandler) GenerateServerConfig(
 	ctx context.Context,
 	req *connect.Request[pb.GenerateServerConfigRequest],
 ) (*connect.Response[pb.GenerateServerConfigResponse], error) {
-	// TODO: Implement server config generation
-	// This requires integration with the NATS config generator from internal/infrastructure/nats
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := mappers.ParseUUID(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	cluster, err := h.service.GetCluster(ctx, id)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	if err := h.permService.CanReadCluster(ctx, requestingUser, cluster); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 
