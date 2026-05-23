@@ -289,3 +289,125 @@ func TestE2E_RBAC_OperatorAdminCannotUpdateOtherOperatorAccount(t *testing.T) {
 		t.Fatalf("expected CodePermissionDenied for cross-operator UpdateAccount, got %v: %v", got, err)
 	}
 }
+
+// TestE2E_RBAC_OperatorAdminCanSyncOwnCluster_RejectsForeign is the A18
+// regression test. Before 2026-05-23, ClusterHandler.SyncCluster and
+// ClusterHandler.ReconcileAccountOnCluster routed through
+// PermissionService.CanUpdateOperator (admin-only), so operator-admins
+// couldn't sync their own clusters — inconsistent with the rest of their
+// role. Switched to CanSyncCluster (admin OR operator-admin scoped to the
+// cluster's operator). Three assertions per RPC:
+//
+//  1. operator-admin A on operator A's cluster: must get past the permission
+//     gate. (The call still fails further down because the cluster has no
+//     credentials configured — that's a FailedPrecondition / Internal, NOT
+//     PermissionDenied. The point is the gate.)
+//  2. operator-admin A on operator B's cluster: PermissionDenied.
+//  3. account-admin on operator A's cluster: PermissionDenied (CanSyncCluster
+//     explicitly denies account-admins).
+func TestE2E_RBAC_OperatorAdminCanSyncOwnCluster_RejectsForeign(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	operatorAID := h.createOperator(t, "rbac-sync-op-a")
+	operatorBID := h.createOperator(t, "rbac-sync-op-b")
+	clusterAID := h.createCluster(t, operatorAID, "rbac-sync-cluster-a", "nats://127.0.0.1:14222")
+	clusterBID := h.createCluster(t, operatorBID, "rbac-sync-cluster-b", "nats://127.0.0.1:14223")
+	accountAID := h.createAccount(t, operatorAID, "rbac-sync-acc-a")
+
+	const opAdminUser = "rbac-sync-op-admin"
+	const opAdminPass = "rbac-sync-op-admin-password"
+	if _, err := h.loginAs(t, adminUsername, adminPassword).authCli.CreateAPIUser(ctx, connect.NewRequest(&nisv1.CreateAPIUserRequest{
+		Username:    opAdminUser,
+		Password:    opAdminPass,
+		Permissions: []string{"operator-admin"},
+		OperatorId:  &operatorAID,
+	})); err != nil {
+		t.Fatalf("CreateAPIUser(operator-admin): %v", err)
+	}
+
+	// Account-admin scoped to an account in operator A, used for the
+	// third assertion below.
+	const accAdminUser = "rbac-sync-acc-admin"
+	const accAdminPass = "rbac-sync-acc-admin-password"
+	if _, err := h.loginAs(t, adminUsername, adminPassword).authCli.CreateAPIUser(ctx, connect.NewRequest(&nisv1.CreateAPIUserRequest{
+		Username:    accAdminUser,
+		Password:    accAdminPass,
+		Permissions: []string{"account-admin"},
+		AccountId:   &accountAID,
+	})); err != nil {
+		t.Fatalf("CreateAPIUser(account-admin): %v", err)
+	}
+
+	opAdmin := h.loginAs(t, opAdminUser, opAdminPass)
+	accAdmin := h.loginAs(t, accAdminUser, accAdminPass)
+
+	// (1) operator-admin A on own cluster — must get past the gate.
+	_, err := opAdmin.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterAID}))
+	if err != nil {
+		if got := connect.CodeOf(err); got == connect.CodePermissionDenied {
+			t.Fatalf("operator-admin should be able to sync their own cluster (past the permission gate); got PermissionDenied: %v", err)
+		}
+		// Any other error is acceptable — the cluster has no credentials
+		// configured so the service-layer push will fail with
+		// FailedPrecondition / Internal. We only care about the gate here.
+	}
+
+	// (2) operator-admin A on operator B's cluster — PermissionDenied.
+	_, err = opAdmin.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterBID}))
+	if err == nil {
+		t.Fatal("operator-admin of A must NOT sync operator B's cluster, but call succeeded")
+	}
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied for cross-operator SyncCluster, got %v: %v", got, err)
+	}
+
+	// (3) account-admin on operator A's cluster — PermissionDenied (cluster
+	// sync is above account-admin's pay grade, even on their own operator).
+	_, err = accAdmin.clusterCli.SyncCluster(ctx, connect.NewRequest(&nisv1.SyncClusterRequest{Id: clusterAID}))
+	if err == nil {
+		t.Fatal("account-admin must NOT sync any cluster, but call succeeded")
+	}
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied for account-admin SyncCluster, got %v: %v", got, err)
+	}
+
+	// Same three assertions for ReconcileAccountOnCluster — paths share the
+	// CanSyncCluster check now but they're separate handler methods. Pin
+	// both so a future regression to one doesn't silently take both down.
+
+	// (1) operator-admin A reconciling their own account on their own cluster.
+	_, err = opAdmin.clusterCli.ReconcileAccountOnCluster(ctx, connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
+		ClusterId: clusterAID,
+		AccountId: accountAID,
+	}))
+	if err != nil {
+		if got := connect.CodeOf(err); got == connect.CodePermissionDenied {
+			t.Fatalf("operator-admin should be able to reconcile their own account on their own cluster; got PermissionDenied: %v", err)
+		}
+	}
+
+	// (2) operator-admin A reconciling against operator B's cluster.
+	_, err = opAdmin.clusterCli.ReconcileAccountOnCluster(ctx, connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
+		ClusterId: clusterBID,
+		AccountId: accountAID,
+	}))
+	if err == nil {
+		t.Fatal("operator-admin of A must NOT reconcile on operator B's cluster, but call succeeded")
+	}
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied for cross-operator ReconcileAccountOnCluster, got %v: %v", got, err)
+	}
+
+	// (3) account-admin on operator A's cluster.
+	_, err = accAdmin.clusterCli.ReconcileAccountOnCluster(ctx, connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
+		ClusterId: clusterAID,
+		AccountId: accountAID,
+	}))
+	if err == nil {
+		t.Fatal("account-admin must NOT reconcile on any cluster, but call succeeded")
+	}
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied for account-admin ReconcileAccountOnCluster, got %v: %v", got, err)
+	}
+}

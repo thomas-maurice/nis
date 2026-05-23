@@ -389,8 +389,9 @@ func (h *ClusterHandler) SyncCluster(
 		return nil, repoErrToConnect(err)
 	}
 
-	// Check permission to update the operator that owns this cluster (sync requires update permission)
-	if err := h.permService.CanUpdateOperator(requestingUser, cluster.OperatorID); err != nil {
+	// A18: operator-admins owning the cluster's operator can sync; admin too.
+	// Account-admins are rejected inside CanSyncCluster.
+	if err := h.permService.CanSyncCluster(ctx, requestingUser, cluster); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
@@ -515,8 +516,8 @@ func (h *ClusterHandler) GetClusterDriftStatus(
 }
 
 // ReconcileAccountOnCluster pushes one account's JWT to one cluster. Gated by
-// CanUpdateOperator to match SyncCluster's existing choice — promoting both
-// to CanSyncCluster is a separate cleanup tracked in PROPOSALS.md.
+// CanSyncCluster — same authority as a bulk SyncCluster (admin OR
+// operator-admin scoped to the cluster's operator).
 func (h *ClusterHandler) ReconcileAccountOnCluster(
 	ctx context.Context,
 	req *connect.Request[pb.ReconcileAccountOnClusterRequest],
@@ -540,7 +541,7 @@ func (h *ClusterHandler) ReconcileAccountOnCluster(
 		return nil, repoErrToConnect(err)
 	}
 
-	if err := h.permService.CanUpdateOperator(requestingUser, cluster.OperatorID); err != nil {
+	if err := h.permService.CanSyncCluster(ctx, requestingUser, cluster); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
