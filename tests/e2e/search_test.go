@@ -15,7 +15,7 @@ import (
 
 // TestE2E_Search_AdminSeesAllKinds — sanity: admin's search hits every kind and
 // returns results from both operators. Mirrors the unit-level fixture so a
-// future server-side regression in the wiring (handler, casbin policy, server.go
+// future server-side regression in the wiring (handler, authz registry, server.go
 // registration) gets caught at the boundary, not just in unit tests.
 func TestE2E_Search_AdminSeesAllKinds(t *testing.T) {
 	h := startStack(t)
@@ -60,8 +60,8 @@ func TestE2E_Search_AdminSeesAllKinds(t *testing.T) {
 // guarantee called out by the user when commissioning this work: operator-admin
 // A must NEVER see operator B's tree in search results, even when the LIKE
 // query matches B's entities directly. This is the e2e pin for the cross-
-// operator boundary; a regression in casbin, the handler, or the service's
-// post-filter loop would surface here.
+// operator boundary; a regression in the authz registry, the handler, or the
+// service's post-filter loop would surface here.
 func TestE2E_Search_OperatorAdminCannotSeeOtherOperator(t *testing.T) {
 	h := startStack(t)
 	ctx := context.Background()

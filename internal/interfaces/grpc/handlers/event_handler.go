@@ -12,8 +12,9 @@ import (
 
 // EventHandler is the admin-only RPC surface for the A6 events audit log.
 // Admin-only at the handler layer via the shared requireAdmin gate
-// (util.go); Casbin also gates `event:read` to admin only
-// (casbin_policy.csv). Events are global audit; no per-tenant narrowing.
+// (util.go); the authz registry also gates `event:read` to admin only
+// (RolePolicy in authz/registry.go). Events are global audit; no per-tenant
+// narrowing.
 type EventHandler struct {
 	svc *services.EventService
 }

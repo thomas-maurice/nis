@@ -7,22 +7,28 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/casbin/casbin/v2"
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/infrastructure/authctx"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
 )
 
-// AuthInterceptor provides authentication and authorization middleware
+// AuthInterceptor provides authentication and authorization middleware. It is
+// the single entry point for both. Per-row checks live downstream in the
+// handlers via PermissionService.Can*; the gate enforced here is the coarse
+// (role, resource, action) authority from authz.RolePolicy.
+//
+// Routing of an incoming procedure path to (resource, action, kind) is done
+// via authz.ResolveProcedure — see internal/application/authz/registry.go for
+// the single source of truth. The pre-A17 verb-prefix heuristic
+// (extractAction) and the Casbin enforcer are gone; both are replaced by
+// direct lookups against that registry.
 type AuthInterceptor struct {
 	authService     *services.AuthService
 	apiTokenService *services.APITokenService
 	tokenFlusher    *APITokenLastUsedFlusher
-	enforcer        *casbin.Enforcer
-	// Public methods that don't require authentication
-	publicMethods map[string]bool
 }
 
 // NewAuthInterceptor creates a new authentication interceptor.
@@ -33,17 +39,9 @@ type AuthInterceptor struct {
 //
 // tokenFlusher batches last_used_at updates from the hot path. If nil, the
 // last_used_at column simply does not get refreshed (used by tests).
-func NewAuthInterceptor(
-	authService *services.AuthService,
-	enforcer *casbin.Enforcer,
-) *AuthInterceptor {
-	publicMethods := map[string]bool{
-		"/nis.v1.AuthService/Login": true,
-	}
+func NewAuthInterceptor(authService *services.AuthService) *AuthInterceptor {
 	return &AuthInterceptor{
-		authService:   authService,
-		enforcer:      enforcer,
-		publicMethods: publicMethods,
+		authService: authService,
 	}
 }
 
@@ -69,7 +67,18 @@ var UserContextKey = authctx.UserContextKey
 // actor set); on failure it returns an already-formatted Connect error. The
 // caller can ignore the returned ctx when err != nil.
 func (i *AuthInterceptor) authenticate(ctx context.Context, procedure, authHeader string) (context.Context, error) {
-	if i.publicMethods[procedure] {
+	proc, known := authz.ResolveProcedure(procedure)
+
+	// Unknown procedure — default deny. The lint test refuses to ship a
+	// handler without a matching registry entry, so reaching this branch at
+	// runtime indicates an unsynced gen / hand-edit / proto rename.
+	if !known {
+		metrics.Default().RecordAuthRejection(ctx, "unknown_procedure")
+		return ctx, connect.NewError(connect.CodePermissionDenied, nil)
+	}
+
+	// Public procedures (Login, ValidateToken) skip every check.
+	if proc.Kind == authz.KindPublic {
 		return ctx, nil
 	}
 
@@ -84,12 +93,7 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure, authHeade
 		return ctx, err
 	}
 
-	resource, action := extractResourceAndAction(procedure)
-	allowed, err := i.enforcer.Enforce(string(user.Role), resource, action)
-	if err != nil {
-		return ctx, connect.NewError(connect.CodeInternal, err)
-	}
-	if !allowed {
+	if !authz.RolePermits(user.Role, proc.Resource, proc.Action) {
 		metrics.Default().RecordAuthRejection(ctx, "forbidden")
 		return ctx, connect.NewError(connect.CodePermissionDenied, nil)
 	}
@@ -188,90 +192,6 @@ func extractToken(authHeader string) string {
 	}
 
 	return parts[1]
-}
-
-// extractResourceAndAction extracts the resource and action from a procedure name
-// Example: "/nis.v1.OperatorService/CreateOperator" -> ("operator", "create")
-func extractResourceAndAction(procedure string) (string, string) {
-	// Split by "/"
-	parts := strings.Split(procedure, "/")
-	if len(parts) < 3 {
-		return "", ""
-	}
-
-	// Get the method name (last part)
-	method := parts[len(parts)-1]
-
-	// Get the service name (second to last part)
-	service := parts[len(parts)-2]
-
-	// Extract resource from service name
-	// Example: "nis.v1.OperatorService" -> "operator"
-	serviceParts := strings.Split(service, ".")
-	serviceName := serviceParts[len(serviceParts)-1]
-	resource := strings.ToLower(strings.TrimSuffix(serviceName, "Service"))
-
-	// Special case mappings for resource names
-	if resource == "auth" && strings.Contains(strings.ToLower(method), "apiuser") {
-		resource = "api_user"
-	}
-	if resource == "scopedsigningkey" {
-		resource = "scoped_key"
-	}
-
-	// Extract action from method name
-	// Example: "CreateOperator" -> "create"
-	action := extractAction(method)
-
-	return resource, action
-}
-
-// extractAction extracts the action from a method name
-func extractAction(method string) string {
-	method = strings.ToLower(method)
-
-	if strings.HasPrefix(method, "create") {
-		return "create"
-	}
-	if strings.HasPrefix(method, "update") {
-		return "update"
-	}
-	if strings.HasPrefix(method, "delete") || strings.HasPrefix(method, "revoke") || strings.HasPrefix(method, "cancel") {
-		// Revoking, deleting, and cancelling a pending job are different DB
-		// writes but the same authority: you cannot revoke a token / cancel
-		// a job without the ability to remove it.
-		return "delete"
-	}
-	if strings.HasPrefix(method, "apply") || strings.HasPrefix(method, "detach") || strings.HasPrefix(method, "bump") || strings.HasPrefix(method, "settracklatest") || strings.HasPrefix(method, "retry") || strings.HasPrefix(method, "run") || strings.HasPrefix(method, "rotate") || strings.HasPrefix(method, "push") {
-		// P6 template ops: applying a template version, bumping an SSK to
-		// a new version, detaching from a template, or toggling
-		// track_latest all mutate the SSK's binding/perm columns and
-		// (for bump/apply) the parent account JWT. Same authority as a
-		// plain "update". Without this, the default would fall through
-		// to "read" and silently bypass Casbin's mutation rows.
-		//
-		// P12 RunOperatorBackup → "update": triggering a backup mints an
-		// S3 object + DB row; gating it on Casbin's `backup.update` rather
-		// than `read` matches its actual blast radius.
-		//
-		// P3 RotateScopedSigningKey → "update": rotation replaces an SSK's
-		// key material + re-mints every dependent user JWT + adds revocations
-		// to the parent account JWT. Without this prefix, "rotate*" falls
-		// through to "read" and every role that can read the SSK could
-		// rotate it — silent privilege escalation.
-		//
-		// A5 PushAccountJWT → "update": pushing rewrites the resolver-side
-		// account JWT. Same blast radius as a plain account update. Without
-		// this prefix, "push*" falls through to "read" — every role that can
-		// read the account could trigger a resolver overwrite.
-		return "update"
-	}
-	if strings.HasPrefix(method, "get") || strings.HasPrefix(method, "list") {
-		return "read"
-	}
-
-	// Default to read for unknown methods
-	return "read"
 }
 
 // GetUserFromContext retrieves the authenticated user from context.

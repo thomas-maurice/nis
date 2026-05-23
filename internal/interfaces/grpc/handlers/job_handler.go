@@ -12,10 +12,10 @@ import (
 
 // JobHandler is the admin-only RPC surface for the A2 jobs substrate.
 // Admin-only at the handler layer via the shared requireAdmin gate (util.go);
-// Casbin also restricts to admin (see casbin_policy.csv). Per-row narrowing
-// is intentionally not done — jobs are infrastructure, not tenant data. If
-// a future job type carries operator_id in payload and warrants per-operator
-// scoping, add it then.
+// the authz registry also restricts to admin (see RolePolicy in
+// authz/registry.go). Per-row narrowing is intentionally not done — jobs are
+// infrastructure, not tenant data. If a future job type carries operator_id
+// in payload and warrants per-operator scoping, add it then.
 type JobHandler struct {
 	svc *services.JobService
 }

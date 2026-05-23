@@ -217,7 +217,7 @@ func TestEventsLog_GetEvent(t *testing.T) {
 }
 
 // TestEventsLog_AdminOnly verifies that operator-admin users cannot call
-// ListEvents (Casbin gates event.read to admin only).
+// ListEvents (the authz registry's RolePolicy gates event.read to admin only).
 func TestEventsLog_AdminOnly(t *testing.T) {
 	h := startStack(t)
 	ctx := context.Background()

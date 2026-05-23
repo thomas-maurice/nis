@@ -9,8 +9,9 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 )
 
-// PermissionService is the fine-grained scope check that runs AFTER the Casbin
-// middleware has approved a role/resource/action triple. Casbin enforces "this
+// PermissionService is the fine-grained scope check that runs AFTER the authz
+// middleware has approved a role/resource/action triple. The middleware's
+// RolePolicy lookup (internal/application/authz/registry.go) enforces "this
 // role can do this action on this resource type"; this service enforces "this
 // particular api-user can touch THIS particular operator/account/user."
 //

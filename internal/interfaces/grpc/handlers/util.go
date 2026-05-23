@@ -73,21 +73,21 @@ func authedUser(ctx context.Context) (*entities.APIUser, error) {
 	return user, nil
 }
 
-// requireAdmin is the defense-in-depth admin gate for casbinOnly handlers
-// (jobs / events / config / scheduled-backup imports / operator create).
-// Casbin's policy file is the primary gate — these handlers all have a
-// resource×action row restricted to admin only. requireAdmin pins that
-// expectation in code so a future Casbin-policy edit that accidentally
-// widens access (e.g. adds `operator-admin.job.read`) doesn't silently
-// expose the handler.
+// requireAdmin is the defense-in-depth admin gate for KindRoleOnly handlers
+// (jobs / events / config / scheduled-backup imports / operator create). The
+// authz registry's RolePolicy is the primary gate — these handlers all have
+// a resource×action grant restricted to admin only. requireAdmin pins that
+// expectation in code so a future RolePolicy edit that accidentally widens
+// access (e.g. adds `operator-admin.job.read`) doesn't silently expose the
+// handler.
 //
-// Per A19 (2026-05-23): every casbinOnly handler invokes this helper. The
+// Per A19 (2026-05-23): every KindRoleOnly handler invokes this helper. The
 // lint test `handler_authz_lint_test.go` enforces the convention going
-// forward — a casbinOnly classification without a requireAdmin call fails
+// forward — a KindRoleOnly classification without a requireAdmin call fails
 // the build.
 //
 // Use only when:
-//   - the Casbin policy row for the procedure is admin-only;
+//   - the registry row for the procedure is admin-only;
 //   - there is no per-row narrowing to enforce (jobs are infrastructure,
 //     not tenant data; events are global audit; config is global runtime).
 // For per-tenant narrowing use `permService.Can*` from the handler instead.

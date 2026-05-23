@@ -125,15 +125,21 @@ For automation use cases (CI runners, deploy scripts), NIS supports long-lived o
 
 ## Authorization
 
-### Casbin RBAC Model
+### RBAC model
 
-NIS uses [Casbin](https://casbin.org/) for role-based access control. The model follows a standard RBAC pattern:
+NIS uses a built-in role-based access control table. Every RPC procedure is
+declared in `internal/application/authz/registry.go` with `(resource, action,
+kind)`; the `RolePolicy` table in the same file is the (role × resource ×
+action) allow set. The middleware looks up the incoming procedure, checks the
+caller's role against `RolePolicy`, and rejects the call with
+`PermissionDenied` if no row matches. The "kind" classification additionally
+drives the per-handler authz pattern (per-row check, scoped-list, role-only,
+or public) — see SKILL.md §16 "Handler authz pattern" for the lint guardrail
+that enforces it.
 
-```
-request:  subject, object, action
-policy:   subject, object, action
-matcher:  role(subject) AND object AND action must match
-```
+(Before 2026-05-23, the same policy lived in a Casbin policy CSV next to a
+verb-prefix heuristic in middleware. A17 consolidated both into the registry
+to eliminate silent drift between the routing tables.)
 
 ### Roles
 
@@ -167,7 +173,6 @@ matcher:  role(subject) AND object AND action must match
 | cluster | read | Y | Y | Y |
 | cluster | update | Y | | |
 | cluster | delete | Y | | |
-| cluster | sync | | Y | |
 | export | create | Y | | |
 | export | read | Y | Y | |
 | api_user | create | Y | | |
@@ -178,15 +183,15 @@ matcher:  role(subject) AND object AND action must match
 | apitoken | read | Y | Y | Y |
 | apitoken | delete | Y | Y | Y |
 
-Note: for `apitoken`, the Casbin "Y" only allows the verb; per-token scope ("I see only MY tokens, not others'") is enforced in `PermissionService.CanReadAPIToken` / `CanDeleteAPIToken`. Admins see all tokens; non-admins see only tokens they created. The privilege escalation guard at create-time means a non-admin cannot mint a higher-role or out-of-scope token even though Casbin grants the verb.
+Note: for `apitoken`, the registry "Y" only allows the verb; per-token scope ("I see only MY tokens, not others'") is enforced in `PermissionService.CanReadAPIToken` / `CanDeleteAPIToken`. Admins see all tokens; non-admins see only tokens they created. The privilege escalation guard at create-time means a non-admin cannot mint a higher-role or out-of-scope token even though the registry grants the verb.
 
 ### Scope Enforcement
 
-In addition to Casbin policy checks, `operator-admin` and `account-admin` roles have scope enforcement. An `operator-admin` can only access resources belonging to their assigned operator. An `account-admin` can only access resources belonging to their assigned account.
+In addition to the role-level policy check, `operator-admin` and `account-admin` roles have scope enforcement. An `operator-admin` can only access resources belonging to their assigned operator. An `account-admin` can only access resources belonging to their assigned account.
 
 Per-row scope is enforced by `PermissionService.Can*` methods (`internal/application/services/permission_service.go`), invoked from each RPC handler before the service call. List endpoints additionally enforce scope at the SQL layer via `authz.ScopeFromAPIUser` passed to repo `ListPage` methods (see SKILL.md §15).
 
-**Mandatory handler pattern.** Every RPC handler classified as `perRow` (the default for mutations and per-tenant reads) MUST invoke `permService.Can*` before the service call — without it, Casbin's coarse role gate alone permits cross-tenant writes for roles that have the action on the resource type. The `TestHandlerAuthzLint` AST guardrail in `internal/interfaces/grpc/handlers/` fails the build for any new handler that skips the classification. The historical AccountHandler leak class (operator-admin A mutating operator-admin B's account by guessing a UUID) was fixed and pinned 2026-05-23; full details in SKILL.md §16 "Handler authz pattern".
+**Mandatory handler pattern.** Every RPC handler classified as `KindPerRow` (the default for mutations and per-tenant reads) MUST invoke `permService.Can*` before the service call — without it, the coarse role gate alone permits cross-tenant writes for roles that have the action on the resource type. The `TestHandlerAuthzLint` AST guardrail in `internal/interfaces/grpc/handlers/` fails the build for any new handler that skips the classification. The historical AccountHandler leak class (operator-admin A mutating operator-admin B's account by guessing a UUID) was fixed and pinned 2026-05-23; full details in SKILL.md §16 "Handler authz pattern".
 
 ## Secrets Management
 

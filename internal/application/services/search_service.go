@@ -21,9 +21,10 @@ package services
 //     by P4/A6 surface.
 //   - events: audit log is admin-only and has its own filtered view.
 //
-// Casbin: the SearchService RPC routes through resource="search", action="read"
-// (extractResourceAndAction). The policy file allows all three roles; fine-
-// grained scope isolation is in the SQL WHERE clause of each repo Search.
+// Authz: the SearchService RPC is registered as (search, read, KindPerRow)
+// in authz/registry.go. RolePolicy grants all three roles `search.read`; the
+// fine-grained scope isolation lives in the SQL WHERE clause of each repo
+// Search (handler passes the authed user; service builds authz.Scope).
 
 import (
 	"context"

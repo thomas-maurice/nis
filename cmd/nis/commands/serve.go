@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -237,12 +236,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Initialize Casbin enforcer
-	enforcer, err := initCasbin()
-	if err != nil {
-		return fmt.Errorf("failed to initialize Casbin: %w", err)
-	}
-
 	// Initialize JWT service
 	jwtService := services.NewJWTService(encryptor)
 
@@ -373,7 +366,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.APITokenRepository(),
 		time.Duration(viper.GetInt("api_tokens.last_used_flush_interval_seconds"))*time.Second,
 	)
-	authMiddleware := middleware.NewAuthInterceptor(authService, enforcer).
+	authMiddleware := middleware.NewAuthInterceptor(authService).
 		WithAPITokenService(apiTokenService, apiTokenFlusher)
 
 	// JWT lifecycle (P2) wiring: revocation service composes user mutations +
@@ -640,12 +633,6 @@ func initEncryptionService() (encryption.Encryptor, error) {
 
 	logging.GetLogger().Info("using encryption key", "key_id", keyID)
 	return encryptor, nil
-}
-
-func initCasbin() (*casbin.Enforcer, error) {
-	// Model and policy are embedded in the services package via //go:embed,
-	// so this works regardless of the binary's launch directory.
-	return services.NewCasbinEnforcer()
 }
 
 // maybeInitMetrics returns (nil, nil, nil) when metrics are disabled in

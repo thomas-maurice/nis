@@ -97,9 +97,10 @@ func (s *HandlerRBACIsolationTestSuite) TestAccountHandler_UpdateJetStreamLimits
 }
 
 // TestAccountHandler_DeleteAccount_OperatorAdminCannotDelete pins the
-// defense-in-depth check. Casbin already denies operator-admin on
-// account.delete, but the handler now also calls CanDeleteAccount so a
-// future Casbin policy edit cannot silently unlock cross-tenant deletion.
+// defense-in-depth check. The authz registry's RolePolicy already denies
+// operator-admin on account.delete, but the handler now also calls
+// CanDeleteAccount so a future RolePolicy edit cannot silently unlock
+// cross-tenant deletion.
 func (s *HandlerRBACIsolationTestSuite) TestAccountHandler_DeleteAccount_OperatorAdminCannotDelete() {
 	ctx := ctxAs(s.operator1Admin)
 	_, err := s.accountHandler.DeleteAccount(ctx, connect.NewRequest(&pb.DeleteAccountRequest{
@@ -107,7 +108,7 @@ func (s *HandlerRBACIsolationTestSuite) TestAccountHandler_DeleteAccount_Operato
 	}))
 	require.Error(s.T(), err)
 	s.Equal(connect.CodePermissionDenied, connect.CodeOf(err),
-		"only admin can DeleteAccount; operator-admin must be refused at the handler even though Casbin also denies")
+		"only admin can DeleteAccount; operator-admin must be refused at the handler even though RolePolicy also denies")
 }
 
 // TestAccountHandler_DeleteAccount_AccountAdminCannotDelete pins the same

@@ -73,7 +73,7 @@ func (h *ExportHandler) ExportOperator(
 }
 
 // ImportOperator imports an operator from exported data. Admin-only via the
-// shared requireAdmin gate (util.go); Casbin's policy row mirrors that.
+// shared requireAdmin gate (util.go); the authz registry's RolePolicy row mirrors that.
 func (h *ExportHandler) ImportOperator(
 	ctx context.Context,
 	req *connect.Request[pb.ImportOperatorRequest],
@@ -104,7 +104,7 @@ func (h *ExportHandler) ImportOperator(
 }
 
 // ImportFromNSC imports an operator from an NSC archive. Admin-only via the
-// shared requireAdmin gate (util.go); Casbin's policy row mirrors that.
+// shared requireAdmin gate (util.go); the authz registry's RolePolicy row mirrors that.
 func (h *ExportHandler) ImportFromNSC(
 	ctx context.Context,
 	req *connect.Request[pb.ImportFromNSCRequest],

@@ -10,8 +10,8 @@ import (
 
 // ConfigHandler is the admin-only RPC surface for the running-config
 // inspection feature. Admin-only at the handler layer via the shared
-// requireAdmin gate (util.go); Casbin also gates `config:read` to admin
-// only (casbin_policy.csv).
+// requireAdmin gate (util.go); the authz registry also gates `config:read`
+// to admin only (RolePolicy in authz/registry.go).
 type ConfigHandler struct {
 	svc *services.ConfigService
 }

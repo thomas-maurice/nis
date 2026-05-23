@@ -403,9 +403,9 @@ func (h *ScopedSigningKeyHandler) SetTrackLatest(
 // RotateScopedSigningKey rotates the NKey material on an existing SSK.
 // Authority: CanUpdateAccount on the SSK's parent (admin, operator-admin
 // owning the operator, account-admin owning the account) — same level
-// required to mutate the SSK itself. The Casbin layer maps `Rotate*` to
-// `update` via the extractAction prefix list; per-row scoping happens
-// here.
+// required to mutate the SSK itself. The authz registry maps
+// RotateScopedSigningKey to `(scoped_key, update)` (see
+// authz/registry.go); per-row scoping happens here.
 //
 // Plain-signer SSKs (NSC imports where NIS does not own the dependent
 // users' permissions) are refused at the service layer with

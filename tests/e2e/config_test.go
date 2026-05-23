@@ -103,7 +103,7 @@ func TestE2E_RunningConfig_NonAdminForbidden(t *testing.T) {
 	}
 
 	// operator-admin must NOT be able to read running config — admin-only
-	// per Casbin policy.
+	// per the authz registry's RolePolicy.
 	opAdminClients := h.loginAs(t, opAdminUser, opAdminPass)
 	_, err := opAdminClients.configCli.GetRunningConfig(ctx, connect.NewRequest(&nisv1.GetRunningConfigRequest{}))
 	if err == nil {

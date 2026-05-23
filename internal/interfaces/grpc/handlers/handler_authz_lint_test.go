@@ -9,181 +9,47 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	nisv1connect "github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 )
 
 // TestHandlerAuthzLint is the permanent guardrail for the bug class A5 was
 // filed to prevent: a handler method that calls a service mutation without
 // invoking permService.Can* (or an equivalent explicit role gate). The lint
 // is structural — adding a new RPC procedure to a *_handler.go file without
-// classifying it here fails the build, forcing a deliberate authz call.
+// classifying it in authz.Procedures fails the build, forcing a deliberate
+// authz call.
 //
-// Three valid kinds:
+// Four valid kinds (defined in internal/application/authz/registry.go):
 //
-//   - perRow:     handler must invoke permService.{Can*,Filter*}, OR pass the
-//                 authed user to a service method that does its own RBAC.
-//                 This is the default for any mutation or per-tenant read.
-//   - scopedList: list endpoint relying on SQL-level scope enforcement at the
-//                 repo layer via authz.ScopeFromAPIUser. Body must reference
-//                 ScopeFromAPIUser (the only way to construct a Scope from
-//                 ctx-loaded user).
-//   - casbinOnly: Casbin's coarse role gate is the primary authorisation.
-//                 Use sparingly — only for procedures whose policy row is
-//                 admin-only AND for which there is no per-tenant narrowing
-//                 to do (e.g. ListEvents, RunJWTExpirySweep, RetryJob).
-//                 Per A19 (2026-05-23), every casbinOnly handler MUST also
-//                 invoke the shared `requireAdmin(ctx)` helper from util.go
-//                 as defense-in-depth — so a future Casbin-policy edit that
-//                 accidentally widens access doesn't silently expose the
-//                 handler. The lint enforces the call below.
-//   - public:    procedure is in middleware.publicMethods (Login is the only
-//                 such case today). No auth required.
+//   - KindPerRow:     handler must invoke permService.{Can*,Filter*}, OR pass
+//                     the authed user to a service method that does its own
+//                     RBAC. Default for any mutation or per-tenant read.
+//   - KindScopedList: list endpoint relying on SQL-level scope enforcement at
+//                     the repo layer via authz.ScopeFromAPIUser.
+//   - KindRoleOnly:   Casbin-style coarse role gate is the primary authority.
+//                     Use sparingly — only for procedures whose policy row is
+//                     admin-only AND for which there is no per-tenant
+//                     narrowing (e.g. ListEvents, RunJWTExpirySweep, RetryJob).
+//                     Per A19 (2026-05-23), every KindRoleOnly handler MUST
+//                     also invoke the shared `requireAdmin(ctx)` helper from
+//                     util.go as defense-in-depth. (Renamed from "casbinOnly"
+//                     in A17 when Casbin was retired in favour of the
+//                     authz registry. Semantics unchanged.)
+//   - KindPublic:     procedure is exempt from auth. Login and ValidateToken
+//                     are the only ones today.
 //
-// Adding a new RPC: pick a kind, add the row, and ensure the handler matches
-// the pattern. The test refuses to be skipped on a "TODO" row.
+// Pre-A17 (PROPOSALS.md A5/A17, 2026-05-23) the test held a local `want` map
+// that paralleled the routing table in middleware/auth.go::extractAction and
+// the (role, resource, action) policy in casbin_policy.csv. A17 consolidated
+// all three into authz.Procedures — this test now reads directly from the
+// registry, eliminating the parallel-table drift class entirely.
 func TestHandlerAuthzLint(t *testing.T) {
 	const handlersDir = "."
 
-	// Authoritative map: ServiceName.MethodName → kind.
-	// Adding an RPC to a *_handler.go file without an entry here MUST fail.
-	want := map[string]authzKind{
-		// AccountService.
-		"AccountService.CreateAccount":             perRow,
-		"AccountService.GetAccount":                perRow,
-		"AccountService.GetAccountByName":          perRow,
-		"AccountService.ListAccounts":              scopedList,
-		"AccountService.UpdateAccount":             perRow,
-		"AccountService.UpdateJetStreamLimits":     perRow,
-		"AccountService.DeleteAccount":             perRow,
-		"AccountService.PushAccountJWT":            perRow,
-		"AccountService.ListAccountJWTRevocations": perRow,
-		"AccountService.GetAccountJetStreamUsage":  perRow,
-
-		// APITokenService.
-		"APITokenService.CreateAPIToken": perRow,
-		"APITokenService.GetAPIToken":    perRow,
-		"APITokenService.ListAPITokens":  perRow, // filters by caller inside the handler
-		"APITokenService.RevokeAPIToken": perRow,
-		"APITokenService.DeleteAPIToken": perRow,
-
-		// AuthService. Most of these delegate to AuthService.* methods that
-		// take requestingUser and do their own RBAC; classified perRow so the
-		// service-delegate pattern is required.
-		"AuthService.Login":                    public,
-		"AuthService.ValidateToken":            public, // self-introspection of the bearer
-		"AuthService.CreateAPIUser":            perRow,
-		"AuthService.GetAPIUser":               perRow,
-		"AuthService.GetAPIUserByUsername":     perRow,
-		"AuthService.ListAPIUsers":             scopedList,
-		"AuthService.UpdateAPIUserPassword":    perRow,
-		"AuthService.UpdateAPIUserPermissions": perRow,
-		"AuthService.DeleteAPIUser":            perRow,
-
-		// BackupService.
-		"BackupService.UpdateOperatorBackupSettings": perRow,
-		"BackupService.GetOperatorBackupSettings":    perRow,
-		"BackupService.RunOperatorBackup":            perRow,
-		"BackupService.ListOperatorBackups":          scopedList,
-		"BackupService.GetBackup":                    perRow,
-		"BackupService.DownloadBackup":               perRow,
-		"BackupService.DeleteBackup":                 perRow,
-
-		// ClusterService.
-		"ClusterService.CreateCluster":             perRow,
-		"ClusterService.GetCluster":                perRow,
-		"ClusterService.GetClusterByName":          perRow,
-		"ClusterService.ListClusters":              scopedList,
-		"ClusterService.UpdateCluster":             perRow,
-		"ClusterService.UpdateClusterCredentials":  perRow,
-		"ClusterService.DeleteCluster":             perRow,
-		"ClusterService.GetClusterCredentials":     perRow,
-		"ClusterService.GenerateServerConfig":      perRow,
-		"ClusterService.SyncCluster":               perRow,
-		"ClusterService.ListResolverAccounts":      perRow,
-		"ClusterService.DeleteResolverAccount":     perRow,
-		"ClusterService.GetClusterDriftStatus":     perRow,
-		"ClusterService.ReconcileAccountOnCluster": perRow,
-
-		// ConfigService. Admin-only via Casbin (config.read) + requireAdmin gate.
-		"ConfigService.GetRunningConfig": casbinOnly,
-
-		// EventService. Admin-only via Casbin (event.read) + requireAdmin gate.
-		"EventService.ListEvents": casbinOnly,
-		"EventService.GetEvent":   casbinOnly,
-
-		// ExportService. Admin-only imports gated via requireAdmin; ExportOperator
-		// is per-row (operator-admin can export own operator).
-		"ExportService.ExportOperator":  perRow,
-		"ExportService.ImportOperator":  casbinOnly,
-		"ExportService.ImportFromNSC":   casbinOnly,
-
-		// JobService. Admin-only via Casbin (job.*) + requireAdmin gate.
-		"JobService.ListJobs":  casbinOnly,
-		"JobService.GetJob":    casbinOnly,
-		"JobService.RetryJob":  casbinOnly,
-		"JobService.CancelJob": casbinOnly,
-
-		// OperatorService.
-		"OperatorService.CreateOperator":      casbinOnly, // admin-only via Casbin (operator.create) + requireAdmin gate
-		"OperatorService.GetOperator":         perRow,
-		"OperatorService.GetOperatorByName":   perRow,
-		"OperatorService.ListOperators":       scopedList,
-		"OperatorService.UpdateOperator":      perRow,
-		"OperatorService.SetSystemAccount":    perRow,
-		"OperatorService.DeleteOperator":      perRow,
-		"OperatorService.GenerateInclude":     perRow,
-		"OperatorService.SetJWTPolicy":        perRow,
-		"OperatorService.RunJWTExpirySweep":   perRow,
-
-		// ScopedSigningKeyService.
-		"ScopedSigningKeyService.CreateScopedSigningKey":  perRow,
-		"ScopedSigningKeyService.GetScopedSigningKey":     perRow,
-		"ScopedSigningKeyService.GetScopedSigningKeyByName": perRow,
-		"ScopedSigningKeyService.ListScopedSigningKeys":   scopedList,
-		"ScopedSigningKeyService.UpdateScopedSigningKey":  perRow,
-		"ScopedSigningKeyService.UpdatePermissions":       perRow,
-		"ScopedSigningKeyService.DeleteScopedSigningKey":  perRow,
-		"ScopedSigningKeyService.DetachFromTemplate":      perRow,
-		"ScopedSigningKeyService.SetTrackLatest":          perRow,
-		"ScopedSigningKeyService.RotateScopedSigningKey":  perRow,
-
-		// SearchService. Handler passes the authed user to the service, which
-		// builds authz.Scope and enforces narrowing at the SQL layer per repo
-		// (A20). The perRow classification is the right fit because the
-		// authority check is per-row, just expressed in SQL rather than via
-		// PermissionService.Can*.
-		"SearchService.Search": perRow,
-
-		// TemplateService.
-		"TemplateService.CreateTemplate":           perRow,
-		"TemplateService.GetTemplate":              perRow,
-		"TemplateService.GetTemplateByName":        perRow,
-		"TemplateService.ListTemplates":            scopedList,
-		"TemplateService.UpdateTemplate":           perRow,
-		"TemplateService.DeleteTemplate":           perRow,
-		"TemplateService.ListTemplateVersions":     perRow,
-		"TemplateService.ListTemplateDependents":   perRow,
-		"TemplateService.ApplyTemplateToScopedKey": perRow,
-
-		// UserService.
-		"UserService.CreateUser":                 perRow,
-		"UserService.GetUser":                    perRow,
-		"UserService.GetUserByName":              perRow,
-		"UserService.ListUsers":                  scopedList,
-		"UserService.UpdateUser":                 perRow,
-		"UserService.DeleteUser":                 perRow,
-		"UserService.GetUserCredentials":         perRow,
-		"UserService.RevokeUser":                 perRow,
-		"UserService.RegenerateUserCredentials":  perRow,
-
-		// WebhookService.
-		"WebhookService.CreateWebhookSubscription": perRow,
-		"WebhookService.GetWebhookSubscription":    perRow,
-		"WebhookService.ListWebhookSubscriptions":  scopedList,
-		"WebhookService.UpdateWebhookSubscription": perRow,
-		"WebhookService.DeleteWebhookSubscription": perRow,
-		"WebhookService.TestWebhookSubscription":   perRow,
-		"WebhookService.ListWebhookDeliveries":     scopedList,
-	}
+	// Authoritative routing map: authz.Procedures (registry.go). The test
+	// cross-checks each handler method against its registry entry.
 
 	// Discover all handler methods in this directory.
 	got := map[string]handlerMethod{}
@@ -205,54 +71,56 @@ func TestHandlerAuthzLint(t *testing.T) {
 		}
 	}
 
-	// Cross-check 1: every handler method must be in the want map.
-	var missingFromMap []string
-	for key := range got {
-		if _, ok := want[key]; !ok {
-			missingFromMap = append(missingFromMap, key)
+	// Cross-check 1: every handler method's procedure path must be in the registry.
+	var missingFromRegistry []string
+	for procPath := range got {
+		if _, ok := authz.Procedures[procPath]; !ok {
+			missingFromRegistry = append(missingFromRegistry, procPath)
 		}
 	}
-	sort.Strings(missingFromMap)
-	if len(missingFromMap) > 0 {
-		t.Errorf("handler methods not classified in TestHandlerAuthzLint's `want` map:\n  %s\nAdd each one with a kind (perRow/scopedList/casbinOnly/public).",
-			strings.Join(missingFromMap, "\n  "))
+	sort.Strings(missingFromRegistry)
+	if len(missingFromRegistry) > 0 {
+		t.Errorf("handler methods not classified in authz.Procedures (internal/application/authz/registry.go):\n  %s\nAdd each one with a deliberate Kind (KindPerRow / KindScopedList / KindRoleOnly / KindPublic).",
+			strings.Join(missingFromRegistry, "\n  "))
 	}
 
-	// Cross-check 2: every want entry must have an implementing handler method.
-	var extraInMap []string
-	for key := range want {
-		if _, ok := got[key]; !ok {
-			extraInMap = append(extraInMap, key)
+	// Cross-check 2: every registry entry must have an implementing handler.
+	var extraInRegistry []string
+	for procPath := range authz.Procedures {
+		if _, ok := got[procPath]; !ok {
+			extraInRegistry = append(extraInRegistry, procPath)
 		}
 	}
-	sort.Strings(extraInMap)
-	if len(extraInMap) > 0 {
-		t.Errorf("entries in TestHandlerAuthzLint's `want` map without a handler method (proto removed without removing the row?):\n  %s",
-			strings.Join(extraInMap, "\n  "))
+	sort.Strings(extraInRegistry)
+	if len(extraInRegistry) > 0 {
+		t.Errorf("entries in authz.Procedures without a handler implementation (proto removed without removing the row, or registry edited without a handler?):\n  %s",
+			strings.Join(extraInRegistry, "\n  "))
 	}
 
 	// Per-kind body checks.
 	var leaks []string
-	for key, m := range got {
-		k, ok := want[key]
+	for procPath, m := range got {
+		p, ok := authz.Procedures[procPath]
 		if !ok {
 			continue // already reported above
 		}
-		switch k {
-		case perRow:
+		switch p.Kind {
+		case authz.KindPerRow:
 			if !m.hasPermServiceCall && !m.passesUserToService {
-				leaks = append(leaks, key+" (kind=perRow but body has no permService.* call AND does not pass the authed user to a service method)")
+				leaks = append(leaks, procPath+" (Kind=KindPerRow but body has no permService.* call AND does not pass the authed user to a service method)")
 			}
-		case scopedList:
+		case authz.KindScopedList:
 			if !m.hasScopeFromAPIUser {
-				leaks = append(leaks, key+" (kind=scopedList but body has no authz.ScopeFromAPIUser call)")
+				leaks = append(leaks, procPath+" (Kind=KindScopedList but body has no authz.ScopeFromAPIUser call)")
 			}
-		case casbinOnly:
+		case authz.KindRoleOnly:
 			if !m.hasRequireAdmin {
-				leaks = append(leaks, key+" (kind=casbinOnly but body has no requireAdmin(ctx) call — every casbinOnly handler must invoke the shared requireAdmin gate from util.go per A19)")
+				leaks = append(leaks, procPath+" (Kind=KindRoleOnly but body has no requireAdmin(ctx) call — every KindRoleOnly handler must invoke the shared requireAdmin gate from util.go per A19)")
 			}
-		case public:
+		case authz.KindPublic:
 			// no body requirement
+		case authz.KindUnknown:
+			leaks = append(leaks, procPath+" (Kind=KindUnknown — registry entry is missing a real Kind)")
 		}
 	}
 	sort.Strings(leaks)
@@ -262,21 +130,36 @@ func TestHandlerAuthzLint(t *testing.T) {
 	}
 }
 
-type authzKind int
-
-const (
-	perRow authzKind = iota
-	scopedList
-	casbinOnly
-	public
-)
-
 type handlerMethod struct {
 	hasPermServiceCall  bool
 	hasScopeFromAPIUser bool
 	passesUserToService bool
 	hasRequireAdmin     bool
 }
+
+// connectProcedurePathFor reconstructs the Connect procedure path for a
+// (recvType, methodName) pair. The receiver `XxxHandler` maps to service
+// `XxxService` with two carve-outs (`ScopedKey` → `ScopedSigningKey`,
+// `APIToken` → `APIToken`). The proto package is hardcoded as `nis.v1` —
+// every NIS proto file lives in that package today; if a future proto adds
+// a different package, generalise here.
+func connectProcedurePathFor(recvType, methodName string) string {
+	service := strings.TrimSuffix(recvType, "Handler") + "Service"
+	if service == "ScopedKeyService" {
+		service = "ScopedSigningKeyService"
+	}
+	return "/" + nisv1connectPackage + "." + service + "/" + methodName
+}
+
+// nisv1connectPackage is the proto package name. Pulled into a const so a
+// rename via `buf` is caught: if the gen package's path changes, the
+// nisv1connect import below stops resolving and the build fails.
+const nisv1connectPackage = "nis.v1"
+
+// _ pins the nisv1connect import — used only to fail the build if the gen
+// package moves. The registry consumes it for real, but the lint test
+// reaches it transitively.
+var _ = nisv1connect.AccountServiceCreateAccountProcedure
 
 func parseHandlerMethods(path string) (map[string]handlerMethod, error) {
 	fset := token.NewFileSet()
@@ -303,14 +186,7 @@ func parseHandlerMethods(path string) (map[string]handlerMethod, error) {
 		if !looksLikeConnectHandler(fd.Type) {
 			continue
 		}
-		// Service name derived from the receiver: AccountHandler → AccountService.
-		// Two exceptions: ScopedKeyHandler → ScopedSigningKeyService;
-		// APITokenHandler → APITokenService.
-		serviceName := strings.TrimSuffix(recvType, "Handler") + "Service"
-		if serviceName == "ScopedKeyService" {
-			serviceName = "ScopedSigningKeyService"
-		}
-		key := serviceName + "." + fd.Name.Name
+		key := connectProcedurePathFor(recvType, fd.Name.Name)
 
 		m := handlerMethod{}
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
