@@ -237,18 +237,41 @@ func (r *ClusterRepo) Update(ctx context.Context, cluster *entities.Cluster) err
 	return nil
 }
 
-// Search returns clusters whose name, description, or server_urls JSON list
-// contain `q` (case-insensitive). Bounded by `limit`. server_urls is stored
-// as a JSON array of URL strings (`serializer:json` TEXT) — raw LIKE matches
-// hostname / port substrings as written. See OperatorRepo.Search for the
+// Search returns clusters visible under scope whose name, description, or
+// server_urls JSON list contain `q` (case-insensitive). Bounded by `limit`.
+// server_urls is stored as a JSON array of URL strings (`serializer:json`
+// TEXT) — raw LIKE matches hostname / port substrings as written. Scope
+// narrowing matches ListPage (account-admin resolves the owning operator
+// from their scoped account). See OperatorRepo.Search for the
 // dialect-uniform LOWER(LIKE) rationale.
-func (r *ClusterRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Cluster, error) {
-	if limit <= 0 {
+func (r *ClusterRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.Cluster, error) {
+	if scope.IsZero() || limit <= 0 {
 		return []*entities.Cluster{}, nil
 	}
+	query := r.db.WithContext(ctx)
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return []*entities.Cluster{}, nil
+		}
+		query = query.Where("operator_id = ?", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return []*entities.Cluster{}, nil
+		}
+		var acc AccountModel
+		if err := r.db.WithContext(ctx).Select("operator_id").First(&acc, "id = ?", scope.ScopeAccountID.String()).Error; err != nil {
+			return []*entities.Cluster{}, nil
+		}
+		query = query.Where("operator_id = ?", acc.OperatorID)
+	}
+
 	pat := "%" + escapeLikeParam(q) + "%"
 	var models []ClusterModel
-	err := r.db.WithContext(ctx).
+	err := query.
 		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(server_urls) LIKE LOWER(?)`, pat, pat, pat).
 		Order("name ASC").
 		Limit(limit).

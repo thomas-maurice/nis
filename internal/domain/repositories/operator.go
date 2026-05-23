@@ -50,8 +50,9 @@ type OperatorRepository interface {
 	// Delete deletes an operator by ID
 	Delete(ctx context.Context, id uuid.UUID) error
 
-	// Search returns operators whose name, description, or public_key contain
-	// the (case-insensitive) substring `q`. Up to `limit` rows. Used by P11
-	// global search.
-	Search(ctx context.Context, q string, limit int) ([]*entities.Operator, error)
+	// Search returns operators visible under scope whose name, description, or
+	// public_key contain the (case-insensitive) substring `q`. Up to `limit`
+	// rows. Used by P11 global search. Scope narrowing matches ListPage so
+	// search and list cannot drift apart on the same query.
+	Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.Operator, error)
 }

@@ -206,7 +206,7 @@ func (m *mockUserRepo) ListForExpirySweep(ctx context.Context, kind repositories
 	return nil, nil
 }
 
-func (m *mockOperatorRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Operator, error) {
+func (m *mockOperatorRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.Operator, error) {
 	return nil, nil
 }
 
@@ -214,7 +214,7 @@ func (m *mockOperatorRepo) ListPage(ctx context.Context, scope authz.Scope, filt
 	return nil, "", nil
 }
 
-func (m *mockAccountRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Account, error) {
+func (m *mockAccountRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.Account, error) {
 	return nil, nil
 }
 
@@ -222,7 +222,7 @@ func (m *mockAccountRepo) ListPage(ctx context.Context, scope authz.Scope, filte
 	return nil, "", nil
 }
 
-func (m *mockUserRepo) Search(ctx context.Context, q string, limit int) ([]*entities.User, error) {
+func (m *mockUserRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.User, error) {
 	return nil, nil
 }
 
@@ -425,58 +425,6 @@ func TestCanDeleteOperator(t *testing.T) {
 				assert.ErrorIs(t, err, ErrPermissionDenied)
 			} else {
 				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-// Test FilterOperators
-func TestFilterOperators(t *testing.T) {
-	permService, operatorRepo, _, _, operator1ID, operator2ID, _, _ := setupPermissionTest()
-	ctx := context.Background()
-
-	allOperators := []*entities.Operator{
-		operatorRepo.operators[operator1ID],
-		operatorRepo.operators[operator2ID],
-	}
-
-	tests := []struct {
-		name           string
-		apiUser        *entities.APIUser
-		expectedCount  int
-		expectedIDs    []uuid.UUID
-	}{
-		{
-			name:          "Admin sees all operators",
-			apiUser:       &entities.APIUser{Role: entities.RoleAdmin},
-			expectedCount: 2,
-			expectedIDs:   []uuid.UUID{operator1ID, operator2ID},
-		},
-		{
-			name:          "Operator admin sees only their operator",
-			apiUser:       &entities.APIUser{Role: entities.RoleOperatorAdmin, OperatorID: &operator1ID},
-			expectedCount: 1,
-			expectedIDs:   []uuid.UUID{operator1ID},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			filtered, err := permService.FilterOperators(ctx, tt.apiUser, allOperators)
-			assert.NoError(t, err)
-			assert.Len(t, filtered, tt.expectedCount)
-
-			if tt.expectedCount > 0 {
-				for _, expectedID := range tt.expectedIDs {
-					found := false
-					for _, op := range filtered {
-						if op.ID == expectedID {
-							found = true
-							break
-						}
-					}
-					assert.True(t, found, "Expected operator %s not found", expectedID)
-				}
 			}
 		})
 	}

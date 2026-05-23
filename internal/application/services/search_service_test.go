@@ -57,7 +57,7 @@ func (s *SearchServiceTestSuite) SetupSuite() {
 
 	s.factory = persistence.NewSQLRepositoryFactoryFromDB(db)
 	s.perm = NewPermissionService(s.factory.OperatorRepository(), s.factory.AccountRepository(), s.factory.UserRepository())
-	s.svc = NewSearchService(s.factory, s.perm)
+	s.svc = NewSearchService(s.factory)
 }
 
 func (s *SearchServiceTestSuite) TearDownSuite() {

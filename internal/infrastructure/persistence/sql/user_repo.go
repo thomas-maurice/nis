@@ -340,16 +340,35 @@ func (r *UserRepo) Update(ctx context.Context, user *entities.User) error {
 	return nil
 }
 
-// Search returns users whose name, description, or public_key contain `q`
-// (case-insensitive). Bounded by `limit`. Revoked users are included; the
-// caller decides whether to hide them.
-func (r *UserRepo) Search(ctx context.Context, q string, limit int) ([]*entities.User, error) {
-	if limit <= 0 {
+// Search returns users visible under scope whose name, description, or
+// public_key contain `q` (case-insensitive). Bounded by `limit`. Revoked
+// users are included; the caller decides whether to hide them. Scope
+// narrowing matches ListPage (operator-admin sees users whose parent account
+// belongs to their operator; account-admin sees users in their account).
+func (r *UserRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.User, error) {
+	if scope.IsZero() || limit <= 0 {
 		return []*entities.User{}, nil
 	}
+	query := r.db.WithContext(ctx).Table("users")
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return []*entities.User{}, nil
+		}
+		query = query.Where("EXISTS (SELECT 1 FROM accounts WHERE accounts.id = users.account_id AND accounts.operator_id = ?)", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return []*entities.User{}, nil
+		}
+		query = query.Where("account_id = ?", scope.ScopeAccountID.String())
+	}
+
 	pat := "%" + escapeLikeParam(q) + "%"
 	var models []UserModel
-	err := r.db.WithContext(ctx).
+	err := query.
 		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?)`, pat, pat, pat).
 		Order("name ASC").
 		Limit(limit).

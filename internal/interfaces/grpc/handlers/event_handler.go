@@ -10,6 +10,10 @@ import (
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
+// EventHandler is the admin-only RPC surface for the A6 events audit log.
+// Admin-only at the handler layer via the shared requireAdmin gate
+// (util.go); Casbin also gates `event:read` to admin only
+// (casbin_policy.csv). Events are global audit; no per-tenant narrowing.
 type EventHandler struct {
 	svc *services.EventService
 }
@@ -19,6 +23,9 @@ func NewEventHandler(svc *services.EventService) *EventHandler {
 }
 
 func (h *EventHandler) ListEvents(ctx context.Context, req *connect.Request[nisv1.ListEventsRequest]) (*connect.Response[nisv1.ListEventsResponse], error) {
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
+	}
 	filter := mappers.EventFilterFromProto(req.Msg.GetFilter())
 	res, err := h.svc.ListEvents(ctx, filter)
 	if err != nil {
@@ -35,6 +42,9 @@ func (h *EventHandler) ListEvents(ctx context.Context, req *connect.Request[nisv
 }
 
 func (h *EventHandler) GetEvent(ctx context.Context, req *connect.Request[nisv1.GetEventRequest]) (*connect.Response[nisv1.GetEventResponse], error) {
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
+	}
 	id, err := uuid.Parse(req.Msg.GetId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)

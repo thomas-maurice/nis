@@ -57,8 +57,9 @@ type AccountRepository interface {
 	// Delete deletes an account by ID
 	Delete(ctx context.Context, id uuid.UUID) error
 
-	// Search returns accounts whose name, description, or public_key contain
-	// the (case-insensitive) substring `q`. Up to `limit` rows. Used by P11
-	// global search.
-	Search(ctx context.Context, q string, limit int) ([]*entities.Account, error)
+	// Search returns accounts visible under scope whose name, description, or
+	// public_key contain the (case-insensitive) substring `q`. Up to `limit`
+	// rows. Used by P11 global search. Scope narrowing matches ListPage so
+	// search and list cannot drift apart on the same query.
+	Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.Account, error)
 }

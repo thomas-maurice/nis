@@ -239,19 +239,37 @@ func (r *ScopedSigningKeyRepo) Update(ctx context.Context, key *entities.ScopedS
 	return nil
 }
 
-// Search returns scoped signing keys whose name, description, public_key,
-// or any of pub_allow / pub_deny / sub_allow / sub_deny contain `q`
-// (case-insensitive). Bounded by `limit`. The pub/sub lists are stored as
-// `serializer:json` TEXT columns (see models.go) — searching them is a raw
-// LIKE on the JSON-encoded array, which matches typical NATS subjects
-// (`metrics.>`, `events.*`) with acceptable false-positive behavior (e.g.
-// querying just `>` would match every wildcard subject — operators searching
-// for that probably want every wildcard anyway). See OperatorRepo.Search
-// for the dialect-uniform LOWER(LIKE) rationale.
-func (r *ScopedSigningKeyRepo) Search(ctx context.Context, q string, limit int) ([]*entities.ScopedSigningKey, error) {
-	if limit <= 0 {
+// Search returns scoped signing keys visible under scope whose name,
+// description, public_key, or any of pub_allow / pub_deny / sub_allow /
+// sub_deny contain `q` (case-insensitive). Bounded by `limit`. The pub/sub
+// lists are stored as `serializer:json` TEXT columns (see models.go) —
+// searching them is a raw LIKE on the JSON-encoded array, which matches
+// typical NATS subjects (`metrics.>`, `events.*`) with acceptable
+// false-positive behavior (e.g. querying just `>` would match every wildcard
+// subject — operators searching for that probably want every wildcard
+// anyway). Scope narrowing matches ListPage. See OperatorRepo.Search for
+// the dialect-uniform LOWER(LIKE) rationale.
+func (r *ScopedSigningKeyRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.ScopedSigningKey, error) {
+	if scope.IsZero() || limit <= 0 {
 		return []*entities.ScopedSigningKey{}, nil
 	}
+	query := r.db.WithContext(ctx)
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return []*entities.ScopedSigningKey{}, nil
+		}
+		query = query.Where("account_id IN (SELECT id FROM accounts WHERE operator_id = ?)", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return []*entities.ScopedSigningKey{}, nil
+		}
+		query = query.Where("account_id = ?", scope.ScopeAccountID.String())
+	}
+
 	pat := "%" + escapeLikeParam(q) + "%"
 	// The four permission columns are JSON-encoded via `serializer:json`, and
 	// Go's encoding/json default escapes `<`, `>`, and `&` to their \u00xx
@@ -265,7 +283,7 @@ func (r *ScopedSigningKeyRepo) Search(ctx context.Context, q string, limit int) 
 	// Acceptable for v1 — false positives, not security risk.
 	patJSON := "%" + jsonHTMLEscape(q) + "%"
 	var models []ScopedSigningKeyModel
-	err := r.db.WithContext(ctx).
+	err := query.
 		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?) OR LOWER(pub_allow) LIKE LOWER(?) OR LOWER(pub_deny) LIKE LOWER(?) OR LOWER(sub_allow) LIKE LOWER(?) OR LOWER(sub_deny) LIKE LOWER(?) OR LOWER(pub_allow) LIKE LOWER(?) OR LOWER(pub_deny) LIKE LOWER(?) OR LOWER(sub_allow) LIKE LOWER(?) OR LOWER(sub_deny) LIKE LOWER(?)`,
 			pat, pat, pat, pat, pat, pat, pat, patJSON, patJSON, patJSON, patJSON).
 		Order("name ASC").

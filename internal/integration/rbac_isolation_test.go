@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -263,29 +262,6 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CannotUpdateOrDeleteOperators
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
 }
 
-func (s *RBACIsolationTestSuite) TestOperatorAdmin_FilterOperators_OnlySeesTheirs() {
-	ctx := context.Background()
-
-	allOperators := []*entities.Operator{s.operator1, s.operator2}
-
-	// Operator1Admin should only see operator1
-	filtered, err := s.permService.FilterOperators(ctx, s.operator1Admin, allOperators)
-	s.NoError(err)
-	s.Len(filtered, 1, "Operator1Admin should only see 1 operator")
-	s.Equal(s.operator1.ID, filtered[0].ID, "Should see only operator1")
-
-	// Operator2Admin should only see operator2
-	filtered, err = s.permService.FilterOperators(ctx, s.operator2Admin, allOperators)
-	s.NoError(err)
-	s.Len(filtered, 1, "Operator2Admin should only see 1 operator")
-	s.Equal(s.operator2.ID, filtered[0].ID, "Should see only operator2")
-
-	// Admin should see all
-	filtered, err = s.permService.FilterOperators(ctx, s.adminUser, allOperators)
-	s.NoError(err)
-	s.Len(filtered, 2, "Admin should see all operators")
-}
-
 // Test account isolation
 func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanOnlyAccessAccountsInTheirOperator() {
 	ctx := context.Background()
@@ -314,35 +290,6 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanCreateAccountsInTheirOpera
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
 }
 
-func (s *RBACIsolationTestSuite) TestOperatorAdmin_FilterAccounts_OnlySeesTheirOperatorAccounts() {
-	ctx := context.Background()
-
-	allAccounts := []*entities.Account{
-		s.operator1Account1,
-		s.operator1Account2,
-		s.operator2Account1,
-	}
-
-	// Operator1Admin should only see operator1 accounts
-	filtered, err := s.permService.FilterAccounts(ctx, s.operator1Admin, allAccounts)
-	s.NoError(err)
-	s.Len(filtered, 2, "Operator1Admin should see 2 accounts from operator1")
-
-	accountIDs := make(map[uuid.UUID]bool)
-	for _, acc := range filtered {
-		accountIDs[acc.ID] = true
-	}
-	s.True(accountIDs[s.operator1Account1.ID], "Should see operator1 account1")
-	s.True(accountIDs[s.operator1Account2.ID], "Should see operator1 account2")
-	s.False(accountIDs[s.operator2Account1.ID], "Should NOT see operator2 account1")
-
-	// Operator2Admin should only see operator2 accounts
-	filtered, err = s.permService.FilterAccounts(ctx, s.operator2Admin, allAccounts)
-	s.NoError(err)
-	s.Len(filtered, 1, "Operator2Admin should see 1 account from operator2")
-	s.Equal(s.operator2Account1.ID, filtered[0].ID)
-}
-
 // Test account admin isolation
 func (s *RBACIsolationTestSuite) TestAccountAdmin_CannotCreateAccounts() {
 	// Account admin cannot create accounts
@@ -366,28 +313,6 @@ func (s *RBACIsolationTestSuite) TestAccountAdmin_CanOnlyReadTheirAccount() {
 	err = s.permService.CanReadAccount(ctx, s.account1Admin, s.operator2Account1.ID)
 	s.Error(err, "Account1Admin should NOT read operator2 account")
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
-}
-
-func (s *RBACIsolationTestSuite) TestAccountAdmin_FilterAccounts_OnlySeesTheirAccount() {
-	ctx := context.Background()
-
-	allAccounts := []*entities.Account{
-		s.operator1Account1,
-		s.operator1Account2,
-		s.operator2Account1,
-	}
-
-	// Account1Admin should only see their account
-	filtered, err := s.permService.FilterAccounts(ctx, s.account1Admin, allAccounts)
-	s.NoError(err)
-	s.Len(filtered, 1, "Account1Admin should see only 1 account")
-	s.Equal(s.operator1Account1.ID, filtered[0].ID, "Should see only their own account")
-
-	// Account2Admin should only see their account
-	filtered, err = s.permService.FilterAccounts(ctx, s.account2Admin, allAccounts)
-	s.NoError(err)
-	s.Len(filtered, 1, "Account2Admin should see only 1 account")
-	s.Equal(s.operator1Account2.ID, filtered[0].ID, "Should see only their own account")
 }
 
 func (s *RBACIsolationTestSuite) TestAccountAdmin_CannotUpdateOrDeleteAccounts() {
@@ -514,11 +439,15 @@ func (s *RBACIsolationTestSuite) TestOnlyAdminCanManageAPIUsers() {
 	}
 }
 
-// Test complete isolation scenario
-func (s *RBACIsolationTestSuite) TestCompleteIsolationScenario() {
+// Per-row CanReadUser coverage (replaces the old TestCompleteIsolationScenario
+// which exercised the deleted PermissionService.FilterUsers helper). The
+// list-narrowing equivalent now lives at the SQL layer in
+// internal/infrastructure/persistence/sql/listpage_test.go (covers ListPage)
+// and search_test.go (covers Search). Per-row authority is what's worth
+// pinning here.
+func (s *RBACIsolationTestSuite) TestCompleteIsolationScenario_PerRowCanReadUser() {
 	ctx := context.Background()
 
-	// Setup: Create users in each account
 	user1, _ := s.userService.CreateUser(ctx, services.CreateUserRequest{
 		AccountID: s.operator1Account1.ID,
 		Name:      "user1-account1",
@@ -537,37 +466,25 @@ func (s *RBACIsolationTestSuite) TestCompleteIsolationScenario() {
 	})
 	defer func() { _ = s.userService.DeleteUser(ctx, user3.ID) }()
 
-	allUsers := []*entities.User{user1, user2, user3}
+	// Account1Admin: only their account's user.
+	s.NoError(s.permService.CanReadUser(ctx, s.account1Admin, user1.ID))
+	s.Error(s.permService.CanReadUser(ctx, s.account1Admin, user2.ID))
+	s.Error(s.permService.CanReadUser(ctx, s.account1Admin, user3.ID))
 
-	// Account1Admin sees only their users
-	filtered, err := s.permService.FilterUsers(ctx, s.account1Admin, allUsers)
-	s.NoError(err)
-	s.Len(filtered, 1, "Account1Admin should see 1 user")
-	s.Equal(user1.ID, filtered[0].ID)
+	// Operator1Admin: both accounts in operator1, never operator2.
+	s.NoError(s.permService.CanReadUser(ctx, s.operator1Admin, user1.ID))
+	s.NoError(s.permService.CanReadUser(ctx, s.operator1Admin, user2.ID))
+	s.Error(s.permService.CanReadUser(ctx, s.operator1Admin, user3.ID))
 
-	// Operator1Admin sees users from both accounts in operator1
-	filtered, err = s.permService.FilterUsers(ctx, s.operator1Admin, allUsers)
-	s.NoError(err)
-	s.Len(filtered, 2, "Operator1Admin should see 2 users from their operator")
+	// Operator2Admin: only operator2's user.
+	s.Error(s.permService.CanReadUser(ctx, s.operator2Admin, user1.ID))
+	s.Error(s.permService.CanReadUser(ctx, s.operator2Admin, user2.ID))
+	s.NoError(s.permService.CanReadUser(ctx, s.operator2Admin, user3.ID))
 
-	userIDs := make(map[uuid.UUID]bool)
-	for _, u := range filtered {
-		userIDs[u.ID] = true
-	}
-	s.True(userIDs[user1.ID])
-	s.True(userIDs[user2.ID])
-	s.False(userIDs[user3.ID], "Should NOT see users from operator2")
-
-	// Operator2Admin sees only users from operator2
-	filtered, err = s.permService.FilterUsers(ctx, s.operator2Admin, allUsers)
-	s.NoError(err)
-	s.Len(filtered, 1, "Operator2Admin should see 1 user from their operator")
-	s.Equal(user3.ID, filtered[0].ID)
-
-	// Admin sees everything
-	filtered, err = s.permService.FilterUsers(ctx, s.adminUser, allUsers)
-	s.NoError(err)
-	s.Len(filtered, 3, "Admin should see all users")
+	// Admin: everything.
+	s.NoError(s.permService.CanReadUser(ctx, s.adminUser, user1.ID))
+	s.NoError(s.permService.CanReadUser(ctx, s.adminUser, user2.ID))
+	s.NoError(s.permService.CanReadUser(ctx, s.adminUser, user3.ID))
 }
 
 // Test that permissions persist across different operations

@@ -212,16 +212,34 @@ func (r *AccountRepo) ListPage(ctx context.Context, scope authz.Scope, filter re
 	return accounts, nextCursor, nil
 }
 
-// Search returns accounts whose name, description, or public_key contain `q`
-// (case-insensitive). Bounded by `limit`. See OperatorRepo.Search for the
-// dialect-uniform LOWER(LIKE) rationale.
-func (r *AccountRepo) Search(ctx context.Context, q string, limit int) ([]*entities.Account, error) {
-	if limit <= 0 {
+// Search returns accounts visible under scope whose name, description, or
+// public_key contain `q` (case-insensitive). Bounded by `limit`. Scope
+// narrowing matches ListPage. See OperatorRepo.Search for the dialect-uniform
+// LOWER(LIKE) rationale.
+func (r *AccountRepo) Search(ctx context.Context, scope authz.Scope, q string, limit int) ([]*entities.Account, error) {
+	if scope.IsZero() || limit <= 0 {
 		return []*entities.Account{}, nil
 	}
+	query := r.db.WithContext(ctx)
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOperatorAdmin():
+		if scope.ScopeOperatorID == nil {
+			return []*entities.Account{}, nil
+		}
+		query = query.Where("operator_id = ?", scope.ScopeOperatorID.String())
+	case scope.IsAccountAdmin():
+		if scope.ScopeAccountID == nil {
+			return []*entities.Account{}, nil
+		}
+		query = query.Where("id = ?", scope.ScopeAccountID.String())
+	}
+
 	pat := "%" + escapeLikeParam(q) + "%"
 	var models []AccountModel
-	err := r.db.WithContext(ctx).
+	err := query.
 		Where(`LOWER(name) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(public_key) LIKE LOWER(?)`, pat, pat, pat).
 		Order("name ASC").
 		Limit(limit).

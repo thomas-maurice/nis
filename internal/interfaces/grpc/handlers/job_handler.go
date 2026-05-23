@@ -7,14 +7,15 @@ import (
 	"github.com/google/uuid"
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
 // JobHandler is the admin-only RPC surface for the A2 jobs substrate.
-// Admin-only at the handler layer; Casbin also restricts to admin (see
-// casbin_policy.csv) so a misconfigured handler can't accidentally widen
-// the surface.
+// Admin-only at the handler layer via the shared requireAdmin gate (util.go);
+// Casbin also restricts to admin (see casbin_policy.csv). Per-row narrowing
+// is intentionally not done — jobs are infrastructure, not tenant data. If
+// a future job type carries operator_id in payload and warrants per-operator
+// scoping, add it then.
 type JobHandler struct {
 	svc *services.JobService
 }
@@ -23,23 +24,8 @@ func NewJobHandler(svc *services.JobService) *JobHandler {
 	return &JobHandler{svc: svc}
 }
 
-// requireAdmin is the local guard. Per-row narrowing is intentionally not
-// done — jobs are infrastructure, not tenant data. If a future job type
-// carries operator_id in payload and warrants per-operator scoping, add
-// it then.
-func (h *JobHandler) requireAdmin(ctx context.Context) error {
-	user, err := authedUser(ctx)
-	if err != nil {
-		return err
-	}
-	if user.Role != entities.RoleAdmin {
-		return connect.NewError(connect.CodePermissionDenied, nil)
-	}
-	return nil
-}
-
 func (h *JobHandler) ListJobs(ctx context.Context, req *connect.Request[nisv1.ListJobsRequest]) (*connect.Response[nisv1.ListJobsResponse], error) {
-	if err := h.requireAdmin(ctx); err != nil {
+	if err := requireAdmin(ctx); err != nil {
 		return nil, err
 	}
 	filter := mappers.JobFilterFromProto(req.Msg.GetFilter())
@@ -58,7 +44,7 @@ func (h *JobHandler) ListJobs(ctx context.Context, req *connect.Request[nisv1.Li
 }
 
 func (h *JobHandler) GetJob(ctx context.Context, req *connect.Request[nisv1.GetJobRequest]) (*connect.Response[nisv1.GetJobResponse], error) {
-	if err := h.requireAdmin(ctx); err != nil {
+	if err := requireAdmin(ctx); err != nil {
 		return nil, err
 	}
 	id, err := uuid.Parse(req.Msg.GetId())
@@ -73,7 +59,7 @@ func (h *JobHandler) GetJob(ctx context.Context, req *connect.Request[nisv1.GetJ
 }
 
 func (h *JobHandler) RetryJob(ctx context.Context, req *connect.Request[nisv1.RetryJobRequest]) (*connect.Response[nisv1.RetryJobResponse], error) {
-	if err := h.requireAdmin(ctx); err != nil {
+	if err := requireAdmin(ctx); err != nil {
 		return nil, err
 	}
 	id, err := uuid.Parse(req.Msg.GetId())
@@ -88,7 +74,7 @@ func (h *JobHandler) RetryJob(ctx context.Context, req *connect.Request[nisv1.Re
 }
 
 func (h *JobHandler) CancelJob(ctx context.Context, req *connect.Request[nisv1.CancelJobRequest]) (*connect.Response[nisv1.CancelJobResponse], error) {
-	if err := h.requireAdmin(ctx); err != nil {
+	if err := requireAdmin(ctx); err != nil {
 		return nil, err
 	}
 	id, err := uuid.Parse(req.Msg.GetId())

@@ -36,6 +36,9 @@ func (h *OperatorHandler) CreateOperator(
 	ctx context.Context,
 	req *connect.Request[pb.CreateOperatorRequest],
 ) (*connect.Response[pb.CreateOperatorResponse], error) {
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
+	}
 	operator, err := h.service.CreateOperator(ctx, services.CreateOperatorRequest{
 		Name:        req.Msg.Name,
 		Description: req.Msg.Description,

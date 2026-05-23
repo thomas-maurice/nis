@@ -4,11 +4,15 @@ package services
 //
 // Pipeline:
 //   1. Validate the query (trim, length 2..128) and the limit (default 20, cap 100).
-//   2. Hit each requested repo's Search method with the (escaped, lowered) query.
-//   3. Narrow every result list by the caller's RBAC scope BEFORE returning so
-//      operator-admin A never sees operator B's tree even when the LIKE query
-//      would otherwise match. The narrowing is the existing PermissionService
-//      helpers — same security boundary as every List RPC.
+//   2. Build an authz.Scope from the caller via authz.ScopeFromAPIUser.
+//   3. Hit each requested repo's Search method with the scope + (escaped,
+//      lowered) query. The repo enforces the scope at SQL-level via the same
+//      WHERE narrowing ListPage uses — search and list cannot drift apart.
+//
+// RBAC narrowing happens entirely at the SQL layer; there is no post-fetch
+// filter step in this file. The pre-A20 helpers FilterOperators /
+// FilterAccounts / FilterUsers / ownsAccount / ownsOperator post-fetch loops
+// were retired here once every repo grew a Scope-aware Search variant.
 //
 // Deliberate exclusions from the search surface (do NOT add these without an
 // explicit re-review):
@@ -19,10 +23,7 @@ package services
 //
 // Casbin: the SearchService RPC routes through resource="search", action="read"
 // (extractResourceAndAction). The policy file allows all three roles; fine-
-// grained scope isolation lives entirely in this file (Filter* helpers below).
-// Without this file's narrowing, a coarse Casbin allow would silently leak
-// cross-operator data — that's the bug this service is responsible for not
-// shipping.
+// grained scope isolation is in the SQL WHERE clause of each repo Search.
 
 import (
 	"context"
@@ -31,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
@@ -54,13 +56,13 @@ const (
 	SearchKindCluster
 )
 
-// SearchResults groups matches by kind. Each slice is already narrowed by the
-// caller's RBAC scope. OperatorNames + AccountOperators are side-band lookup
-// tables so the UI can label each row with the owning operator without an
-// extra round-trip (Accounts/Clusters carry operator_id natively; Users and
-// ScopedSigningKeys only carry account_id, so they chain via AccountOperators
-// → OperatorNames). Entries exist only for operators referenced by at least
-// one row in the result set.
+// SearchResults groups matches by kind. Each slice is already narrowed at the
+// repo layer via the caller's authz.Scope. OperatorNames + AccountOperators
+// are side-band lookup tables so the UI can label each row with the owning
+// operator without an extra round-trip (Accounts/Clusters carry operator_id
+// natively; Users and ScopedSigningKeys only carry account_id, so they chain
+// via AccountOperators → OperatorNames). Entries exist only for operators
+// referenced by at least one row in the result set.
 type SearchResults struct {
 	Operators         []*entities.Operator
 	Accounts          []*entities.Account
@@ -76,25 +78,24 @@ type SearchResults struct {
 var ErrSearchQueryInvalid = errors.New("search query must be 2..128 characters after trim")
 
 // SearchService runs the global search query across the five identity-tree
-// kinds and applies RBAC narrowing before returning.
+// kinds. RBAC narrowing is delegated to each repo's Scope-aware Search.
 type SearchService struct {
-	factory     persistence.RepositoryFactory
-	permService *PermissionService
+	factory persistence.RepositoryFactory
 }
 
-// NewSearchService constructs a SearchService. permService MUST be non-nil —
-// the entire point of this service is to enforce cross-operator isolation.
-func NewSearchService(factory persistence.RepositoryFactory, permService *PermissionService) *SearchService {
-	return &SearchService{factory: factory, permService: permService}
+// NewSearchService constructs a SearchService.
+func NewSearchService(factory persistence.RepositoryFactory) *SearchService {
+	return &SearchService{factory: factory}
 }
 
 // Search runs a single global query for `apiUser`. `kinds` selects which
 // surfaces to hit; nil/empty means all five. `limit` applies per kind and is
 // clamped to [1, 100]; 0 means use the default (20).
 //
-// RBAC narrowing happens here, not in the handler — every code path returns
-// only entities the caller is allowed to read, regardless of what the LIKE
-// query matched in the raw repo result.
+// RBAC narrowing happens at the repo layer via authz.Scope; this method just
+// builds the scope and dispatches. A nil apiUser yields the zero Scope, which
+// every repo treats as "no rows" — same safe failure mode as the rest of the
+// list surface.
 func (s *SearchService) Search(ctx context.Context, apiUser *entities.APIUser, query string, kinds []SearchKind, limit int) (*SearchResults, error) {
 	if apiUser == nil {
 		return nil, ErrPermissionDenied
@@ -112,59 +113,48 @@ func (s *SearchService) Search(ctx context.Context, apiUser *entities.APIUser, q
 		limit = searchMaxLimitPerKind
 	}
 
+	scope := authz.ScopeFromAPIUser(apiUser)
 	want := kindSet(kinds)
 	out := &SearchResults{}
 
 	if want[SearchKindOperator] {
-		raw, err := s.factory.OperatorRepository().Search(ctx, trimmed, limit)
+		got, err := s.factory.OperatorRepository().Search(ctx, scope, trimmed, limit)
 		if err != nil {
 			return nil, fmt.Errorf("search operators: %w", err)
 		}
-		filtered, err := s.permService.FilterOperators(ctx, apiUser, raw)
-		if err != nil {
-			return nil, fmt.Errorf("filter operators: %w", err)
-		}
-		out.Operators = filtered
+		out.Operators = got
 	}
 
 	if want[SearchKindAccount] {
-		raw, err := s.factory.AccountRepository().Search(ctx, trimmed, limit)
+		got, err := s.factory.AccountRepository().Search(ctx, scope, trimmed, limit)
 		if err != nil {
 			return nil, fmt.Errorf("search accounts: %w", err)
 		}
-		filtered, err := s.permService.FilterAccounts(ctx, apiUser, raw)
-		if err != nil {
-			return nil, fmt.Errorf("filter accounts: %w", err)
-		}
-		out.Accounts = filtered
+		out.Accounts = got
 	}
 
 	if want[SearchKindUser] {
-		raw, err := s.factory.UserRepository().Search(ctx, trimmed, limit)
+		got, err := s.factory.UserRepository().Search(ctx, scope, trimmed, limit)
 		if err != nil {
 			return nil, fmt.Errorf("search users: %w", err)
 		}
-		filtered, err := s.permService.FilterUsers(ctx, apiUser, raw)
-		if err != nil {
-			return nil, fmt.Errorf("filter users: %w", err)
-		}
-		out.Users = filtered
+		out.Users = got
 	}
 
 	if want[SearchKindScopedSigningKey] {
-		raw, err := s.factory.ScopedSigningKeyRepository().Search(ctx, trimmed, limit)
+		got, err := s.factory.ScopedSigningKeyRepository().Search(ctx, scope, trimmed, limit)
 		if err != nil {
 			return nil, fmt.Errorf("search scoped signing keys: %w", err)
 		}
-		out.ScopedSigningKeys = s.filterScopedSigningKeys(ctx, apiUser, raw)
+		out.ScopedSigningKeys = got
 	}
 
 	if want[SearchKindCluster] {
-		raw, err := s.factory.ClusterRepository().Search(ctx, trimmed, limit)
+		got, err := s.factory.ClusterRepository().Search(ctx, scope, trimmed, limit)
 		if err != nil {
 			return nil, fmt.Errorf("search clusters: %w", err)
 		}
-		out.Clusters = s.filterClusters(ctx, apiUser, raw)
+		out.Clusters = got
 	}
 
 	if err := s.populateOperatorContext(ctx, out); err != nil {
@@ -179,7 +169,8 @@ func (s *SearchService) Search(ctx context.Context, apiUser *entities.APIUser, q
 // chain account_id → operator_id first; Accounts and Clusters carry the
 // operator_id natively. Lookups are deduped by ID. Per-row resolution errors
 // are tolerated (the row just renders without an operator label) — search is
-// an inspection surface, not a write path, and we already filtered by RBAC.
+// an inspection surface, not a write path, and the rows themselves are
+// already scoped at the repo layer.
 func (s *SearchService) populateOperatorContext(ctx context.Context, r *SearchResults) error {
 	accountIDs := make(map[uuid.UUID]struct{})
 	operatorIDs := make(map[uuid.UUID]struct{})
@@ -234,34 +225,6 @@ func (s *SearchService) populateOperatorContext(ctx context.Context, r *SearchRe
 	r.OperatorNames = operatorNames
 	r.AccountOperators = accountOperators
 	return nil
-}
-
-// filterScopedSigningKeys narrows by ownsAccount — operator-admin sees keys
-// in their operator's accounts; account-admin sees keys in their account.
-// On a per-row lookup error we drop the row (consistent with FilterUsers).
-func (s *SearchService) filterScopedSigningKeys(ctx context.Context, apiUser *entities.APIUser, keys []*entities.ScopedSigningKey) []*entities.ScopedSigningKey {
-	out := make([]*entities.ScopedSigningKey, 0, len(keys))
-	for _, k := range keys {
-		ok, err := s.permService.ownsAccount(ctx, apiUser, k.AccountID)
-		if err != nil || !ok {
-			continue
-		}
-		out = append(out, k)
-	}
-	return out
-}
-
-// filterClusters narrows by ownsOperator on each cluster's operator_id.
-func (s *SearchService) filterClusters(ctx context.Context, apiUser *entities.APIUser, clusters []*entities.Cluster) []*entities.Cluster {
-	out := make([]*entities.Cluster, 0, len(clusters))
-	for _, c := range clusters {
-		ok, err := s.permService.ownsOperator(ctx, apiUser, c.OperatorID)
-		if err != nil || !ok {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
 }
 
 // kindSet expands the requested-kinds slice into a lookup map; an empty slice

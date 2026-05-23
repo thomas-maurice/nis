@@ -352,10 +352,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.UserRepository(),
 	)
 
-	// Global search (P11) — narrows results to caller's RBAC scope before
-	// returning, so cross-operator isolation is enforced regardless of what
-	// the LIKE query matched in the raw repos.
-	searchService := services.NewSearchService(repoFactory, permissionService)
+	// Global search (P11) — RBAC narrowing happens at the SQL layer via
+	// authz.Scope passed into each repo's Search method, so cross-operator
+	// isolation is enforced regardless of what the LIKE query matched in the
+	// raw repos.
+	searchService := services.NewSearchService(repoFactory)
 
 	// Permission templates (P6) — operator-scoped versioned permission
 	// bundles. The service owns CRUD + versioning + delete-blocked-by-

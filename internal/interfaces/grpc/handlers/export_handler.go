@@ -2,13 +2,11 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 
 	"connectrpc.com/connect"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/services"
-	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
 
@@ -74,20 +72,14 @@ func (h *ExportHandler) ExportOperator(
 	}), nil
 }
 
-// ImportOperator imports an operator from exported data
+// ImportOperator imports an operator from exported data. Admin-only via the
+// shared requireAdmin gate (util.go); Casbin's policy row mirrors that.
 func (h *ExportHandler) ImportOperator(
 	ctx context.Context,
 	req *connect.Request[pb.ImportOperatorRequest],
 ) (*connect.Response[pb.ImportOperatorResponse], error) {
-	// Get requesting user from context
-	requestingUser, err := authedUser(ctx)
-	if err != nil {
+	if err := requireAdmin(ctx); err != nil {
 		return nil, err
-	}
-
-	// Importing operators requires admin privileges
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only admins can import operators"))
 	}
 
 	// Parse first (auto-detects JSON or YAML) so we can echo the operator ID
@@ -111,20 +103,14 @@ func (h *ExportHandler) ImportOperator(
 	}), nil
 }
 
-// ImportFromNSC imports an operator from NSC archive
+// ImportFromNSC imports an operator from an NSC archive. Admin-only via the
+// shared requireAdmin gate (util.go); Casbin's policy row mirrors that.
 func (h *ExportHandler) ImportFromNSC(
 	ctx context.Context,
 	req *connect.Request[pb.ImportFromNSCRequest],
 ) (*connect.Response[pb.ImportFromNSCResponse], error) {
-	// Get requesting user from context
-	requestingUser, err := authedUser(ctx)
-	if err != nil {
+	if err := requireAdmin(ctx); err != nil {
 		return nil, err
-	}
-
-	// Importing from NSC requires admin privileges
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only admins can import from NSC"))
 	}
 
 	operatorID, err := h.service.ImportFromNSC(ctx, req.Msg.Data, req.Msg.OperatorName)

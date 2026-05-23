@@ -164,23 +164,6 @@ func (s *PermissionService) CanListOperators(apiUser *entities.APIUser) error {
 	return nil
 }
 
-// FilterOperators returns only the operators visible to apiUser.
-// Retained for use by SearchService (P11). The list handlers use SQL-level
-// scope via ListPage instead.
-func (s *PermissionService) FilterOperators(ctx context.Context, apiUser *entities.APIUser, operators []*entities.Operator) ([]*entities.Operator, error) {
-	out := make([]*entities.Operator, 0, len(operators))
-	for _, op := range operators {
-		ok, err := s.ownsOperator(ctx, apiUser, op.ID)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out = append(out, op)
-		}
-	}
-	return out, nil
-}
-
 // ---------------------------------------------------------------------------
 // Accounts
 // ---------------------------------------------------------------------------
@@ -238,23 +221,6 @@ func (s *PermissionService) CanDeleteAccount(ctx context.Context, apiUser *entit
 	_ = ctx
 	_ = accountID // signature kept for future cascade auditing
 	return s.requireRole(apiUser, entities.RoleAdmin)
-}
-
-// FilterAccounts returns only the accounts visible to apiUser.
-// Retained for use by SearchService (P11). The list handlers use SQL-level
-// scope via ListPage instead.
-func (s *PermissionService) FilterAccounts(ctx context.Context, apiUser *entities.APIUser, accounts []*entities.Account) ([]*entities.Account, error) {
-	out := make([]*entities.Account, 0, len(accounts))
-	for _, acc := range accounts {
-		ok, err := s.ownsAccount(ctx, apiUser, acc.ID)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out = append(out, acc)
-		}
-	}
-	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -373,26 +339,6 @@ func (s *PermissionService) CanSetOperatorJWTPolicy(apiUser *entities.APIUser, o
 // force an immediate sweep without waiting for the periodic tick.
 func (s *PermissionService) CanRunJWTExpirySweep(apiUser *entities.APIUser) error {
 	return s.requireRole(apiUser, entities.RoleAdmin)
-}
-
-// FilterUsers returns only the users visible to apiUser.
-// Retained for use by SearchService (P11). The list handlers use SQL-level
-// scope via ListPage instead. On a per-row account lookup failure, the
-// user is dropped (best-effort — a single account gone should not abort
-// the entire search result).
-func (s *PermissionService) FilterUsers(ctx context.Context, apiUser *entities.APIUser, users []*entities.User) ([]*entities.User, error) {
-	out := make([]*entities.User, 0, len(users))
-	for _, u := range users {
-		ok, err := s.ownsAccount(ctx, apiUser, u.AccountID)
-		if err != nil {
-			// Best-effort — skip on lookup failure rather than failing the whole list.
-			continue
-		}
-		if ok {
-			out = append(out, u)
-		}
-	}
-	return out, nil
 }
 
 // ---------------------------------------------------------------------------

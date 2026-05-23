@@ -26,12 +26,15 @@ import (
 //                 repo layer via authz.ScopeFromAPIUser. Body must reference
 //                 ScopeFromAPIUser (the only way to construct a Scope from
 //                 ctx-loaded user).
-//   - casbinOnly: Casbin's coarse role gate is the sole authorisation. Use
-//                 sparingly — only for procedures whose policy row is
+//   - casbinOnly: Casbin's coarse role gate is the primary authorisation.
+//                 Use sparingly — only for procedures whose policy row is
 //                 admin-only AND for which there is no per-tenant narrowing
 //                 to do (e.g. ListEvents, RunJWTExpirySweep, RetryJob).
-//                 Handlers may use a local `requireAdmin` helper for
-//                 defense-in-depth but it is not required.
+//                 Per A19 (2026-05-23), every casbinOnly handler MUST also
+//                 invoke the shared `requireAdmin(ctx)` helper from util.go
+//                 as defense-in-depth — so a future Casbin-policy edit that
+//                 accidentally widens access doesn't silently expose the
+//                 handler. The lint enforces the call below.
 //   - public:    procedure is in middleware.publicMethods (Login is the only
 //                 such case today). No auth required.
 //
@@ -100,26 +103,27 @@ func TestHandlerAuthzLint(t *testing.T) {
 		"ClusterService.GetClusterDriftStatus":     perRow,
 		"ClusterService.ReconcileAccountOnCluster": perRow,
 
-		// ConfigService. Admin-only with defense-in-depth requireAdmin helper.
+		// ConfigService. Admin-only via Casbin (config.read) + requireAdmin gate.
 		"ConfigService.GetRunningConfig": casbinOnly,
 
-		// EventService. Admin-only via Casbin policy (event.read).
+		// EventService. Admin-only via Casbin (event.read) + requireAdmin gate.
 		"EventService.ListEvents": casbinOnly,
 		"EventService.GetEvent":   casbinOnly,
 
-		// ExportService. Inline `requestingUser.Role != admin` gate.
+		// ExportService. Admin-only imports gated via requireAdmin; ExportOperator
+		// is per-row (operator-admin can export own operator).
 		"ExportService.ExportOperator":  perRow,
 		"ExportService.ImportOperator":  casbinOnly,
 		"ExportService.ImportFromNSC":   casbinOnly,
 
-		// JobService. Admin-only via JobHandler.requireAdmin.
+		// JobService. Admin-only via Casbin (job.*) + requireAdmin gate.
 		"JobService.ListJobs":  casbinOnly,
 		"JobService.GetJob":    casbinOnly,
 		"JobService.RetryJob":  casbinOnly,
 		"JobService.CancelJob": casbinOnly,
 
 		// OperatorService.
-		"OperatorService.CreateOperator":      casbinOnly, // admin-only via Casbin policy (operator.create)
+		"OperatorService.CreateOperator":      casbinOnly, // admin-only via Casbin (operator.create) + requireAdmin gate
 		"OperatorService.GetOperator":         perRow,
 		"OperatorService.GetOperatorByName":   perRow,
 		"OperatorService.ListOperators":       scopedList,
@@ -142,7 +146,11 @@ func TestHandlerAuthzLint(t *testing.T) {
 		"ScopedSigningKeyService.SetTrackLatest":          perRow,
 		"ScopedSigningKeyService.RotateScopedSigningKey":  perRow,
 
-		// SearchService. Per-row narrowing inside SearchService via FilterX.
+		// SearchService. Handler passes the authed user to the service, which
+		// builds authz.Scope and enforces narrowing at the SQL layer per repo
+		// (A20). The perRow classification is the right fit because the
+		// authority check is per-row, just expressed in SQL rather than via
+		// PermissionService.Can*.
 		"SearchService.Search": perRow,
 
 		// TemplateService.
@@ -239,7 +247,11 @@ func TestHandlerAuthzLint(t *testing.T) {
 			if !m.hasScopeFromAPIUser {
 				leaks = append(leaks, key+" (kind=scopedList but body has no authz.ScopeFromAPIUser call)")
 			}
-		case casbinOnly, public:
+		case casbinOnly:
+			if !m.hasRequireAdmin {
+				leaks = append(leaks, key+" (kind=casbinOnly but body has no requireAdmin(ctx) call — every casbinOnly handler must invoke the shared requireAdmin gate from util.go per A19)")
+			}
+		case public:
 			// no body requirement
 		}
 	}
@@ -263,6 +275,7 @@ type handlerMethod struct {
 	hasPermServiceCall  bool
 	hasScopeFromAPIUser bool
 	passesUserToService bool
+	hasRequireAdmin     bool
 }
 
 func parseHandlerMethods(path string) (map[string]handlerMethod, error) {
@@ -315,6 +328,10 @@ func parseHandlerMethods(path string) (map[string]handlerMethod, error) {
 				// h.svc.Foo(ctx, requestingUser, ...) / h.service.Foo(ctx, user, ...)
 				if passesUserToServiceCall(v) {
 					m.passesUserToService = true
+				}
+				// requireAdmin(ctx) — bare ident, the shared util.go helper.
+				if id, ok := v.Fun.(*ast.Ident); ok && id.Name == "requireAdmin" {
+					m.hasRequireAdmin = true
 				}
 			}
 			return true
