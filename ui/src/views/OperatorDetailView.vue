@@ -292,6 +292,88 @@
         </div>
       </div>
 
+      <!-- Backup recipients (age) Card -->
+      <div v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="row mt-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">
+                <font-awesome-icon :icon="['fas', 'key']" class="me-2" />
+                Backup recipients (age)
+              </h5>
+              <button
+                class="btn btn-outline-primary btn-sm"
+                :disabled="backupsGloballyDisabled"
+                @click="openAddRecipientModal"
+              >
+                <font-awesome-icon :icon="['fas', 'plus']" class="me-1" />
+                Add recipient
+              </button>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small mb-3">
+                Age public keys authorised to decrypt scheduled-backup artifacts. NIS never
+                sees the private half &mdash; generate keypairs locally with
+                <code>nisctl backup keygen</code>. At least one recipient is required before
+                any scheduled or manual backup will succeed.
+              </p>
+
+              <div
+                v-if="!loadingRecipients && recipients.length === 0 && backupSettings && backupSettings.enabled"
+                class="alert alert-warning mb-3"
+              >
+                <font-awesome-icon :icon="['fas', 'exclamation-triangle']" class="me-2" />
+                No recipients registered. Scheduled backups will fail until you add at least one.
+              </div>
+
+              <div v-if="lastActiveRecipientRemoved" class="alert alert-warning mb-3">
+                <font-awesome-icon :icon="['fas', 'exclamation-triangle']" class="me-2" />
+                You just removed the last recipient. Scheduled backups will fail until you add one back.
+              </div>
+
+              <div v-if="recipientsError" class="alert alert-danger mb-3">{{ recipientsError }}</div>
+
+              <div v-if="loadingRecipients" class="text-muted small">
+                <span class="spinner-border spinner-border-sm me-1"></span> Loading...
+              </div>
+              <div v-else-if="recipients.length === 0" class="text-muted small">
+                No recipients configured.
+              </div>
+              <div v-else class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Label</th>
+                      <th>Public key</th>
+                      <th>Added</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in recipients" :key="r.id">
+                      <td>{{ r.label || '-' }}</td>
+                      <td><code class="text-break">{{ r.publicKey }}</code></td>
+                      <td>{{ r.createdAt ? formatDate(r.createdAt.toDate()) : '-' }}</td>
+                      <td class="text-end" style="white-space: nowrap;">
+                        <button
+                          class="btn btn-sm btn-outline-danger"
+                          :disabled="removingRecipientId === r.id"
+                          @click="removeRecipient(r)"
+                          title="Remove"
+                        >
+                          <span v-if="removingRecipientId === r.id" class="spinner-border spinner-border-sm"></span>
+                          <font-awesome-icon v-else :icon="['fas', 'trash']" />
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="config" class="row mt-4">
         <div class="col-12">
           <div class="card">
@@ -438,6 +520,59 @@
       </div>
     </div>
 
+    <!-- Add Recipient Modal -->
+    <div v-if="showAddRecipientModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Add backup recipient</h5>
+            <button type="button" class="btn-close" @click="closeAddRecipientModal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small">
+              Paste an age public key (<code>age1...</code> or <code>ssh-ed25519 ...</code>).
+              Generate keypairs locally with <code>nisctl backup keygen</code> &mdash; NIS
+              never sees the private half.
+            </p>
+            <div class="mb-3">
+              <label class="form-label" for="recipientPubKey">Public key</label>
+              <textarea
+                id="recipientPubKey"
+                v-model="addRecipientForm.publicKey"
+                class="form-control font-monospace"
+                rows="2"
+                placeholder="age1..."
+              ></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="recipientLabel">Label (optional)</label>
+              <input
+                id="recipientLabel"
+                v-model="addRecipientForm.label"
+                type="text"
+                class="form-control"
+                placeholder="ops-team"
+              />
+              <div class="form-text">Free-form description, e.g. owner or location.</div>
+            </div>
+            <div v-if="addRecipientError" class="alert alert-danger">{{ addRecipientError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeAddRecipientModal">Cancel</button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="addingRecipient || !addRecipientForm.publicKey.trim()"
+              @click="submitAddRecipient"
+            >
+              <span v-if="addingRecipient" class="spinner-border spinner-border-sm me-2"></span>
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Backup Modal -->
     <div v-if="showExportModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
       <div class="modal-dialog">
@@ -512,7 +647,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
 import { backupClient } from '@/utils/clients'
-import { ConnectError, Code } from '@connectrpc/connect'
+import { ConnectError } from '@connectrpc/connect'
 import CodeBlock from '@/components/CodeBlock.vue'
 import ClickablePubKey from '@/components/ClickablePubKey.vue'
 
@@ -560,6 +695,17 @@ const backupConfigForm = ref({ enabled: false, intervalSeconds: 86400, retention
 const savingBackupConfig = ref(false)
 const backupConfigError = ref('')
 
+// Backup recipients (age) state
+const recipients = ref([])
+const loadingRecipients = ref(false)
+const recipientsError = ref('')
+const removingRecipientId = ref(null)
+const lastActiveRecipientRemoved = ref(false)
+const showAddRecipientModal = ref(false)
+const addRecipientForm = ref({ publicKey: '', label: '' })
+const addingRecipient = ref(false)
+const addRecipientError = ref('')
+
 const loadOperator = async () => {
   loading.value = true
   error.value = ''
@@ -574,9 +720,9 @@ const loadOperator = async () => {
     await loadClusters()
     // Check for admin account
     await checkAdminAccount()
-    // Load backup settings and list (non-fatal if not available)
+    // Load backup settings, list, and recipients (non-fatal if not available)
     if (authStore.isAdmin || authStore.isOperatorAdmin) {
-      await Promise.all([loadBackupSettings(), loadBackups()])
+      await Promise.all([loadBackupSettings(), loadBackups(), loadRecipients()])
     }
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to load operator'
@@ -828,13 +974,12 @@ const runSweep = async () => {
 }
 
 // Backup helpers
+// Only the NIS-wide kill switch should trigger the "globally disabled" card.
+// Other FailedPrecondition causes (e.g. no age recipients configured) must
+// surface their own message via backupError, not be swallowed by this banner.
 const isBackupsGloballyDisabled = (err) => {
-  if (err instanceof ConnectError) {
-    if (err.code === Code.FailedPrecondition) return true
-    if (err.message && err.message.includes('backups are disabled at the NIS-wide level')) return true
-  }
-  if (err && err.message && err.message.includes('backups are disabled at the NIS-wide level')) return true
-  return false
+  const msg = err?.message || ''
+  return msg.includes('backups are disabled at the NIS-wide level')
 }
 
 const formatIntervalSeconds = (secs) => {
@@ -988,6 +1133,89 @@ const saveBackupConfig = async () => {
     }
   } finally {
     savingBackupConfig.value = false
+  }
+}
+
+const loadRecipients = async () => {
+  if (!operator.value) return
+  loadingRecipients.value = true
+  recipientsError.value = ''
+  try {
+    const resp = await backupClient.listBackupRecipients({ operatorId: operator.value.id })
+    recipients.value = resp.recipients || []
+    backupsGloballyDisabled.value = false
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+    } else {
+      recipientsError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to load recipients'
+    }
+  } finally {
+    loadingRecipients.value = false
+  }
+}
+
+const openAddRecipientModal = () => {
+  addRecipientForm.value = { publicKey: '', label: '' }
+  addRecipientError.value = ''
+  lastActiveRecipientRemoved.value = false
+  showAddRecipientModal.value = true
+}
+
+const closeAddRecipientModal = () => {
+  showAddRecipientModal.value = false
+  addRecipientError.value = ''
+}
+
+const submitAddRecipient = async () => {
+  addingRecipient.value = true
+  addRecipientError.value = ''
+  try {
+    await backupClient.addBackupRecipient({
+      operatorId: operator.value.id,
+      publicKey: addRecipientForm.value.publicKey.trim(),
+      label: addRecipientForm.value.label.trim(),
+    })
+    await loadRecipients()
+    closeAddRecipientModal()
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+      closeAddRecipientModal()
+    } else {
+      addRecipientError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to add recipient'
+    }
+  } finally {
+    addingRecipient.value = false
+  }
+}
+
+const removeRecipient = async (r) => {
+  const label = r.label || (r.publicKey ? r.publicKey.slice(0, 20) + '...' : r.id.slice(0, 8))
+  if (!window.confirm(
+    `Remove recipient "${label}"? Backups already encrypted to this key remain readable only ` +
+    `by someone who still holds the matching private key; this action does not re-encrypt anything.`
+  )) return
+  removingRecipientId.value = r.id
+  recipientsError.value = ''
+  lastActiveRecipientRemoved.value = false
+  try {
+    const resp = await backupClient.removeBackupRecipient({
+      operatorId: operator.value.id,
+      recipientId: r.id,
+    })
+    if (resp.isLastActive) {
+      lastActiveRecipientRemoved.value = true
+    }
+    await loadRecipients()
+  } catch (err) {
+    if (isBackupsGloballyDisabled(err)) {
+      backupsGloballyDisabled.value = true
+    } else {
+      recipientsError.value = (err instanceof ConnectError ? err.message : err?.message) || 'Failed to remove recipient'
+    }
+  } finally {
+    removingRecipientId.value = null
   }
 }
 
