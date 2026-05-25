@@ -121,6 +121,12 @@ func (h *BackupHandler) RunOperatorBackup(ctx context.Context, req *connect.Requ
 	}
 	backup, err := h.svc.RunBackup(ctx, operatorID, entities.BackupTriggerManual)
 	if err != nil {
+		// P15 — ErrNoBackupRecipients is the loud "you forgot to configure
+		// recipients" signal. Map to FailedPrecondition so the CLI/UI
+		// surfaces the configuration gap instead of a generic Internal.
+		if errors.Is(err, services.ErrNoBackupRecipients) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
 	return connect.NewResponse(&nisv1.RunOperatorBackupResponse{
@@ -272,6 +278,104 @@ func (h *BackupHandler) DeleteBackup(ctx context.Context, req *connect.Request[n
 		return nil, repoErrToConnect(err)
 	}
 	return connect.NewResponse(&nisv1.DeleteBackupResponse{}), nil
+}
+
+// P15 — age recipient management.
+
+func (h *BackupHandler) AddBackupRecipient(ctx context.Context, req *connect.Request[nisv1.AddBackupRecipientRequest]) (*connect.Response[nisv1.AddBackupRecipientResponse], error) {
+	if err := h.backupServiceGuard(); err != nil {
+		return nil, err
+	}
+	user, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	operatorID, err := uuid.Parse(req.Msg.GetOperatorId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := h.permSvc.CanManageBackup(ctx, user, operatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	addedBy := user.ID
+	rec, err := h.svc.AddRecipient(ctx, operatorID, req.Msg.GetPublicKey(), req.Msg.GetLabel(), &addedBy)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidAgeRecipient) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&nisv1.AddBackupRecipientResponse{
+		Recipient: ageRecipientToProto(rec),
+	}), nil
+}
+
+func (h *BackupHandler) ListBackupRecipients(ctx context.Context, req *connect.Request[nisv1.ListBackupRecipientsRequest]) (*connect.Response[nisv1.ListBackupRecipientsResponse], error) {
+	if err := h.backupServiceGuard(); err != nil {
+		return nil, err
+	}
+	user, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	operatorID, err := uuid.Parse(req.Msg.GetOperatorId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := h.permSvc.CanReadBackup(ctx, user, operatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	rows, err := h.svc.ListRecipients(ctx, operatorID)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	out := make([]*nisv1.AgeRecipient, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ageRecipientToProto(r))
+	}
+	return connect.NewResponse(&nisv1.ListBackupRecipientsResponse{Recipients: out}), nil
+}
+
+func (h *BackupHandler) RemoveBackupRecipient(ctx context.Context, req *connect.Request[nisv1.RemoveBackupRecipientRequest]) (*connect.Response[nisv1.RemoveBackupRecipientResponse], error) {
+	if err := h.backupServiceGuard(); err != nil {
+		return nil, err
+	}
+	user, err := authedUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	operatorID, err := uuid.Parse(req.Msg.GetOperatorId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	recipientID, err := uuid.Parse(req.Msg.GetRecipientId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := h.permSvc.CanManageBackup(ctx, user, operatorID); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	res, err := h.svc.RemoveRecipient(ctx, operatorID, recipientID)
+	if err != nil {
+		return nil, repoErrToConnect(err)
+	}
+	return connect.NewResponse(&nisv1.RemoveBackupRecipientResponse{
+		IsLastActive: res.IsLastActive,
+	}), nil
+}
+
+func ageRecipientToProto(r *entities.OperatorAgeRecipient) *nisv1.AgeRecipient {
+	out := &nisv1.AgeRecipient{
+		Id:         r.ID.String(),
+		OperatorId: r.OperatorID.String(),
+		PublicKey:  r.PublicKey,
+		Label:      r.Label,
+		CreatedAt:  timestamppb.New(r.CreatedAt),
+	}
+	if r.CreatedByUserID != nil {
+		out.CreatedByUserId = r.CreatedByUserID.String()
+	}
+	return out
 }
 
 func backupSettingsToProto(op *entities.Operator) *nisv1.BackupSettings {

@@ -1171,17 +1171,22 @@ nisctl job cancel <id>    # only succeeds on pending rows
 | `revocations.retention_days` | `90` | For `revocations.retention_sweep` — hard-deletes `user_jwt_revocations` rows soft-pruned more than this many days ago. Set to `0` to disable. Active (non-pruned) rows are never touched. |
 | `revocations.retention_sweep_interval_seconds` | `86400` | How often `revocations.retention_sweep` runs. Also tunable via `--revocations-retention-sweep-seconds`. |
 
-## Scheduled backups (P12)
+## Scheduled backups (P12 + P15)
 
 NIS can upload per-operator backups to any S3-compatible object store on a
 configurable cadence. The bytes are produced by the same export path that
-backs `nisctl backup operator` and are restorable via `nisctl restore -f`.
+backs `nisctl backup operator` and are encrypted with [age](https://age-encryption.org/)
+to the operator's recipient list before upload (P15, 2026-05-25). Bucket
+leak ≠ identity-tree leak: an attacker with the S3 object plus no age
+identity gets opaque ciphertext.
 
-**Two layers of opt-in.** Backups are disabled by default at the
+**Three layers of opt-in.** Backups are disabled by default at the
 NIS-wide level (`backups.enabled=false`). When enabled, individual operators
 still need an explicit `nisctl operator backup enable <name>` before the
-sweep starts producing artifacts for them. Both gates are independent — flip
-either off to stop scheduled backups for that scope.
+sweep starts producing artifacts for them, AND must register at least one
+age recipient public key — a scheduled run with zero recipients fails
+loudly (`operator.backup.failed` reason="no_recipients_configured"). Flip
+any of the three off to stop scheduled backups for that scope.
 
 ### NIS-wide configuration
 
@@ -1203,15 +1208,51 @@ either off to stop scheduled backups for that scope.
 ```bash
 nisctl operator backup enable  <name> --interval 24h --retain 30
 nisctl operator backup disable <name>
-nisctl operator backup run     <name>          # manual one-shot
+nisctl operator backup run     <name>           # manual one-shot
 nisctl operator backup list    <name>
-nisctl operator backup download <BACKUP_ID> -o backup.yaml
+nisctl operator backup download <BACKUP_ID> -o backup.age
 nisctl operator backup delete  <BACKUP_ID>
-nisctl operator backup settings <name>         # show current config
+nisctl operator backup settings <name>          # show current config
+
+# P15 — age recipient management. At least one is REQUIRED before any
+# scheduled or manual backup will succeed for this operator.
+nisctl operator backup add-recipient    <name> --pubkey age1... [--label LABEL]
+nisctl operator backup list-recipients  <name>
+nisctl operator backup remove-recipient <name> --pubkey age1...   # or --recipient-id UUID
 ```
 
-The UI surfaces the same controls on the operator detail page under a
-"Backups" card.
+The UI surfaces the same controls on the operator detail page under
+"Backups" and "Backup recipients" cards.
+
+### Age keypair workflow (P15)
+
+```bash
+# 1) Generate a local keypair. NIS never sees the secret half.
+nisctl backup keygen -o ~/.config/nis/backup-ops.key
+#   → writes AGE-SECRET-KEY-1... (mode 0600)
+#   → prints "age public key (recipient): age1..." to stderr
+
+# 2) Register the public key on the operator.
+nisctl operator backup add-recipient my-operator \
+    --pubkey age1... --label "ops-team"
+
+# 3) Backups now succeed. Download + decrypt + restore:
+nisctl operator backup download <BACKUP_ID> -o backup.age
+nisctl backup decrypt -i ~/.config/nis/backup-ops.key -f backup.age -o backup.yaml
+nisctl restore -f backup.yaml
+
+# Or in one step (decrypt-then-restore in-process):
+nisctl restore -f backup.age -i ~/.config/nis/backup-ops.key
+```
+
+**Multi-recipient is the canonical shape.** Register the ops team's key,
+the DR location's key, and any per-engineer keys all at once — each can
+independently decrypt without sharing identities.
+
+`nisctl backup keygen` refuses to write the secret key to a TTY unless you
+pass `--force-stdout` AND redirect (`> file` or `| cmd`). Same for
+`nisctl backup decrypt` — refuses to emit plaintext YAML to a TTY because
+the YAML contains the operator's full identity tree.
 
 ### docker-compose dev setup
 
@@ -1228,33 +1269,47 @@ HeadBucket); any compliant backend works.
 
 ### Restore path
 
-Backup artifacts are restorable with the existing `nisctl restore`
-command:
+Scheduled-backup artifacts are age-encrypted; restoring requires the
+matching age identity (secret key):
 
 ```bash
-nisctl operator backup download <BACKUP_ID> -o backup.yaml
-nisctl restore -f backup.yaml
+nisctl operator backup download <BACKUP_ID> -o backup.age
+nisctl restore -f backup.age --identity ~/.config/nis/backup-ops.key
 ```
 
-The `restore` command auto-detects YAML vs JSON. Restoring to a different
-NIS instance requires that instance to hold the same `ENCRYPTION_KEY` —
-the seeds inside the backup are stored as `encrypted:keyid:<ciphertext>`
-references resolved against the data encryption key. If you need
-key-independent disaster recovery, use `nisctl backup operator <name>
---plaintext-secrets` for that one-off export instead; scheduled backups
-do not currently support plaintext-secret mode.
+The `restore` command sniffs the age header — passing `--identity` on a
+plaintext file (or omitting it on an age-encrypted file) is a hard error
+rather than a silent mismatch. Manual exports created via
+`nisctl backup operator` (separate from scheduled backups) remain plain
+YAML/JSON and do not need `--identity`; `restore` auto-detects format.
+
+Scheduled backups carry plaintext NKey seeds inside the age envelope, so
+restoring into a *fresh* NIS instance with a different `ENCRYPTION_KEY`
+works — the importer re-encrypts each seed against the destination's key
+on the fly (`adoptSeed`). Holding any registered age identity is
+sufficient; the data encryption key of the original NIS is not required.
+This is the disaster-recovery property the backup feature exists to
+provide: total wipe of the source instance is survivable as long as you
+still hold an age private key.
+
+The corollary: anyone who can decrypt the age envelope reads the seeds in
+cleartext. Treat the age private keys with the same care as the operator
+NKeys themselves — they are equivalent in blast radius. Pre-2026-05-25
+backups stored seeds as `encrypted:keyid:<ciphertext>` references and
+still need the source `ENCRYPTION_KEY` to restore; `adoptSeed` handles
+either shape transparently per row, so a mixed history of old + new
+backups continues to work.
 
 ### v1 limitations
 
 - Single global S3 backend across all operators. Per-operator (or per-org)
   S3 routing is a v1.1 design call.
-- Backups use `SecretsEncrypted` mode. Lose the data encryption key, lose
-  your scheduled backups. Pair with a separately-managed key escrow or
-  occasional `--plaintext-secrets` one-shot exports if your DR plan needs
-  to survive key loss.
-- No envelope encryption on the uploaded artifact itself. Bucket-level SSE
-  (SSE-S3 / SSE-KMS) is the recommended way to add at-rest encryption to
-  the metadata that's not already covered by the per-row seed encryption.
+- P15 (2026-05-25) replaced the unencrypted-artifact gap with mandatory
+  age encryption. Scheduled backups subsequently flipped to
+  `SecretsPlaintext` mode (2026-05-25) so seeds inside the age envelope
+  re-encrypt against the destination's key on restore — the age private
+  key is the sole gate, the source instance's data encryption key is no
+  longer needed. Bucket-level SSE remains useful defense-in-depth.
 - The sweeper enumerates operators every `sweep_interval_seconds` in a
   single pass. With thousands of opt-in operators on a single NIS this
   may become a hot loop; per-operator scheduling is a v1.1 ask.

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,8 +13,31 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"filippo.io/age"
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
 )
+
+// addRecipientToOperator generates a fresh age identity, adds its public
+// key to the operator's recipient list, and returns the identity so the
+// test can decrypt the resulting backup. Each test gets its own keypair
+// (no cross-test state) — the identity lives entirely in test-process
+// memory and is never persisted.
+func (h *harness) addRecipientToOperator(t *testing.T, ctx context.Context, operatorID string) *age.X25519Identity {
+	t.Helper()
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("generate age identity: %v", err)
+	}
+	_, err = h.backupCli.AddBackupRecipient(ctx, connect.NewRequest(&nisv1.AddBackupRecipientRequest{
+		OperatorId: operatorID,
+		PublicKey:  id.Recipient().String(),
+		Label:      "e2e-test",
+	}))
+	if err != nil {
+		t.Fatalf("AddBackupRecipient: %v", err)
+	}
+	return id
+}
 
 // TestE2E_Backups_EnableRunListDownload exercises the full P12 happy path:
 // MinIO comes up, NIS boots with backups wired, admin enables backups on
@@ -51,6 +75,11 @@ func TestE2E_Backups_EnableRunListDownload(t *testing.T) {
 		t.Fatalf("settings.retention_count = %d, want %d", updateResp.Msg.Settings.RetentionCount, retention)
 	}
 
+	// P15 — must have at least one age recipient before scheduled backups
+	// can succeed. The TestE2E_Backups_FailsWithoutRecipients test below
+	// pins the negative case.
+	identity := h.addRecipientToOperator(t, ctx, operatorID)
+
 	// Run a manual backup. Returns once the S3 PutObject + DB write succeed.
 	runResp, err := h.backupCli.RunOperatorBackup(ctx, connect.NewRequest(&nisv1.RunOperatorBackupRequest{
 		OperatorId: operatorID,
@@ -68,8 +97,8 @@ func TestE2E_Backups_EnableRunListDownload(t *testing.T) {
 	if backup.TriggerKind != "manual" {
 		t.Fatalf("trigger_kind = %q, want %q", backup.TriggerKind, "manual")
 	}
-	if !strings.HasSuffix(backup.ObjectKey, ".yaml") {
-		t.Fatalf("object_key = %q, want .yaml suffix", backup.ObjectKey)
+	if !strings.HasSuffix(backup.ObjectKey, ".age") {
+		t.Fatalf("object_key = %q, want .age suffix (P15)", backup.ObjectKey)
 	}
 
 	// List returns the row we just created.
@@ -109,14 +138,34 @@ func TestE2E_Backups_EnableRunListDownload(t *testing.T) {
 		t.Fatalf("downloaded sha256 = %s, want %s", got, backup.Sha256)
 	}
 
-	// The first non-whitespace byte must NOT be '{' — that's JSON. We
-	// configure SecretsEncrypted + YAML at the service layer; if a future
-	// refactor flips the default the sweep would silently start uploading
-	// JSON, which would surprise operators expecting `nisctl restore`-
-	// compatible YAML.
-	body := strings.TrimSpace(buf.String())
-	if len(body) > 0 && (body[0] == '{' || body[0] == '[') {
-		t.Fatalf("backup body looks like JSON, want YAML: starts with %q", body[:min(40, len(body))])
+	// P15 — downloaded bytes must be age-encrypted: the magic header
+	// `age-encryption.org/v1\n` is the canonical sniff. Then decrypt with
+	// the identity we minted at the top of the test and verify the
+	// plaintext is the YAML payload we expect (starts with `apiVersion:`).
+	cipher := []byte(buf.String())
+	if !bytes.HasPrefix(cipher, []byte("age-encryption.org/v1\n")) {
+		t.Fatalf("downloaded bytes do not start with age header; first 40 bytes: %q", cipher[:min(40, len(cipher))])
+	}
+	r, err := age.Decrypt(bytes.NewReader(cipher), identity)
+	if err != nil {
+		t.Fatalf("age decrypt: %v", err)
+	}
+	plaintext, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read decrypted: %v", err)
+	}
+	body := strings.TrimSpace(string(plaintext))
+	if len(body) == 0 {
+		t.Fatalf("decrypted plaintext is empty")
+	}
+	if body[0] == '{' || body[0] == '[' {
+		t.Fatalf("decrypted body looks like JSON, want YAML: starts with %q", body[:min(40, len(body))])
+	}
+	// ExportOperatorBytes emits the legacy NIS backup format which starts
+	// with `version: "1.0"`. (Not k8s-style apiVersion/kind — that's the
+	// pkg/manifest format used by `nisctl apply`.)
+	if !strings.HasPrefix(body, "version:") {
+		t.Fatalf("decrypted body does not start with version: header; first 80 chars: %q", body[:min(80, len(body))])
 	}
 }
 
@@ -142,6 +191,9 @@ func TestE2E_Backups_RetentionTrimsToLastN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateOperatorBackupSettings: %v", err)
 	}
+
+	// P15 — recipient required before any RunBackup succeeds.
+	h.addRecipientToOperator(t, ctx, operatorID)
 
 	// Backups are sorted by created_at; SQLite has 1s resolution and our
 	// repo adds id DESC as the tie-break. Sleep a hair so created_at
@@ -208,6 +260,8 @@ func TestE2E_Backups_DisableStopsScheduling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable: %v", err)
 	}
+
+	h.addRecipientToOperator(t, ctx, operatorID)
 
 	_, err = h.backupCli.RunOperatorBackup(ctx, connect.NewRequest(&nisv1.RunOperatorBackupRequest{
 		OperatorId: operatorID,
@@ -287,4 +341,187 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// TestE2E_Backups_FailsWithoutRecipients pins the P15 mandatory-encryption
+// contract: an operator with backup_enabled=true but zero age recipients
+// cannot complete a RunBackup. The RPC returns CodeFailedPrecondition with
+// ErrNoBackupRecipients, and the audit log gets an operator.backup.failed
+// event with reason="no_recipients_configured" so an operator scanning
+// the failure can spot the configuration gap immediately.
+func TestE2E_Backups_FailsWithoutRecipients(t *testing.T) {
+	h := startStackWithBackups(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	operatorID := h.createOperator(t, "no-recipients-op")
+	enabled := true
+	intervalSecs := int64(3600)
+	_, err := h.backupCli.UpdateOperatorBackupSettings(ctx, connect.NewRequest(&nisv1.UpdateOperatorBackupSettingsRequest{
+		OperatorId:      operatorID,
+		Enabled:         &enabled,
+		IntervalSeconds: &intervalSecs,
+	}))
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+
+	// No AddBackupRecipient call. RunBackup must fail.
+	_, err = h.backupCli.RunOperatorBackup(ctx, connect.NewRequest(&nisv1.RunOperatorBackupRequest{
+		OperatorId: operatorID,
+	}))
+	if err == nil {
+		t.Fatalf("RunOperatorBackup unexpectedly succeeded with zero recipients")
+	}
+	var cerr connect.Error
+	if !asConnect(err, &cerr) {
+		t.Fatalf("expected connect.Error, got %T: %v", err, err)
+	}
+	if cerr.Code() != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition, got %s: %v", cerr.Code(), err)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "no age backup recipients") {
+		t.Fatalf("error message does not mention recipient configuration: %v", err)
+	}
+}
+
+// TestE2E_Backups_MultiRecipientBothCanDecrypt — encrypt with two
+// recipients, download the artifact, decrypt with each identity
+// independently. Each decryption must yield identical plaintext.
+func TestE2E_Backups_MultiRecipientBothCanDecrypt(t *testing.T) {
+	h := startStackWithBackups(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	operatorID := h.createOperator(t, "multi-recipient-op")
+	enabled := true
+	intervalSecs := int64(3600)
+	_, err := h.backupCli.UpdateOperatorBackupSettings(ctx, connect.NewRequest(&nisv1.UpdateOperatorBackupSettingsRequest{
+		OperatorId:      operatorID,
+		Enabled:         &enabled,
+		IntervalSeconds: &intervalSecs,
+	}))
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+
+	id1 := h.addRecipientToOperator(t, ctx, operatorID)
+	id2 := h.addRecipientToOperator(t, ctx, operatorID)
+
+	runResp, err := h.backupCli.RunOperatorBackup(ctx, connect.NewRequest(&nisv1.RunOperatorBackupRequest{
+		OperatorId: operatorID,
+	}))
+	if err != nil {
+		t.Fatalf("RunOperatorBackup: %v", err)
+	}
+
+	stream, err := h.backupCli.DownloadBackup(ctx, connect.NewRequest(&nisv1.DownloadBackupRequest{Id: runResp.Msg.Backup.Id}))
+	if err != nil {
+		t.Fatalf("DownloadBackup: %v", err)
+	}
+	var buf bytes.Buffer
+	for stream.Receive() {
+		if chunk := stream.Msg().GetChunk(); len(chunk) > 0 {
+			buf.Write(chunk)
+		}
+	}
+	if err := stream.Err(); err != nil && err != io.EOF {
+		t.Fatalf("stream.Err: %v", err)
+	}
+
+	cipher := buf.Bytes()
+
+	// Decrypt with id1.
+	r1, err := age.Decrypt(bytes.NewReader(cipher), id1)
+	if err != nil {
+		t.Fatalf("decrypt with id1: %v", err)
+	}
+	plain1, err := io.ReadAll(r1)
+	if err != nil {
+		t.Fatalf("read decrypted (id1): %v", err)
+	}
+
+	// Decrypt with id2 — independently.
+	r2, err := age.Decrypt(bytes.NewReader(cipher), id2)
+	if err != nil {
+		t.Fatalf("decrypt with id2: %v", err)
+	}
+	plain2, err := io.ReadAll(r2)
+	if err != nil {
+		t.Fatalf("read decrypted (id2): %v", err)
+	}
+
+	if !bytes.Equal(plain1, plain2) {
+		t.Fatalf("decrypted plaintext differs between identities")
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(plain1), []byte("version:")) {
+		t.Fatalf("decrypted plaintext doesn't look like operator YAML; first 80 chars: %q",
+			string(bytes.TrimSpace(plain1))[:min(80, len(plain1))])
+	}
+}
+
+// TestE2E_Backups_AddRecipient_InvalidRejected pins that AddBackupRecipient
+// rejects malformed pubkeys at the API boundary (CodeInvalidArgument).
+func TestE2E_Backups_AddRecipient_InvalidRejected(t *testing.T) {
+	h := startStackWithBackups(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	operatorID := h.createOperator(t, "invalid-recipient-op")
+
+	_, err := h.backupCli.AddBackupRecipient(ctx, connect.NewRequest(&nisv1.AddBackupRecipientRequest{
+		OperatorId: operatorID,
+		PublicKey:  "not-an-age-key",
+	}))
+	if err == nil {
+		t.Fatalf("AddBackupRecipient unexpectedly accepted garbage")
+	}
+	var cerr connect.Error
+	if !asConnect(err, &cerr) || cerr.Code() != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v", err)
+	}
+}
+
+// TestE2E_Backups_RemoveRecipient_LastSignalled verifies the
+// is_last_active flag in RemoveBackupRecipientResponse. The CLI uses this
+// to render a warning that scheduled backups will fail until a recipient
+// is re-added.
+func TestE2E_Backups_RemoveRecipient_LastSignalled(t *testing.T) {
+	h := startStackWithBackups(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	operatorID := h.createOperator(t, "last-recipient-op")
+
+	id := h.addRecipientToOperator(t, ctx, operatorID)
+	_ = id // not used; we just need the recipient registered
+
+	listResp, err := h.backupCli.ListBackupRecipients(ctx, connect.NewRequest(&nisv1.ListBackupRecipientsRequest{
+		OperatorId: operatorID,
+	}))
+	if err != nil {
+		t.Fatalf("ListBackupRecipients: %v", err)
+	}
+	if len(listResp.Msg.Recipients) != 1 {
+		t.Fatalf("got %d recipients, want 1", len(listResp.Msg.Recipients))
+	}
+
+	removeResp, err := h.backupCli.RemoveBackupRecipient(ctx, connect.NewRequest(&nisv1.RemoveBackupRecipientRequest{
+		OperatorId:  operatorID,
+		RecipientId: listResp.Msg.Recipients[0].Id,
+	}))
+	if err != nil {
+		t.Fatalf("RemoveBackupRecipient: %v", err)
+	}
+	if !removeResp.Msg.IsLastActive {
+		t.Fatalf("expected is_last_active=true after removing the only recipient")
+	}
+
+	// Run should now fail with the no-recipients error.
+	_, err = h.backupCli.RunOperatorBackup(ctx, connect.NewRequest(&nisv1.RunOperatorBackupRequest{
+		OperatorId: operatorID,
+	}))
+	if err == nil {
+		t.Fatalf("RunOperatorBackup succeeded with zero recipients after Remove")
+	}
 }

@@ -1041,3 +1041,55 @@ func OperatorBackupModelFromEntity(e *entities.OperatorBackup) *OperatorBackupMo
 		CreatedAt:   e.CreatedAt,
 	}
 }
+
+// OperatorAgeRecipientModel — operator_age_recipients table (P15).
+// Per-operator age recipient pubkeys. The unique constraint enforces "one
+// recipient per (operator, pubkey)" so a re-add surfaces as ErrAlreadyExists.
+// FK SET NULL on created_by_user_id mirrors api_tokens: offboarding the user
+// who added the key does NOT invalidate the recipient.
+//
+// PublicKey is stored as the wire form (age1... or ssh-ed25519 ...) — the
+// service layer validates via age.ParseRecipient before insert; the column
+// is otherwise opaque to the DB.
+type OperatorAgeRecipientModel struct {
+	ID              string         `gorm:"primaryKey;type:text;not null"`
+	OperatorID      string         `gorm:"type:text;not null;uniqueIndex:idx_operator_age_recipients_op_key,priority:1;index:idx_operator_age_recipients_operator_id"`
+	Operator        *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	PublicKey       string         `gorm:"column:public_key;type:text;not null;uniqueIndex:idx_operator_age_recipients_op_key,priority:2"`
+	Label           string         `gorm:"type:text;not null;default:''"`
+	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	CreatedByUserID *string        `gorm:"column:created_by_user_id;type:text"`
+	CreatedBy       *APIUserModel  `gorm:"foreignKey:CreatedByUserID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+}
+
+func (OperatorAgeRecipientModel) TableName() string { return "operator_age_recipients" }
+
+func (m *OperatorAgeRecipientModel) ToEntity() *entities.OperatorAgeRecipient {
+	e := &entities.OperatorAgeRecipient{
+		ID:         uuid.MustParse(m.ID),
+		OperatorID: uuid.MustParse(m.OperatorID),
+		PublicKey:  m.PublicKey,
+		Label:      m.Label,
+		CreatedAt:  m.CreatedAt,
+	}
+	if m.CreatedByUserID != nil {
+		id := uuid.MustParse(*m.CreatedByUserID)
+		e.CreatedByUserID = &id
+	}
+	return e
+}
+
+func OperatorAgeRecipientModelFromEntity(e *entities.OperatorAgeRecipient) *OperatorAgeRecipientModel {
+	m := &OperatorAgeRecipientModel{
+		ID:         e.ID.String(),
+		OperatorID: e.OperatorID.String(),
+		PublicKey:  e.PublicKey,
+		Label:      e.Label,
+		CreatedAt:  e.CreatedAt,
+	}
+	if e.CreatedByUserID != nil {
+		s := e.CreatedByUserID.String()
+		m.CreatedByUserID = &s
+	}
+	return m
+}

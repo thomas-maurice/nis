@@ -44,6 +44,7 @@ func main() {
 		&sqlmodels.TemplateVersionModel{},
 		&sqlmodels.JobModel{},
 		&sqlmodels.OperatorBackupModel{},
+		&sqlmodels.OperatorAgeRecipientModel{},
 	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load:", err)

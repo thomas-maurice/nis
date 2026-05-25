@@ -3,13 +3,13 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { DeleteBackupRequest, DeleteBackupResponse, DownloadBackupRequest, DownloadBackupResponse, GetBackupRequest, GetBackupResponse, GetOperatorBackupSettingsRequest, GetOperatorBackupSettingsResponse, ListOperatorBackupsRequest, ListOperatorBackupsResponse, RunOperatorBackupRequest, RunOperatorBackupResponse, UpdateOperatorBackupSettingsRequest, UpdateOperatorBackupSettingsResponse } from "./backup_pb.js";
+import { AddBackupRecipientRequest, AddBackupRecipientResponse, DeleteBackupRequest, DeleteBackupResponse, DownloadBackupRequest, DownloadBackupResponse, GetBackupRequest, GetBackupResponse, GetOperatorBackupSettingsRequest, GetOperatorBackupSettingsResponse, ListBackupRecipientsRequest, ListBackupRecipientsResponse, ListOperatorBackupsRequest, ListOperatorBackupsResponse, RemoveBackupRecipientRequest, RemoveBackupRecipientResponse, RunOperatorBackupRequest, RunOperatorBackupResponse, UpdateOperatorBackupSettingsRequest, UpdateOperatorBackupSettingsResponse } from "./backup_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * BackupService manages per-operator scheduled backups (P12). Admin and
- * operator-admin (scoped to own operator) can manage; account-admin has
- * no access.
+ * BackupService manages per-operator scheduled backups (P12 + P15). Admin
+ * and operator-admin (scoped to own operator) can manage; account-admin
+ * has no access.
  *
  * @generated from service nis.v1.BackupService
  */
@@ -77,6 +77,35 @@ export const BackupService = {
       name: "DeleteBackup",
       I: DeleteBackupRequest,
       O: DeleteBackupResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * P15 — per-operator age recipient management.
+     *
+     * @generated from rpc nis.v1.BackupService.AddBackupRecipient
+     */
+    addBackupRecipient: {
+      name: "AddBackupRecipient",
+      I: AddBackupRecipientRequest,
+      O: AddBackupRecipientResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc nis.v1.BackupService.ListBackupRecipients
+     */
+    listBackupRecipients: {
+      name: "ListBackupRecipients",
+      I: ListBackupRecipientsRequest,
+      O: ListBackupRecipientsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc nis.v1.BackupService.RemoveBackupRecipient
+     */
+    removeBackupRecipient: {
+      name: "RemoveBackupRecipient",
+      I: RemoveBackupRecipientRequest,
+      O: RemoveBackupRecipientResponse,
       kind: MethodKind.Unary,
     },
   }

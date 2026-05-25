@@ -95,6 +95,11 @@ const (
 	EventTypeOperatorBackupSucceeded = "operator.backup.succeeded"
 	EventTypeOperatorBackupFailed    = "operator.backup.failed"
 	EventTypeOperatorBackupDeleted   = "operator.backup.deleted"
+	// P15 — per-operator age recipient management for scheduled backups.
+	// Payload carries recipient_id only (not the public_key — bulky and
+	// retrievable via Get if needed).
+	EventTypeOperatorBackupRecipientAdded   = "operator.backup.recipient_added"
+	EventTypeOperatorBackupRecipientRemoved = "operator.backup.recipient_removed"
 )
 
 // Event is a single audit-log entry. Stored append-only in the events table.

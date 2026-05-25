@@ -53,6 +53,15 @@ const (
 	// BackupServiceDeleteBackupProcedure is the fully-qualified name of the BackupService's
 	// DeleteBackup RPC.
 	BackupServiceDeleteBackupProcedure = "/nis.v1.BackupService/DeleteBackup"
+	// BackupServiceAddBackupRecipientProcedure is the fully-qualified name of the BackupService's
+	// AddBackupRecipient RPC.
+	BackupServiceAddBackupRecipientProcedure = "/nis.v1.BackupService/AddBackupRecipient"
+	// BackupServiceListBackupRecipientsProcedure is the fully-qualified name of the BackupService's
+	// ListBackupRecipients RPC.
+	BackupServiceListBackupRecipientsProcedure = "/nis.v1.BackupService/ListBackupRecipients"
+	// BackupServiceRemoveBackupRecipientProcedure is the fully-qualified name of the BackupService's
+	// RemoveBackupRecipient RPC.
+	BackupServiceRemoveBackupRecipientProcedure = "/nis.v1.BackupService/RemoveBackupRecipient"
 )
 
 // BackupServiceClient is a client for the nis.v1.BackupService service.
@@ -64,6 +73,10 @@ type BackupServiceClient interface {
 	GetBackup(context.Context, *connect.Request[v1.GetBackupRequest]) (*connect.Response[v1.GetBackupResponse], error)
 	DownloadBackup(context.Context, *connect.Request[v1.DownloadBackupRequest]) (*connect.ServerStreamForClient[v1.DownloadBackupResponse], error)
 	DeleteBackup(context.Context, *connect.Request[v1.DeleteBackupRequest]) (*connect.Response[v1.DeleteBackupResponse], error)
+	// P15 — per-operator age recipient management.
+	AddBackupRecipient(context.Context, *connect.Request[v1.AddBackupRecipientRequest]) (*connect.Response[v1.AddBackupRecipientResponse], error)
+	ListBackupRecipients(context.Context, *connect.Request[v1.ListBackupRecipientsRequest]) (*connect.Response[v1.ListBackupRecipientsResponse], error)
+	RemoveBackupRecipient(context.Context, *connect.Request[v1.RemoveBackupRecipientRequest]) (*connect.Response[v1.RemoveBackupRecipientResponse], error)
 }
 
 // NewBackupServiceClient constructs a client for the nis.v1.BackupService service. By default, it
@@ -119,6 +132,24 @@ func NewBackupServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(backupServiceMethods.ByName("DeleteBackup")),
 			connect.WithClientOptions(opts...),
 		),
+		addBackupRecipient: connect.NewClient[v1.AddBackupRecipientRequest, v1.AddBackupRecipientResponse](
+			httpClient,
+			baseURL+BackupServiceAddBackupRecipientProcedure,
+			connect.WithSchema(backupServiceMethods.ByName("AddBackupRecipient")),
+			connect.WithClientOptions(opts...),
+		),
+		listBackupRecipients: connect.NewClient[v1.ListBackupRecipientsRequest, v1.ListBackupRecipientsResponse](
+			httpClient,
+			baseURL+BackupServiceListBackupRecipientsProcedure,
+			connect.WithSchema(backupServiceMethods.ByName("ListBackupRecipients")),
+			connect.WithClientOptions(opts...),
+		),
+		removeBackupRecipient: connect.NewClient[v1.RemoveBackupRecipientRequest, v1.RemoveBackupRecipientResponse](
+			httpClient,
+			baseURL+BackupServiceRemoveBackupRecipientProcedure,
+			connect.WithSchema(backupServiceMethods.ByName("RemoveBackupRecipient")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -131,6 +162,9 @@ type backupServiceClient struct {
 	getBackup                    *connect.Client[v1.GetBackupRequest, v1.GetBackupResponse]
 	downloadBackup               *connect.Client[v1.DownloadBackupRequest, v1.DownloadBackupResponse]
 	deleteBackup                 *connect.Client[v1.DeleteBackupRequest, v1.DeleteBackupResponse]
+	addBackupRecipient           *connect.Client[v1.AddBackupRecipientRequest, v1.AddBackupRecipientResponse]
+	listBackupRecipients         *connect.Client[v1.ListBackupRecipientsRequest, v1.ListBackupRecipientsResponse]
+	removeBackupRecipient        *connect.Client[v1.RemoveBackupRecipientRequest, v1.RemoveBackupRecipientResponse]
 }
 
 // UpdateOperatorBackupSettings calls nis.v1.BackupService.UpdateOperatorBackupSettings.
@@ -168,6 +202,21 @@ func (c *backupServiceClient) DeleteBackup(ctx context.Context, req *connect.Req
 	return c.deleteBackup.CallUnary(ctx, req)
 }
 
+// AddBackupRecipient calls nis.v1.BackupService.AddBackupRecipient.
+func (c *backupServiceClient) AddBackupRecipient(ctx context.Context, req *connect.Request[v1.AddBackupRecipientRequest]) (*connect.Response[v1.AddBackupRecipientResponse], error) {
+	return c.addBackupRecipient.CallUnary(ctx, req)
+}
+
+// ListBackupRecipients calls nis.v1.BackupService.ListBackupRecipients.
+func (c *backupServiceClient) ListBackupRecipients(ctx context.Context, req *connect.Request[v1.ListBackupRecipientsRequest]) (*connect.Response[v1.ListBackupRecipientsResponse], error) {
+	return c.listBackupRecipients.CallUnary(ctx, req)
+}
+
+// RemoveBackupRecipient calls nis.v1.BackupService.RemoveBackupRecipient.
+func (c *backupServiceClient) RemoveBackupRecipient(ctx context.Context, req *connect.Request[v1.RemoveBackupRecipientRequest]) (*connect.Response[v1.RemoveBackupRecipientResponse], error) {
+	return c.removeBackupRecipient.CallUnary(ctx, req)
+}
+
 // BackupServiceHandler is an implementation of the nis.v1.BackupService service.
 type BackupServiceHandler interface {
 	UpdateOperatorBackupSettings(context.Context, *connect.Request[v1.UpdateOperatorBackupSettingsRequest]) (*connect.Response[v1.UpdateOperatorBackupSettingsResponse], error)
@@ -177,6 +226,10 @@ type BackupServiceHandler interface {
 	GetBackup(context.Context, *connect.Request[v1.GetBackupRequest]) (*connect.Response[v1.GetBackupResponse], error)
 	DownloadBackup(context.Context, *connect.Request[v1.DownloadBackupRequest], *connect.ServerStream[v1.DownloadBackupResponse]) error
 	DeleteBackup(context.Context, *connect.Request[v1.DeleteBackupRequest]) (*connect.Response[v1.DeleteBackupResponse], error)
+	// P15 — per-operator age recipient management.
+	AddBackupRecipient(context.Context, *connect.Request[v1.AddBackupRecipientRequest]) (*connect.Response[v1.AddBackupRecipientResponse], error)
+	ListBackupRecipients(context.Context, *connect.Request[v1.ListBackupRecipientsRequest]) (*connect.Response[v1.ListBackupRecipientsResponse], error)
+	RemoveBackupRecipient(context.Context, *connect.Request[v1.RemoveBackupRecipientRequest]) (*connect.Response[v1.RemoveBackupRecipientResponse], error)
 }
 
 // NewBackupServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -228,6 +281,24 @@ func NewBackupServiceHandler(svc BackupServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(backupServiceMethods.ByName("DeleteBackup")),
 		connect.WithHandlerOptions(opts...),
 	)
+	backupServiceAddBackupRecipientHandler := connect.NewUnaryHandler(
+		BackupServiceAddBackupRecipientProcedure,
+		svc.AddBackupRecipient,
+		connect.WithSchema(backupServiceMethods.ByName("AddBackupRecipient")),
+		connect.WithHandlerOptions(opts...),
+	)
+	backupServiceListBackupRecipientsHandler := connect.NewUnaryHandler(
+		BackupServiceListBackupRecipientsProcedure,
+		svc.ListBackupRecipients,
+		connect.WithSchema(backupServiceMethods.ByName("ListBackupRecipients")),
+		connect.WithHandlerOptions(opts...),
+	)
+	backupServiceRemoveBackupRecipientHandler := connect.NewUnaryHandler(
+		BackupServiceRemoveBackupRecipientProcedure,
+		svc.RemoveBackupRecipient,
+		connect.WithSchema(backupServiceMethods.ByName("RemoveBackupRecipient")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/nis.v1.BackupService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BackupServiceUpdateOperatorBackupSettingsProcedure:
@@ -244,6 +315,12 @@ func NewBackupServiceHandler(svc BackupServiceHandler, opts ...connect.HandlerOp
 			backupServiceDownloadBackupHandler.ServeHTTP(w, r)
 		case BackupServiceDeleteBackupProcedure:
 			backupServiceDeleteBackupHandler.ServeHTTP(w, r)
+		case BackupServiceAddBackupRecipientProcedure:
+			backupServiceAddBackupRecipientHandler.ServeHTTP(w, r)
+		case BackupServiceListBackupRecipientsProcedure:
+			backupServiceListBackupRecipientsHandler.ServeHTTP(w, r)
+		case BackupServiceRemoveBackupRecipientProcedure:
+			backupServiceRemoveBackupRecipientHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -279,4 +356,16 @@ func (UnimplementedBackupServiceHandler) DownloadBackup(context.Context, *connec
 
 func (UnimplementedBackupServiceHandler) DeleteBackup(context.Context, *connect.Request[v1.DeleteBackupRequest]) (*connect.Response[v1.DeleteBackupResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.BackupService.DeleteBackup is not implemented"))
+}
+
+func (UnimplementedBackupServiceHandler) AddBackupRecipient(context.Context, *connect.Request[v1.AddBackupRecipientRequest]) (*connect.Response[v1.AddBackupRecipientResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.BackupService.AddBackupRecipient is not implemented"))
+}
+
+func (UnimplementedBackupServiceHandler) ListBackupRecipients(context.Context, *connect.Request[v1.ListBackupRecipientsRequest]) (*connect.Response[v1.ListBackupRecipientsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.BackupService.ListBackupRecipients is not implemented"))
+}
+
+func (UnimplementedBackupServiceHandler) RemoveBackupRecipient(context.Context, *connect.Request[v1.RemoveBackupRecipientRequest]) (*connect.Response[v1.RemoveBackupRecipientResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nis.v1.BackupService.RemoveBackupRecipient is not implemented"))
 }

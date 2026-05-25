@@ -182,6 +182,13 @@ var Procedures = map[string]Procedure{
 	nisv1connect.BackupServiceGetBackupProcedure:                    {Resource: ResourceBackup, Action: ActionRead, Kind: KindPerRow},
 	nisv1connect.BackupServiceDownloadBackupProcedure:               {Resource: ResourceBackup, Action: ActionRead, Kind: KindPerRow},
 	nisv1connect.BackupServiceDeleteBackupProcedure:                 {Resource: ResourceBackup, Action: ActionDelete, Kind: KindPerRow},
+	// P15 — per-operator age recipient management. Same authority gate as
+	// the rest of the backup surface (admin + operator-admin own-operator);
+	// account-admin has no `backup` grant in RolePolicy so it cannot reach
+	// these handlers regardless of per-row checks.
+	nisv1connect.BackupServiceAddBackupRecipientProcedure:    {Resource: ResourceBackup, Action: ActionUpdate, Kind: KindPerRow},
+	nisv1connect.BackupServiceListBackupRecipientsProcedure:  {Resource: ResourceBackup, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.BackupServiceRemoveBackupRecipientProcedure: {Resource: ResourceBackup, Action: ActionDelete, Kind: KindPerRow},
 
 	// ClusterService. SyncCluster / ReconcileAccountOnCluster / GenerateServerConfig
 	// all routed to (cluster, read) by the pre-A17 extractAction fallthrough;

@@ -1,10 +1,13 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"testing"
 
+	"filippo.io/age"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
@@ -694,6 +697,106 @@ func (s *ExportServiceTestSuite) TestImportOperator_PlaintextSecrets_ReEncryptsA
 	// (6) And — critically — the SOURCE encryptor must NOT be able to decrypt
 	// the re-encrypted seed (different key). This proves the seed was
 	// genuinely re-encrypted, not stored verbatim.
+	_, err = s.encryptor.Decrypt(s.ctx, loadedOp.EncryptedSeed)
+	assert.Error(s.T(), err, "source encryptor must not decrypt seed re-encrypted with destination key")
+}
+
+// TestBackupPipeline_AgeEnvelope_CrossKeyRestore pins the change that made
+// scheduled backups portable across NIS instances (2026-05-25 — P12 DR
+// follow-up). It exercises EXACTLY the shape RunBackup uses:
+//
+//  1. ExportOperatorBytes(SecretsPlaintext, FormatYAML) under encryptor-A
+//  2. encryptForBackup(plaintext, [age recipient])
+//  3. age.Decrypt with the matching identity
+//  4. ImportOperatorBytes(plaintext) on a fresh ExportService bound to
+//     encryptor-B
+//
+// Then verifies the destination DB row's encrypted_seed decrypts under
+// encryptor-B and round-trips back to the original NKey seed. Without
+// this end-to-end pin, a future "let's go back to SecretsEncrypted for
+// defense in depth" change would silently break the cross-key DR property
+// — the existing TestImportOperator_PlaintextSecrets_… test would still
+// pass because it doesn't touch the backup-pipeline arg shape.
+func (s *ExportServiceTestSuite) TestBackupPipeline_AgeEnvelope_CrossKeyRestore() {
+	operator, err := s.operatorService.CreateOperator(s.ctx, CreateOperatorRequest{Name: "dr-pipeline-op"})
+	require.NoError(s.T(), err)
+	account, err := s.accountService.CreateAccount(s.ctx, CreateAccountRequest{OperatorID: operator.ID, Name: "dr-pipeline-acc"})
+	require.NoError(s.T(), err)
+	user, err := s.userService.CreateUser(s.ctx, CreateUserRequest{AccountID: account.ID, Name: "dr-pipeline-user"})
+	require.NoError(s.T(), err)
+
+	// Decrypt the source-side encrypted seeds once so we can compare against
+	// the destination-side re-encrypted seeds below.
+	srcOp, err := s.operatorRepo.GetByID(s.ctx, operator.ID)
+	require.NoError(s.T(), err)
+	originalOpSeed, err := s.encryptor.Decrypt(s.ctx, srcOp.EncryptedSeed)
+	require.NoError(s.T(), err)
+	srcAcc, err := s.accountRepo.GetByID(s.ctx, account.ID)
+	require.NoError(s.T(), err)
+	originalAccSeed, err := s.encryptor.Decrypt(s.ctx, srcAcc.EncryptedSeed)
+	require.NoError(s.T(), err)
+	srcUser, err := s.userRepo.GetByID(s.ctx, user.ID)
+	require.NoError(s.T(), err)
+	originalUserSeed, err := s.encryptor.Decrypt(s.ctx, srcUser.EncryptedSeed)
+	require.NoError(s.T(), err)
+
+	// (1) Same call RunBackup makes.
+	plaintextPayload, err := s.exportService.ExportOperatorBytes(s.ctx, operator.ID, SecretsPlaintext, FormatYAML)
+	require.NoError(s.T(), err)
+	require.Contains(s.T(), string(plaintextPayload), "seed:", "plaintext-mode export must carry `seed:` fields")
+	require.NotContains(s.T(), string(plaintextPayload), "encrypted_seed:", "plaintext-mode export must NOT carry `encrypted_seed:` fields")
+
+	// (2) Same call RunBackup makes (via encryptForBackup from backup_age.go).
+	id, err := age.GenerateX25519Identity()
+	require.NoError(s.T(), err)
+	ciphertext, err := encryptForBackup(plaintextPayload, []age.Recipient{id.Recipient()})
+	require.NoError(s.T(), err)
+	require.True(s.T(), bytes.HasPrefix(ciphertext, []byte("age-encryption.org/v1\n")),
+		"ciphertext must start with age header")
+
+	// (3) Wipe the DB to simulate "total loss" + key rotation.
+	s.db.Exec("DELETE FROM users")
+	s.db.Exec("DELETE FROM scoped_signing_keys")
+	s.db.Exec("DELETE FROM accounts")
+	s.db.Exec("DELETE FROM clusters")
+	s.db.Exec("DELETE FROM operators")
+
+	// (4) age-decrypt with the identity. This is what
+	// `nisctl backup decrypt -i ... -f ...` does on the restore side.
+	r, err := age.Decrypt(bytes.NewReader(ciphertext), id)
+	require.NoError(s.T(), err)
+	decryptedYAML, err := io.ReadAll(r)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), string(plaintextPayload), string(decryptedYAML))
+
+	// (5) ImportOperatorBytes under a different encryptor.
+	destEnc := s.secondEncryptor()
+	destSvc := s.freshExportService(destEnc)
+	require.NoError(s.T(), destSvc.ImportOperatorBytes(s.ctx, decryptedYAML, false))
+
+	// (6) Verify the restored rows: decryptable by destEnc, equal to originals.
+	loadedOp, err := s.operatorRepo.GetByID(s.ctx, operator.ID)
+	require.NoError(s.T(), err)
+	require.NotEmpty(s.T(), loadedOp.EncryptedSeed)
+	gotOp, err := destEnc.Decrypt(s.ctx, loadedOp.EncryptedSeed)
+	require.NoError(s.T(), err, "destination encryptor must decrypt the re-encrypted operator seed")
+	assert.Equal(s.T(), originalOpSeed, gotOp)
+
+	loadedAcc, err := s.accountRepo.GetByID(s.ctx, account.ID)
+	require.NoError(s.T(), err)
+	gotAcc, err := destEnc.Decrypt(s.ctx, loadedAcc.EncryptedSeed)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), originalAccSeed, gotAcc)
+
+	loadedUser, err := s.userRepo.GetByID(s.ctx, user.ID)
+	require.NoError(s.T(), err)
+	gotUser, err := destEnc.Decrypt(s.ctx, loadedUser.EncryptedSeed)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), originalUserSeed, gotUser)
+
+	// (7) And the source encryptor must NOT decrypt the new ciphertext —
+	// proves the seed was genuinely re-encrypted at import time, not stored
+	// verbatim.
 	_, err = s.encryptor.Decrypt(s.ctx, loadedOp.EncryptedSeed)
 	assert.Error(s.T(), err, "source encryptor must not decrypt seed re-encrypted with destination key")
 }

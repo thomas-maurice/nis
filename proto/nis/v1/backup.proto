@@ -103,9 +103,56 @@ message DeleteBackupRequest {
 
 message DeleteBackupResponse {}
 
-// BackupService manages per-operator scheduled backups (P12). Admin and
-// operator-admin (scoped to own operator) can manage; account-admin has
-// no access.
+// AgeRecipient is one row of the operator_age_recipients table (P15) — a
+// public key authorised to decrypt scheduled backups for one operator. The
+// private half lives wherever the operator chooses; NIS only stores the
+// public key.
+message AgeRecipient {
+  string id = 1;
+  string operator_id = 2;
+  // public_key is the wire form of an age recipient — `age1...` (X25519) or
+  // `ssh-ed25519 ...`. Validated server-side via age.ParseRecipient.
+  string public_key = 3;
+  string label = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // created_by_user_id is the api_user that added the recipient. May be
+  // empty if the user has since been deleted (FK SET NULL).
+  string created_by_user_id = 6;
+}
+
+message AddBackupRecipientRequest {
+  string operator_id = 1;
+  string public_key = 2;
+  string label = 3;
+}
+
+message AddBackupRecipientResponse {
+  AgeRecipient recipient = 1;
+}
+
+message ListBackupRecipientsRequest {
+  string operator_id = 1;
+}
+
+message ListBackupRecipientsResponse {
+  repeated AgeRecipient recipients = 1;
+}
+
+message RemoveBackupRecipientRequest {
+  string operator_id = 1;
+  string recipient_id = 2;
+}
+
+// is_last_active is true when this removal left zero recipients on the
+// operator. The CLI/UI uses this to render a warning that scheduled
+// backups will fail on the next sweep until a recipient is added back.
+message RemoveBackupRecipientResponse {
+  bool is_last_active = 1;
+}
+
+// BackupService manages per-operator scheduled backups (P12 + P15). Admin
+// and operator-admin (scoped to own operator) can manage; account-admin
+// has no access.
 service BackupService {
   rpc UpdateOperatorBackupSettings(UpdateOperatorBackupSettingsRequest) returns (UpdateOperatorBackupSettingsResponse);
   rpc GetOperatorBackupSettings(GetOperatorBackupSettingsRequest) returns (GetOperatorBackupSettingsResponse);
@@ -114,4 +161,9 @@ service BackupService {
   rpc GetBackup(GetBackupRequest) returns (GetBackupResponse);
   rpc DownloadBackup(DownloadBackupRequest) returns (stream DownloadBackupResponse);
   rpc DeleteBackup(DeleteBackupRequest) returns (DeleteBackupResponse);
+
+  // P15 — per-operator age recipient management.
+  rpc AddBackupRecipient(AddBackupRecipientRequest) returns (AddBackupRecipientResponse);
+  rpc ListBackupRecipients(ListBackupRecipientsRequest) returns (ListBackupRecipientsResponse);
+  rpc RemoveBackupRecipient(RemoveBackupRecipientRequest) returns (RemoveBackupRecipientResponse);
 }

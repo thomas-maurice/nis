@@ -95,21 +95,28 @@ func bucketLookup(pathStyle bool) minio.BucketLookupType {
 // out-of-band tools (lifecycle policies, listing) can predict it.
 //
 // Example: prefix="nis", operator="abc", ts="2026-05-20T14:00:00Z" →
-// "nis/abc/2026-05-20T14:00:00Z.yaml"
+// "nis/abc/2026-05-20T14:00:00Z.age"
+//
+// The `.age` suffix matches age-tool conventions and signals to humans
+// (S3 listing UIs, lifecycle policies) that the file needs decrypting
+// before it can be passed to nisctl restore. Pre-P15 the suffix was
+// .yaml; the migration truncates legacy rows so there's no mixed state
+// to support.
 func (c *Client) ObjectKey(operatorID, takenAtRFC3339 string) string {
 	parts := make([]string, 0, 3)
 	if c.prefix != "" {
 		parts = append(parts, c.prefix)
 	}
-	parts = append(parts, operatorID, takenAtRFC3339+".yaml")
+	parts = append(parts, operatorID, takenAtRFC3339+".age")
 	return strings.Join(parts, "/")
 }
 
-// Put uploads payload to objectKey. ContentType is application/x-yaml.
+// Put uploads payload to objectKey. ContentType is application/age — the
+// payload is an age-encrypted artifact (P15) wrapping the operator YAML.
 // Returns the server-confirmed size.
 func (c *Client) Put(ctx context.Context, objectKey string, body io.Reader, size int64) (int64, error) {
 	info, err := c.mc.PutObject(ctx, c.bucket, objectKey, body, size, minio.PutObjectOptions{
-		ContentType: "application/x-yaml",
+		ContentType: "application/age",
 	})
 	if err != nil {
 		return 0, fmt.Errorf("s3backup: PutObject(%q): %w", objectKey, err)

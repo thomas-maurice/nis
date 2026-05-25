@@ -719,3 +719,325 @@ export class DeleteBackupResponse extends Message<DeleteBackupResponse> {
   }
 }
 
+/**
+ * AgeRecipient is one row of the operator_age_recipients table (P15) — a
+ * public key authorised to decrypt scheduled backups for one operator. The
+ * private half lives wherever the operator chooses; NIS only stores the
+ * public key.
+ *
+ * @generated from message nis.v1.AgeRecipient
+ */
+export class AgeRecipient extends Message<AgeRecipient> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: string operator_id = 2;
+   */
+  operatorId = "";
+
+  /**
+   * public_key is the wire form of an age recipient — `age1...` (X25519) or
+   * `ssh-ed25519 ...`. Validated server-side via age.ParseRecipient.
+   *
+   * @generated from field: string public_key = 3;
+   */
+  publicKey = "";
+
+  /**
+   * @generated from field: string label = 4;
+   */
+  label = "";
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 5;
+   */
+  createdAt?: Timestamp;
+
+  /**
+   * created_by_user_id is the api_user that added the recipient. May be
+   * empty if the user has since been deleted (FK SET NULL).
+   *
+   * @generated from field: string created_by_user_id = 6;
+   */
+  createdByUserId = "";
+
+  constructor(data?: PartialMessage<AgeRecipient>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.AgeRecipient";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "label", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "created_at", kind: "message", T: Timestamp },
+    { no: 6, name: "created_by_user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AgeRecipient {
+    return new AgeRecipient().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AgeRecipient {
+    return new AgeRecipient().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AgeRecipient {
+    return new AgeRecipient().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AgeRecipient | PlainMessage<AgeRecipient> | undefined, b: AgeRecipient | PlainMessage<AgeRecipient> | undefined): boolean {
+    return proto3.util.equals(AgeRecipient, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.AddBackupRecipientRequest
+ */
+export class AddBackupRecipientRequest extends Message<AddBackupRecipientRequest> {
+  /**
+   * @generated from field: string operator_id = 1;
+   */
+  operatorId = "";
+
+  /**
+   * @generated from field: string public_key = 2;
+   */
+  publicKey = "";
+
+  /**
+   * @generated from field: string label = 3;
+   */
+  label = "";
+
+  constructor(data?: PartialMessage<AddBackupRecipientRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.AddBackupRecipientRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "label", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AddBackupRecipientRequest {
+    return new AddBackupRecipientRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AddBackupRecipientRequest {
+    return new AddBackupRecipientRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AddBackupRecipientRequest {
+    return new AddBackupRecipientRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AddBackupRecipientRequest | PlainMessage<AddBackupRecipientRequest> | undefined, b: AddBackupRecipientRequest | PlainMessage<AddBackupRecipientRequest> | undefined): boolean {
+    return proto3.util.equals(AddBackupRecipientRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.AddBackupRecipientResponse
+ */
+export class AddBackupRecipientResponse extends Message<AddBackupRecipientResponse> {
+  /**
+   * @generated from field: nis.v1.AgeRecipient recipient = 1;
+   */
+  recipient?: AgeRecipient;
+
+  constructor(data?: PartialMessage<AddBackupRecipientResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.AddBackupRecipientResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "recipient", kind: "message", T: AgeRecipient },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AddBackupRecipientResponse {
+    return new AddBackupRecipientResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AddBackupRecipientResponse {
+    return new AddBackupRecipientResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AddBackupRecipientResponse {
+    return new AddBackupRecipientResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AddBackupRecipientResponse | PlainMessage<AddBackupRecipientResponse> | undefined, b: AddBackupRecipientResponse | PlainMessage<AddBackupRecipientResponse> | undefined): boolean {
+    return proto3.util.equals(AddBackupRecipientResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.ListBackupRecipientsRequest
+ */
+export class ListBackupRecipientsRequest extends Message<ListBackupRecipientsRequest> {
+  /**
+   * @generated from field: string operator_id = 1;
+   */
+  operatorId = "";
+
+  constructor(data?: PartialMessage<ListBackupRecipientsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ListBackupRecipientsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListBackupRecipientsRequest {
+    return new ListBackupRecipientsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListBackupRecipientsRequest {
+    return new ListBackupRecipientsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListBackupRecipientsRequest {
+    return new ListBackupRecipientsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListBackupRecipientsRequest | PlainMessage<ListBackupRecipientsRequest> | undefined, b: ListBackupRecipientsRequest | PlainMessage<ListBackupRecipientsRequest> | undefined): boolean {
+    return proto3.util.equals(ListBackupRecipientsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.ListBackupRecipientsResponse
+ */
+export class ListBackupRecipientsResponse extends Message<ListBackupRecipientsResponse> {
+  /**
+   * @generated from field: repeated nis.v1.AgeRecipient recipients = 1;
+   */
+  recipients: AgeRecipient[] = [];
+
+  constructor(data?: PartialMessage<ListBackupRecipientsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.ListBackupRecipientsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "recipients", kind: "message", T: AgeRecipient, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListBackupRecipientsResponse {
+    return new ListBackupRecipientsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListBackupRecipientsResponse {
+    return new ListBackupRecipientsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListBackupRecipientsResponse {
+    return new ListBackupRecipientsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListBackupRecipientsResponse | PlainMessage<ListBackupRecipientsResponse> | undefined, b: ListBackupRecipientsResponse | PlainMessage<ListBackupRecipientsResponse> | undefined): boolean {
+    return proto3.util.equals(ListBackupRecipientsResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message nis.v1.RemoveBackupRecipientRequest
+ */
+export class RemoveBackupRecipientRequest extends Message<RemoveBackupRecipientRequest> {
+  /**
+   * @generated from field: string operator_id = 1;
+   */
+  operatorId = "";
+
+  /**
+   * @generated from field: string recipient_id = 2;
+   */
+  recipientId = "";
+
+  constructor(data?: PartialMessage<RemoveBackupRecipientRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RemoveBackupRecipientRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "recipient_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoveBackupRecipientRequest {
+    return new RemoveBackupRecipientRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoveBackupRecipientRequest {
+    return new RemoveBackupRecipientRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoveBackupRecipientRequest {
+    return new RemoveBackupRecipientRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RemoveBackupRecipientRequest | PlainMessage<RemoveBackupRecipientRequest> | undefined, b: RemoveBackupRecipientRequest | PlainMessage<RemoveBackupRecipientRequest> | undefined): boolean {
+    return proto3.util.equals(RemoveBackupRecipientRequest, a, b);
+  }
+}
+
+/**
+ * is_last_active is true when this removal left zero recipients on the
+ * operator. The CLI/UI uses this to render a warning that scheduled
+ * backups will fail on the next sweep until a recipient is added back.
+ *
+ * @generated from message nis.v1.RemoveBackupRecipientResponse
+ */
+export class RemoveBackupRecipientResponse extends Message<RemoveBackupRecipientResponse> {
+  /**
+   * @generated from field: bool is_last_active = 1;
+   */
+  isLastActive = false;
+
+  constructor(data?: PartialMessage<RemoveBackupRecipientResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "nis.v1.RemoveBackupRecipientResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "is_last_active", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoveBackupRecipientResponse {
+    return new RemoveBackupRecipientResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoveBackupRecipientResponse {
+    return new RemoveBackupRecipientResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoveBackupRecipientResponse {
+    return new RemoveBackupRecipientResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RemoveBackupRecipientResponse | PlainMessage<RemoveBackupRecipientResponse> | undefined, b: RemoveBackupRecipientResponse | PlainMessage<RemoveBackupRecipientResponse> | undefined): boolean {
+    return proto3.util.equals(RemoveBackupRecipientResponse, a, b);
+  }
+}
+

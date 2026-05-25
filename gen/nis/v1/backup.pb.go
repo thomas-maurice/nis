@@ -892,6 +892,389 @@ func (*DeleteBackupResponse) Descriptor() ([]byte, []int) {
 	return file_nis_v1_backup_proto_rawDescGZIP(), []int{15}
 }
 
+// AgeRecipient is one row of the operator_age_recipients table (P15) — a
+// public key authorised to decrypt scheduled backups for one operator. The
+// private half lives wherever the operator chooses; NIS only stores the
+// public key.
+type AgeRecipient struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OperatorId string                 `protobuf:"bytes,2,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	// public_key is the wire form of an age recipient — `age1...` (X25519) or
+	// `ssh-ed25519 ...`. Validated server-side via age.ParseRecipient.
+	PublicKey string                 `protobuf:"bytes,3,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	Label     string                 `protobuf:"bytes,4,opt,name=label,proto3" json:"label,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// created_by_user_id is the api_user that added the recipient. May be
+	// empty if the user has since been deleted (FK SET NULL).
+	CreatedByUserId string `protobuf:"bytes,6,opt,name=created_by_user_id,json=createdByUserId,proto3" json:"created_by_user_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AgeRecipient) Reset() {
+	*x = AgeRecipient{}
+	mi := &file_nis_v1_backup_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgeRecipient) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgeRecipient) ProtoMessage() {}
+
+func (x *AgeRecipient) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgeRecipient.ProtoReflect.Descriptor instead.
+func (*AgeRecipient) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AgeRecipient) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AgeRecipient) GetOperatorId() string {
+	if x != nil {
+		return x.OperatorId
+	}
+	return ""
+}
+
+func (x *AgeRecipient) GetPublicKey() string {
+	if x != nil {
+		return x.PublicKey
+	}
+	return ""
+}
+
+func (x *AgeRecipient) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *AgeRecipient) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *AgeRecipient) GetCreatedByUserId() string {
+	if x != nil {
+		return x.CreatedByUserId
+	}
+	return ""
+}
+
+type AddBackupRecipientRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	PublicKey     string                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddBackupRecipientRequest) Reset() {
+	*x = AddBackupRecipientRequest{}
+	mi := &file_nis_v1_backup_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddBackupRecipientRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddBackupRecipientRequest) ProtoMessage() {}
+
+func (x *AddBackupRecipientRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddBackupRecipientRequest.ProtoReflect.Descriptor instead.
+func (*AddBackupRecipientRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AddBackupRecipientRequest) GetOperatorId() string {
+	if x != nil {
+		return x.OperatorId
+	}
+	return ""
+}
+
+func (x *AddBackupRecipientRequest) GetPublicKey() string {
+	if x != nil {
+		return x.PublicKey
+	}
+	return ""
+}
+
+func (x *AddBackupRecipientRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+type AddBackupRecipientResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Recipient     *AgeRecipient          `protobuf:"bytes,1,opt,name=recipient,proto3" json:"recipient,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddBackupRecipientResponse) Reset() {
+	*x = AddBackupRecipientResponse{}
+	mi := &file_nis_v1_backup_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddBackupRecipientResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddBackupRecipientResponse) ProtoMessage() {}
+
+func (x *AddBackupRecipientResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddBackupRecipientResponse.ProtoReflect.Descriptor instead.
+func (*AddBackupRecipientResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AddBackupRecipientResponse) GetRecipient() *AgeRecipient {
+	if x != nil {
+		return x.Recipient
+	}
+	return nil
+}
+
+type ListBackupRecipientsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBackupRecipientsRequest) Reset() {
+	*x = ListBackupRecipientsRequest{}
+	mi := &file_nis_v1_backup_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBackupRecipientsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBackupRecipientsRequest) ProtoMessage() {}
+
+func (x *ListBackupRecipientsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBackupRecipientsRequest.ProtoReflect.Descriptor instead.
+func (*ListBackupRecipientsRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListBackupRecipientsRequest) GetOperatorId() string {
+	if x != nil {
+		return x.OperatorId
+	}
+	return ""
+}
+
+type ListBackupRecipientsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Recipients    []*AgeRecipient        `protobuf:"bytes,1,rep,name=recipients,proto3" json:"recipients,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBackupRecipientsResponse) Reset() {
+	*x = ListBackupRecipientsResponse{}
+	mi := &file_nis_v1_backup_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBackupRecipientsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBackupRecipientsResponse) ProtoMessage() {}
+
+func (x *ListBackupRecipientsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBackupRecipientsResponse.ProtoReflect.Descriptor instead.
+func (*ListBackupRecipientsResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListBackupRecipientsResponse) GetRecipients() []*AgeRecipient {
+	if x != nil {
+		return x.Recipients
+	}
+	return nil
+}
+
+type RemoveBackupRecipientRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperatorId    string                 `protobuf:"bytes,1,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	RecipientId   string                 `protobuf:"bytes,2,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveBackupRecipientRequest) Reset() {
+	*x = RemoveBackupRecipientRequest{}
+	mi := &file_nis_v1_backup_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveBackupRecipientRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveBackupRecipientRequest) ProtoMessage() {}
+
+func (x *RemoveBackupRecipientRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveBackupRecipientRequest.ProtoReflect.Descriptor instead.
+func (*RemoveBackupRecipientRequest) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *RemoveBackupRecipientRequest) GetOperatorId() string {
+	if x != nil {
+		return x.OperatorId
+	}
+	return ""
+}
+
+func (x *RemoveBackupRecipientRequest) GetRecipientId() string {
+	if x != nil {
+		return x.RecipientId
+	}
+	return ""
+}
+
+// is_last_active is true when this removal left zero recipients on the
+// operator. The CLI/UI uses this to render a warning that scheduled
+// backups will fail on the next sweep until a recipient is added back.
+type RemoveBackupRecipientResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IsLastActive  bool                   `protobuf:"varint,1,opt,name=is_last_active,json=isLastActive,proto3" json:"is_last_active,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveBackupRecipientResponse) Reset() {
+	*x = RemoveBackupRecipientResponse{}
+	mi := &file_nis_v1_backup_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveBackupRecipientResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveBackupRecipientResponse) ProtoMessage() {}
+
+func (x *RemoveBackupRecipientResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nis_v1_backup_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveBackupRecipientResponse.ProtoReflect.Descriptor instead.
+func (*RemoveBackupRecipientResponse) Descriptor() ([]byte, []int) {
+	return file_nis_v1_backup_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *RemoveBackupRecipientResponse) GetIsLastActive() bool {
+	if x != nil {
+		return x.IsLastActive
+	}
+	return false
+}
+
 var File_nis_v1_backup_proto protoreflect.FileDescriptor
 
 const file_nis_v1_backup_proto_rawDesc = "" +
@@ -957,7 +1340,38 @@ const file_nis_v1_backup_proto_rawDesc = "" +
 	"\apayload\"%\n" +
 	"\x13DeleteBackupRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
-	"\x14DeleteBackupResponse2\x96\x05\n" +
+	"\x14DeleteBackupResponse\"\xdc\x01\n" +
+	"\fAgeRecipient\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
+	"\voperator_id\x18\x02 \x01(\tR\n" +
+	"operatorId\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x03 \x01(\tR\tpublicKey\x12\x14\n" +
+	"\x05label\x18\x04 \x01(\tR\x05label\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12+\n" +
+	"\x12created_by_user_id\x18\x06 \x01(\tR\x0fcreatedByUserId\"q\n" +
+	"\x19AddBackupRecipientRequest\x12\x1f\n" +
+	"\voperator_id\x18\x01 \x01(\tR\n" +
+	"operatorId\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x02 \x01(\tR\tpublicKey\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\"P\n" +
+	"\x1aAddBackupRecipientResponse\x122\n" +
+	"\trecipient\x18\x01 \x01(\v2\x14.nis.v1.AgeRecipientR\trecipient\">\n" +
+	"\x1bListBackupRecipientsRequest\x12\x1f\n" +
+	"\voperator_id\x18\x01 \x01(\tR\n" +
+	"operatorId\"T\n" +
+	"\x1cListBackupRecipientsResponse\x124\n" +
+	"\n" +
+	"recipients\x18\x01 \x03(\v2\x14.nis.v1.AgeRecipientR\n" +
+	"recipients\"b\n" +
+	"\x1cRemoveBackupRecipientRequest\x12\x1f\n" +
+	"\voperator_id\x18\x01 \x01(\tR\n" +
+	"operatorId\x12!\n" +
+	"\frecipient_id\x18\x02 \x01(\tR\vrecipientId\"E\n" +
+	"\x1dRemoveBackupRecipientResponse\x12$\n" +
+	"\x0eis_last_active\x18\x01 \x01(\bR\fisLastActive2\xbc\a\n" +
 	"\rBackupService\x12y\n" +
 	"\x1cUpdateOperatorBackupSettings\x12+.nis.v1.UpdateOperatorBackupSettingsRequest\x1a,.nis.v1.UpdateOperatorBackupSettingsResponse\x12p\n" +
 	"\x19GetOperatorBackupSettings\x12(.nis.v1.GetOperatorBackupSettingsRequest\x1a).nis.v1.GetOperatorBackupSettingsResponse\x12X\n" +
@@ -965,7 +1379,10 @@ const file_nis_v1_backup_proto_rawDesc = "" +
 	"\x13ListOperatorBackups\x12\".nis.v1.ListOperatorBackupsRequest\x1a#.nis.v1.ListOperatorBackupsResponse\x12@\n" +
 	"\tGetBackup\x12\x18.nis.v1.GetBackupRequest\x1a\x19.nis.v1.GetBackupResponse\x12Q\n" +
 	"\x0eDownloadBackup\x12\x1d.nis.v1.DownloadBackupRequest\x1a\x1e.nis.v1.DownloadBackupResponse0\x01\x12I\n" +
-	"\fDeleteBackup\x12\x1b.nis.v1.DeleteBackupRequest\x1a\x1c.nis.v1.DeleteBackupResponseB\x82\x01\n" +
+	"\fDeleteBackup\x12\x1b.nis.v1.DeleteBackupRequest\x1a\x1c.nis.v1.DeleteBackupResponse\x12[\n" +
+	"\x12AddBackupRecipient\x12!.nis.v1.AddBackupRecipientRequest\x1a\".nis.v1.AddBackupRecipientResponse\x12a\n" +
+	"\x14ListBackupRecipients\x12#.nis.v1.ListBackupRecipientsRequest\x1a$.nis.v1.ListBackupRecipientsResponse\x12d\n" +
+	"\x15RemoveBackupRecipient\x12$.nis.v1.RemoveBackupRecipientRequest\x1a%.nis.v1.RemoveBackupRecipientResponseB\x82\x01\n" +
 	"\n" +
 	"com.nis.v1B\vBackupProtoP\x01Z.github.com/thomas-maurice/nis/gen/nis/v1;nisv1\xa2\x02\x03NXX\xaa\x02\x06Nis.V1\xca\x02\x06Nis\\V1\xe2\x02\x12Nis\\V1\\GPBMetadata\xea\x02\aNis::V1b\x06proto3"
 
@@ -981,7 +1398,7 @@ func file_nis_v1_backup_proto_rawDescGZIP() []byte {
 	return file_nis_v1_backup_proto_rawDescData
 }
 
-var file_nis_v1_backup_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_nis_v1_backup_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_nis_v1_backup_proto_goTypes = []any{
 	(*OperatorBackup)(nil),                       // 0: nis.v1.OperatorBackup
 	(*BackupSettings)(nil),                       // 1: nis.v1.BackupSettings
@@ -999,38 +1416,54 @@ var file_nis_v1_backup_proto_goTypes = []any{
 	(*DownloadBackupResponse)(nil),               // 13: nis.v1.DownloadBackupResponse
 	(*DeleteBackupRequest)(nil),                  // 14: nis.v1.DeleteBackupRequest
 	(*DeleteBackupResponse)(nil),                 // 15: nis.v1.DeleteBackupResponse
-	(*timestamppb.Timestamp)(nil),                // 16: google.protobuf.Timestamp
-	(*PageRequest)(nil),                          // 17: nis.v1.PageRequest
+	(*AgeRecipient)(nil),                         // 16: nis.v1.AgeRecipient
+	(*AddBackupRecipientRequest)(nil),            // 17: nis.v1.AddBackupRecipientRequest
+	(*AddBackupRecipientResponse)(nil),           // 18: nis.v1.AddBackupRecipientResponse
+	(*ListBackupRecipientsRequest)(nil),          // 19: nis.v1.ListBackupRecipientsRequest
+	(*ListBackupRecipientsResponse)(nil),         // 20: nis.v1.ListBackupRecipientsResponse
+	(*RemoveBackupRecipientRequest)(nil),         // 21: nis.v1.RemoveBackupRecipientRequest
+	(*RemoveBackupRecipientResponse)(nil),        // 22: nis.v1.RemoveBackupRecipientResponse
+	(*timestamppb.Timestamp)(nil),                // 23: google.protobuf.Timestamp
+	(*PageRequest)(nil),                          // 24: nis.v1.PageRequest
 }
 var file_nis_v1_backup_proto_depIdxs = []int32{
-	16, // 0: nis.v1.OperatorBackup.created_at:type_name -> google.protobuf.Timestamp
-	16, // 1: nis.v1.BackupSettings.last_backup_at:type_name -> google.protobuf.Timestamp
+	23, // 0: nis.v1.OperatorBackup.created_at:type_name -> google.protobuf.Timestamp
+	23, // 1: nis.v1.BackupSettings.last_backup_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: nis.v1.UpdateOperatorBackupSettingsResponse.settings:type_name -> nis.v1.BackupSettings
 	1,  // 3: nis.v1.GetOperatorBackupSettingsResponse.settings:type_name -> nis.v1.BackupSettings
 	0,  // 4: nis.v1.RunOperatorBackupResponse.backup:type_name -> nis.v1.OperatorBackup
-	17, // 5: nis.v1.ListOperatorBackupsRequest.page:type_name -> nis.v1.PageRequest
+	24, // 5: nis.v1.ListOperatorBackupsRequest.page:type_name -> nis.v1.PageRequest
 	0,  // 6: nis.v1.ListOperatorBackupsResponse.backups:type_name -> nis.v1.OperatorBackup
 	0,  // 7: nis.v1.GetBackupResponse.backup:type_name -> nis.v1.OperatorBackup
 	0,  // 8: nis.v1.DownloadBackupResponse.metadata:type_name -> nis.v1.OperatorBackup
-	2,  // 9: nis.v1.BackupService.UpdateOperatorBackupSettings:input_type -> nis.v1.UpdateOperatorBackupSettingsRequest
-	4,  // 10: nis.v1.BackupService.GetOperatorBackupSettings:input_type -> nis.v1.GetOperatorBackupSettingsRequest
-	6,  // 11: nis.v1.BackupService.RunOperatorBackup:input_type -> nis.v1.RunOperatorBackupRequest
-	8,  // 12: nis.v1.BackupService.ListOperatorBackups:input_type -> nis.v1.ListOperatorBackupsRequest
-	10, // 13: nis.v1.BackupService.GetBackup:input_type -> nis.v1.GetBackupRequest
-	12, // 14: nis.v1.BackupService.DownloadBackup:input_type -> nis.v1.DownloadBackupRequest
-	14, // 15: nis.v1.BackupService.DeleteBackup:input_type -> nis.v1.DeleteBackupRequest
-	3,  // 16: nis.v1.BackupService.UpdateOperatorBackupSettings:output_type -> nis.v1.UpdateOperatorBackupSettingsResponse
-	5,  // 17: nis.v1.BackupService.GetOperatorBackupSettings:output_type -> nis.v1.GetOperatorBackupSettingsResponse
-	7,  // 18: nis.v1.BackupService.RunOperatorBackup:output_type -> nis.v1.RunOperatorBackupResponse
-	9,  // 19: nis.v1.BackupService.ListOperatorBackups:output_type -> nis.v1.ListOperatorBackupsResponse
-	11, // 20: nis.v1.BackupService.GetBackup:output_type -> nis.v1.GetBackupResponse
-	13, // 21: nis.v1.BackupService.DownloadBackup:output_type -> nis.v1.DownloadBackupResponse
-	15, // 22: nis.v1.BackupService.DeleteBackup:output_type -> nis.v1.DeleteBackupResponse
-	16, // [16:23] is the sub-list for method output_type
-	9,  // [9:16] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	23, // 9: nis.v1.AgeRecipient.created_at:type_name -> google.protobuf.Timestamp
+	16, // 10: nis.v1.AddBackupRecipientResponse.recipient:type_name -> nis.v1.AgeRecipient
+	16, // 11: nis.v1.ListBackupRecipientsResponse.recipients:type_name -> nis.v1.AgeRecipient
+	2,  // 12: nis.v1.BackupService.UpdateOperatorBackupSettings:input_type -> nis.v1.UpdateOperatorBackupSettingsRequest
+	4,  // 13: nis.v1.BackupService.GetOperatorBackupSettings:input_type -> nis.v1.GetOperatorBackupSettingsRequest
+	6,  // 14: nis.v1.BackupService.RunOperatorBackup:input_type -> nis.v1.RunOperatorBackupRequest
+	8,  // 15: nis.v1.BackupService.ListOperatorBackups:input_type -> nis.v1.ListOperatorBackupsRequest
+	10, // 16: nis.v1.BackupService.GetBackup:input_type -> nis.v1.GetBackupRequest
+	12, // 17: nis.v1.BackupService.DownloadBackup:input_type -> nis.v1.DownloadBackupRequest
+	14, // 18: nis.v1.BackupService.DeleteBackup:input_type -> nis.v1.DeleteBackupRequest
+	17, // 19: nis.v1.BackupService.AddBackupRecipient:input_type -> nis.v1.AddBackupRecipientRequest
+	19, // 20: nis.v1.BackupService.ListBackupRecipients:input_type -> nis.v1.ListBackupRecipientsRequest
+	21, // 21: nis.v1.BackupService.RemoveBackupRecipient:input_type -> nis.v1.RemoveBackupRecipientRequest
+	3,  // 22: nis.v1.BackupService.UpdateOperatorBackupSettings:output_type -> nis.v1.UpdateOperatorBackupSettingsResponse
+	5,  // 23: nis.v1.BackupService.GetOperatorBackupSettings:output_type -> nis.v1.GetOperatorBackupSettingsResponse
+	7,  // 24: nis.v1.BackupService.RunOperatorBackup:output_type -> nis.v1.RunOperatorBackupResponse
+	9,  // 25: nis.v1.BackupService.ListOperatorBackups:output_type -> nis.v1.ListOperatorBackupsResponse
+	11, // 26: nis.v1.BackupService.GetBackup:output_type -> nis.v1.GetBackupResponse
+	13, // 27: nis.v1.BackupService.DownloadBackup:output_type -> nis.v1.DownloadBackupResponse
+	15, // 28: nis.v1.BackupService.DeleteBackup:output_type -> nis.v1.DeleteBackupResponse
+	18, // 29: nis.v1.BackupService.AddBackupRecipient:output_type -> nis.v1.AddBackupRecipientResponse
+	20, // 30: nis.v1.BackupService.ListBackupRecipients:output_type -> nis.v1.ListBackupRecipientsResponse
+	22, // 31: nis.v1.BackupService.RemoveBackupRecipient:output_type -> nis.v1.RemoveBackupRecipientResponse
+	22, // [22:32] is the sub-list for method output_type
+	12, // [12:22] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_nis_v1_backup_proto_init() }
@@ -1050,7 +1483,7 @@ func file_nis_v1_backup_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nis_v1_backup_proto_rawDesc), len(file_nis_v1_backup_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

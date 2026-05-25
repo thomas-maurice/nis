@@ -206,40 +206,21 @@ func TestE2E_ClusterDrift_NewAccountReportsMissingOnResolver(t *testing.T) {
 	if err := exec.Command("docker", "start", h.natsContainer).Run(); err != nil {
 		t.Fatalf("docker start %s: %v", h.natsContainer, err)
 	}
-	waitDeadline := time.Now().Add(15 * time.Second)
-	for {
-		_, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
-			ClusterId:     st.clusterID,
-			IncludeInSync: true,
-		}))
-		if err == nil {
-			break
-		}
-		if time.Now().After(waitDeadline) {
-			t.Fatalf("resolver did not come back up within deadline")
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
 
-	resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
-		ClusterId:     st.clusterID,
-		IncludeInSync: false,
-	}))
-	if err != nil {
-		t.Fatalf("GetClusterDriftStatus: %v", err)
-	}
-
-	var found bool
-	for _, r := range resp.Msg.Rows {
-		if r.AccountId == freshAccountID {
-			found = true
-			if r.Status != nisv1.DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER {
-				t.Fatalf("expected MISSING_ON_RESOLVER for new account, got %v (msg=%q)", r.Status, r.ErrorMessage)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("fresh account %s not present in drift rows", freshAccountID)
+	// Poll until the fresh account appears with a non-UNREACHABLE status.
+	// Two race conditions to bridge: (1) the cluster row may still be
+	// marked unhealthy from a health-check that fired while NATS was
+	// stopped — until the next health-check sweep marks it healthy again,
+	// drift returns UNREACHABLE for every row; (2) the resolver's lazy
+	// re-load of its on-disk JWT store can return incomplete answers
+	// briefly. The harness pins CLUSTER_HEALTH_CHECK_INTERVAL_SECONDS=2 so
+	// the re-mark-healthy step completes within a couple seconds.
+	row := waitForDriftRow(t, ctx, h, st.clusterID, false, time.Now().Add(30*time.Second),
+		func(r *nisv1.AccountDriftRow) bool {
+			return r.AccountId == freshAccountID && r.Status != nisv1.DriftStatus_DRIFT_STATUS_UNREACHABLE
+		})
+	if row.Status != nisv1.DriftStatus_DRIFT_STATUS_MISSING_ON_RESOLVER {
+		t.Fatalf("expected MISSING_ON_RESOLVER for new account, got %v (msg=%q)", row.Status, row.ErrorMessage)
 	}
 
 	// And reconcile fixes it.
@@ -414,40 +395,15 @@ func TestE2E_ClusterDrift_OrphanOnResolverDetected(t *testing.T) {
 	if err := exec.Command("docker", "start", h.natsContainer).Run(); err != nil {
 		t.Fatalf("docker start %s: %v", h.natsContainer, err)
 	}
-	// Give the resolver a moment to come back up so the scan can reach it.
-	waitDeadline := time.Now().Add(15 * time.Second)
-	for {
-		resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
-			ClusterId:     st.clusterID,
-			IncludeInSync: true,
-		}))
-		if err == nil && hasReachableRow(resp.Msg.Rows) {
-			break
-		}
-		if time.Now().After(waitDeadline) {
-			t.Fatalf("resolver did not come back up within deadline")
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
 
-	// 4. Scan should now report the doomed pubkey as ORPHAN_ON_RESOLVER.
-	resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
-		ClusterId:     st.clusterID,
-		IncludeInSync: false,
-	}))
-	if err != nil {
-		t.Fatalf("GetClusterDriftStatus: %v", err)
-	}
-	var orphan *nisv1.AccountDriftRow
-	for _, r := range resp.Msg.Rows {
-		if r.AccountPublicKey == doomedPK {
-			orphan = r
-			break
-		}
-	}
-	if orphan == nil {
-		t.Fatalf("doomed pubkey %q not present in drift rows: %+v", doomedPK, resp.Msg.Rows)
-	}
+	// 4. Poll the drift scan until the orphan appears. The resolver loads
+	// its persisted JWT store asynchronously after process startup, so a
+	// generic "is NATS up" check can return before the orphan JWT is in
+	// the resolver's in-memory account list. Waiting on the assertion
+	// target (orphan pubkey present in rows) makes the readiness signal
+	// the same as the test's expectation — no race window.
+	orphan := waitForDriftRow(t, ctx, h, st.clusterID, false, time.Now().Add(30*time.Second),
+		func(r *nisv1.AccountDriftRow) bool { return r.AccountPublicKey == doomedPK })
 	if orphan.Status != nisv1.DriftStatus_DRIFT_STATUS_ORPHAN_ON_RESOLVER {
 		t.Fatalf("expected ORPHAN_ON_RESOLVER for %q, got %v", doomedPK, orphan.Status)
 	}
@@ -488,6 +444,45 @@ func hasReachableRow(rows []*nisv1.AccountDriftRow) bool {
 		}
 	}
 	return false
+}
+
+// waitForDriftRow polls GetClusterDriftStatus until `predicate` matches a row
+// or the deadline expires. Returns the matched row.
+//
+// After `docker start <nats-container>` the NATS process accepts connections
+// almost immediately, but the delegated JWT resolver lazily re-hydrates its
+// account store from disk and there's no event for "store fully loaded".
+// During that window GetClusterDriftStatus succeeds, yet the resolver-side
+// LIST returns an incomplete picture: a known account may be missing, or an
+// expected orphan may not appear yet. The `hasReachableRow` heuristic above
+// is satisfied as soon as the system account answers, which is well before
+// the rest of the store is enumerated — hence the historical flake on the
+// orphan + missing-on-resolver tests.
+//
+// Wait on the assertion target directly. The predicate IS the readiness
+// signal — if the row we care about isn't in the response yet, we're not
+// done waiting.
+func waitForDriftRow(t *testing.T, ctx context.Context, h *harness, clusterID string, includeInSync bool, deadline time.Time, predicate func(*nisv1.AccountDriftRow) bool) *nisv1.AccountDriftRow {
+	t.Helper()
+	var lastRows []*nisv1.AccountDriftRow
+	for {
+		resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
+			ClusterId:     clusterID,
+			IncludeInSync: includeInSync,
+		}))
+		if err == nil {
+			lastRows = resp.Msg.Rows
+			for _, r := range resp.Msg.Rows {
+				if predicate(r) {
+					return r
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected drift row did not appear within deadline; last rows: %+v", lastRows)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // TestE2E_ClusterDrift_RequiresAuth: unauthenticated call rejected before

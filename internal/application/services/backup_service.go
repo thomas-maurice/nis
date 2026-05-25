@@ -34,6 +34,17 @@ var ErrBackupsDisabled = errors.New("backups are disabled at the NIS-wide level"
 // constraint violation.
 var ErrBackupIntervalTooSmall = errors.New("backup interval must be at least 1h")
 
+// ErrNoBackupRecipients is returned by RunBackup when the operator has no
+// age recipients configured. P15 makes encryption mandatory; an operator
+// with backups enabled but no recipients hits a loud failure on the next
+// sweep (operator.backup.failed reason="no_recipients_configured") until
+// they add at least one.
+var ErrNoBackupRecipients = errors.New("operator has no age backup recipients configured")
+
+// ErrInvalidAgeRecipient is returned by AddRecipient when the supplied
+// public key fails age.ParseRecipient. Surfaced as CodeInvalidArgument.
+var ErrInvalidAgeRecipient = errors.New("invalid age recipient public key")
+
 // BackupService owns per-operator scheduled backups (P12). One service per
 // process. Holds the S3 client (nil when disabled — methods return
 // ErrBackupsDisabled). The job handlers in job_handlers_backup.go invoke
@@ -153,10 +164,15 @@ func (s *BackupService) UpdateSettings(ctx context.Context, operatorID uuid.UUID
 // metadata row, updates last_backup_at, enforces retention. Trigger is
 // "scheduled" (sweep) or "manual" (admin button / CLI).
 //
-// Encryption mode is SecretsEncrypted: NKey seeds remain encrypted with
-// the data encryption key. Restoring requires an NIS instance with the
-// same key; the README documents this trade-off explicitly. Plaintext-
-// mode with envelope-encryption is deferred to v1.1.
+// Encryption mode is SecretsPlaintext: NKey seeds are decrypted into the
+// YAML before the age envelope wraps the artifact. The age envelope is the
+// sole at-rest protection — anyone holding a recipient identity reads the
+// seeds in cleartext, and the operator must guard age private keys with
+// the same care as the operator NKeys themselves. The payoff is portability:
+// a backup restores into any fresh NIS, regardless of whether that instance
+// holds the original data encryption key (`adoptSeed` re-encrypts under the
+// destination's key). This is the disaster-recovery property the backup
+// feature exists to provide.
 func (s *BackupService) RunBackup(ctx context.Context, operatorID uuid.UUID, trigger entities.BackupTriggerKind) (*entities.OperatorBackup, error) {
 	if !s.Enabled() {
 		return nil, ErrBackupsDisabled
@@ -181,7 +197,13 @@ func (s *BackupService) RunBackup(ctx context.Context, operatorID uuid.UUID, tri
 		s.recordManualJob(ctx, operatorID, startedAt, status, errMsg)
 	}
 
-	bytesPayload, err := s.exportService.ExportOperatorBytes(ctx, operatorID, SecretsEncrypted, FormatYAML)
+	// SecretsPlaintext (not SecretsEncrypted): NKey seeds are decrypted into
+	// the YAML before age wraps it. Without this, restoring a backup requires
+	// the source NIS's data encryption key — defeating the disaster-recovery
+	// case where the original instance is gone. The age envelope below is
+	// the at-rest protection; the data-encryption-key layer was redundant
+	// once age became mandatory (P15) and actively harmful for portability.
+	plaintextPayload, err := s.exportService.ExportOperatorBytes(ctx, operatorID, SecretsPlaintext, FormatYAML)
 	if err != nil {
 		metrics.Default().RecordBackupFailed(string(trigger))
 		s.emitBackupFailed(ctx, operatorID, trigger, "export", err)
@@ -189,6 +211,33 @@ func (s *BackupService) RunBackup(ctx context.Context, operatorID uuid.UUID, tri
 		return nil, fmt.Errorf("backup: export: %w", err)
 	}
 
+	// P15 — encrypt the artifact with the operator's age recipients before
+	// upload. No recipients → loud failure with reason="no_recipients_configured"
+	// so an operator running with backup_enabled=true sees the configuration
+	// gap in their next audit-log scan.
+	recipients, _, err := s.loadRecipientsForOperator(ctx, operatorID)
+	if err != nil {
+		metrics.Default().RecordBackupFailed(string(trigger))
+		if errors.Is(err, ErrNoBackupRecipients) {
+			s.emitBackupFailed(ctx, operatorID, trigger, "no_recipients_configured", err)
+		} else {
+			s.emitBackupFailed(ctx, operatorID, trigger, "load_recipients", err)
+		}
+		recordManualJobOutcome(entities.JobStatusDeadLettered, "recipients: "+err.Error())
+		return nil, fmt.Errorf("backup: %w", err)
+	}
+	bytesPayload, err := encryptForBackup(plaintextPayload, recipients)
+	if err != nil {
+		metrics.Default().RecordBackupFailed(string(trigger))
+		s.emitBackupFailed(ctx, operatorID, trigger, "encrypt", err)
+		recordManualJobOutcome(entities.JobStatusDeadLettered, "encrypt: "+err.Error())
+		return nil, fmt.Errorf("backup: encrypt: %w", err)
+	}
+
+	// sha256 is computed over the ciphertext so the integrity check matches
+	// what's at rest in S3. Pre-P15 it was sha256 of plaintext — the
+	// migration truncates the legacy rows so there's no mixed-state DB to
+	// reconcile.
 	sum := sha256.Sum256(bytesPayload)
 	sha := hex.EncodeToString(sum[:])
 

@@ -1,16 +1,27 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"connectrpc.com/connect"
+	"filippo.io/age"
 	"github.com/spf13/cobra"
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/internal/client"
 )
+
+// ageMagic is the literal header bytes every age artifact begins with. The
+// CLI sniffs this before deciding to decrypt; see runRestoreOperator.
+const ageMagic = "age-encryption.org/v1\n"
+
+func isAgeEncrypted(data []byte) bool {
+	return bytes.HasPrefix(data, []byte(ageMagic))
+}
 
 var backupCmd = &cobra.Command{
 	Use:   "backup",
@@ -48,6 +59,7 @@ var (
 	backupOutput           string
 	backupFormat           string
 	restoreOverwrite       bool
+	restoreIdentityFile    string
 )
 
 func init() {
@@ -68,6 +80,12 @@ func init() {
 			"its subtree (accounts, users, scoped keys) with the backup's "+
 			"contents. Attached clusters are preserved. Without this flag, "+
 			"restoring over an existing operator ID is refused.")
+	restoreCmd.Flags().StringVarP(&restoreIdentityFile, "identity", "i", "",
+		"age identity file (secret key) to decrypt the input. Required when "+
+			"restoring a scheduled (P15) backup downloaded via "+
+			"\"nisctl operator backup download\". Manual exports created via "+
+			"\"nisctl backup operator\" are plaintext YAML/JSON and do not "+
+			"need --identity.")
 }
 
 func runBackupOperator(cmd *cobra.Command, args []string) error {
@@ -148,6 +166,32 @@ func runRestoreOperator(cmd *cobra.Command, args []string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("failed to read backup file: %w", err)
+	}
+
+	// P15 — if the file is age-encrypted, decrypt it before passing to
+	// ImportOperator. The age header starts with the literal bytes
+	// "age-encryption.org/v1\n". Sniffing both directions lets us refuse
+	// loudly when the user's --identity / file-shape choices don't match.
+	isAge := isAgeEncrypted(data)
+	switch {
+	case isAge && restoreIdentityFile == "":
+		return fmt.Errorf("file %s is age-encrypted but no --identity / -i was supplied", filename)
+	case !isAge && restoreIdentityFile != "":
+		return fmt.Errorf("file %s does not look age-encrypted; remove --identity / -i to restore the plaintext input", filename)
+	case isAge && restoreIdentityFile != "":
+		identities, err := loadAgeIdentities(restoreIdentityFile)
+		if err != nil {
+			return fmt.Errorf("load identity: %w", err)
+		}
+		r, err := age.Decrypt(bytes.NewReader(data), identities...)
+		if err != nil {
+			return fmt.Errorf("age decrypt: %w", err)
+		}
+		plaintext, err := io.ReadAll(r)
+		if err != nil {
+			return fmt.Errorf("read decrypted stream: %w", err)
+		}
+		data = plaintext
 	}
 
 	// Format (json vs yaml) is auto-detected by the server from the file contents.

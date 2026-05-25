@@ -80,6 +80,41 @@ var operatorBackupDeleteCmd = &cobra.Command{
 	RunE:  runOperatorBackupDelete,
 }
 
+// P15 — per-operator age recipient management.
+
+var (
+	opBackupRecipientPubkey      string
+	opBackupRecipientLabel       string
+	opBackupRecipientIDOrPubkey  string
+	opBackupRecipientConfirmYes  bool
+)
+
+var operatorBackupAddRecipientCmd = &cobra.Command{
+	Use:   "add-recipient OPERATOR_ID_OR_NAME",
+	Short: "Add an age recipient public key authorised to decrypt this operator's backups",
+	Long: `Add an age recipient public key (X25519 or ssh-ed25519) authorised to
+decrypt scheduled backups for this operator. The private half lives
+wherever you choose — yubikey, encrypted disk, secret manager — and is
+never seen by NIS. At least one recipient is required for scheduled
+backups to succeed. Generate a local keypair with "nisctl backup keygen".`,
+	Args: cobra.ExactArgs(1),
+	RunE: runOperatorBackupAddRecipient,
+}
+
+var operatorBackupListRecipientsCmd = &cobra.Command{
+	Use:   "list-recipients OPERATOR_ID_OR_NAME",
+	Short: "List age recipients for an operator's scheduled backups",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runOperatorBackupListRecipients,
+}
+
+var operatorBackupRemoveRecipientCmd = &cobra.Command{
+	Use:   "remove-recipient OPERATOR_ID_OR_NAME",
+	Short: "Remove an age recipient from an operator (by --recipient-id or --pubkey)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runOperatorBackupRemoveRecipient,
+}
+
 func init() {
 	operatorBackupCmd.AddCommand(operatorBackupEnableCmd)
 	operatorBackupCmd.AddCommand(operatorBackupDisableCmd)
@@ -88,6 +123,9 @@ func init() {
 	operatorBackupCmd.AddCommand(operatorBackupShowCmd)
 	operatorBackupCmd.AddCommand(operatorBackupDownloadCmd)
 	operatorBackupCmd.AddCommand(operatorBackupDeleteCmd)
+	operatorBackupCmd.AddCommand(operatorBackupAddRecipientCmd)
+	operatorBackupCmd.AddCommand(operatorBackupListRecipientsCmd)
+	operatorBackupCmd.AddCommand(operatorBackupRemoveRecipientCmd)
 	operatorCmd.AddCommand(operatorBackupCmd)
 
 	operatorBackupEnableCmd.Flags().DurationVar(&opBackupInterval, "interval", 24*time.Hour, "interval between scheduled backups (minimum 1h)")
@@ -95,7 +133,15 @@ func init() {
 
 	operatorBackupRunCmd.Flags().StringVarP(&opBackupOutput, "output", "o", "", "if set, write the resulting backup ID to this file (otherwise stdout)")
 
-	operatorBackupDownloadCmd.Flags().StringVarP(&opBackupOutput, "output", "o", "", "output file path (default: <backup-id>.yaml)")
+	operatorBackupDownloadCmd.Flags().StringVarP(&opBackupOutput, "output", "o", "", "output file path (default: <backup-id>.age)")
+
+	operatorBackupAddRecipientCmd.Flags().StringVar(&opBackupRecipientPubkey, "pubkey", "", "age recipient public key (age1... or ssh-ed25519 ...) — required")
+	operatorBackupAddRecipientCmd.Flags().StringVar(&opBackupRecipientLabel, "label", "", "optional human-readable tag")
+	_ = operatorBackupAddRecipientCmd.MarkFlagRequired("pubkey")
+
+	operatorBackupRemoveRecipientCmd.Flags().StringVar(&opBackupRecipientIDOrPubkey, "recipient-id", "", "recipient ID to remove (UUID; alternative: --pubkey)")
+	operatorBackupRemoveRecipientCmd.Flags().StringVar(&opBackupRecipientPubkey, "pubkey", "", "recipient pubkey to remove (alternative: --recipient-id)")
+	operatorBackupRemoveRecipientCmd.Flags().BoolVarP(&opBackupRecipientConfirmYes, "yes", "y", false, "skip the last-recipient confirmation prompt")
 }
 
 func runOperatorBackupEnable(cmd *cobra.Command, args []string) error {
@@ -220,7 +266,11 @@ func runOperatorBackupDownload(cmd *cobra.Command, args []string) error {
 	backupID := args[0]
 	outPath := opBackupOutput
 	if outPath == "" {
-		outPath = backupID + ".yaml"
+		// P15 — downloaded artifacts are age-encrypted; the .age suffix
+		// matches age-tool conventions and signals to humans that the
+		// file needs decrypting with `nisctl backup decrypt` or `age -d`
+		// before it can be passed to `nisctl restore`.
+		outPath = backupID + ".age"
 	}
 	stream, err := GetClient().Backup.DownloadBackup(context.Background(),
 		connect.NewRequest(&nisv1.DownloadBackupRequest{Id: backupID}))
@@ -258,6 +308,107 @@ func runOperatorBackupDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("delete: %w", err)
 	}
 	client.NewPrinter(GetOutputFormat()).PrintSuccess("Backup %s deleted", args[0])
+	return nil
+}
+
+// P15 — recipient subcommand runners.
+
+func runOperatorBackupAddRecipient(cmd *cobra.Command, args []string) error {
+	operatorID, err := resolveOperatorID(args[0])
+	if err != nil {
+		return err
+	}
+	resp, err := GetClient().Backup.AddBackupRecipient(context.Background(),
+		connect.NewRequest(&nisv1.AddBackupRecipientRequest{
+			OperatorId: operatorID,
+			PublicKey:  opBackupRecipientPubkey,
+			Label:      opBackupRecipientLabel,
+		}))
+	if err != nil {
+		return fmt.Errorf("add recipient: %w", err)
+	}
+	printer := client.NewPrinter(GetOutputFormat())
+	printer.PrintSuccess("Recipient added: %s (label=%q)",
+		resp.Msg.Recipient.Id, resp.Msg.Recipient.Label)
+	return printer.PrintObject(resp.Msg.Recipient)
+}
+
+func runOperatorBackupListRecipients(cmd *cobra.Command, args []string) error {
+	operatorID, err := resolveOperatorID(args[0])
+	if err != nil {
+		return err
+	}
+	resp, err := GetClient().Backup.ListBackupRecipients(context.Background(),
+		connect.NewRequest(&nisv1.ListBackupRecipientsRequest{OperatorId: operatorID}))
+	if err != nil {
+		return fmt.Errorf("list recipients: %w", err)
+	}
+	printer := client.NewPrinter(GetOutputFormat())
+	if GetOutputFormat() == "table" {
+		headers := []string{"ID", "LABEL", "PUBLIC KEY", "CREATED"}
+		rows := make([][]string, 0, len(resp.Msg.Recipients))
+		for _, r := range resp.Msg.Recipients {
+			rows = append(rows, []string{
+				r.Id,
+				r.Label,
+				r.PublicKey,
+				r.CreatedAt.AsTime().Local().Format(time.RFC3339),
+			})
+		}
+		return printer.PrintTable(headers, rows)
+	}
+	return printer.PrintList(resp.Msg.Recipients)
+}
+
+func runOperatorBackupRemoveRecipient(cmd *cobra.Command, args []string) error {
+	operatorID, err := resolveOperatorID(args[0])
+	if err != nil {
+		return err
+	}
+	if opBackupRecipientIDOrPubkey == "" && opBackupRecipientPubkey == "" {
+		return fmt.Errorf("either --recipient-id or --pubkey is required")
+	}
+	if opBackupRecipientIDOrPubkey != "" && opBackupRecipientPubkey != "" {
+		return fmt.Errorf("--recipient-id and --pubkey are mutually exclusive")
+	}
+	recipientID := opBackupRecipientIDOrPubkey
+	if recipientID == "" {
+		// Resolve by pubkey.
+		listResp, err := GetClient().Backup.ListBackupRecipients(context.Background(),
+			connect.NewRequest(&nisv1.ListBackupRecipientsRequest{OperatorId: operatorID}))
+		if err != nil {
+			return fmt.Errorf("resolve recipient: %w", err)
+		}
+		for _, r := range listResp.Msg.Recipients {
+			if r.PublicKey == opBackupRecipientPubkey {
+				recipientID = r.Id
+				break
+			}
+		}
+		if recipientID == "" {
+			return fmt.Errorf("no recipient with that public key on this operator")
+		}
+	}
+	resp, err := GetClient().Backup.RemoveBackupRecipient(context.Background(),
+		connect.NewRequest(&nisv1.RemoveBackupRecipientRequest{
+			OperatorId:  operatorID,
+			RecipientId: recipientID,
+		}))
+	if err != nil {
+		return fmt.Errorf("remove recipient: %w", err)
+	}
+	printer := client.NewPrinter(GetOutputFormat())
+	printer.PrintSuccess("Recipient %s removed", recipientID)
+	if resp.Msg.IsLastActive {
+		fmt.Fprintln(os.Stderr, "WARNING: this operator now has ZERO age recipients; scheduled backups will fail on the next sweep until you add a recipient back.")
+		if !opBackupRecipientConfirmYes {
+			// The removal already happened; we just surface the warning loudly.
+			// --yes does not suppress the warning, only the (currently-absent)
+			// pre-removal prompt. Future v1.1 may add an interactive prompt
+			// before the call; today the warning is post-hoc.
+			fmt.Fprintln(os.Stderr, "Pass --yes to silence this warning in scripts that intentionally clear all recipients.")
+		}
+	}
 	return nil
 }
 

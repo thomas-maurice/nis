@@ -210,6 +210,15 @@ func (h *harness) start(t *testing.T) {
 		// kept the production default at 10s don't apply here. Production
 		// default is still 10s on SQLite / 2s on Postgres.
 		"JOBS_POLL_INTERVAL_SECONDS=1",
+		// Cluster health-check cadence (defaults 5s/60s in prod). The drift
+		// tests that stop+start the NATS container rely on a fresh health
+		// check landing AFTER restart to flip `clusters.healthy` back to
+		// true — otherwise `GetClusterDriftStatus` short-circuits every row
+		// to UNREACHABLE and the test sees nothing useful within its window.
+		// 1s/2s makes the next post-restart check land within ~3s, well
+		// inside the per-test timeout.
+		"CLUSTER_HEALTH_CHECK_INITIAL_DELAY_SECONDS=1",
+		"CLUSTER_HEALTH_CHECK_INTERVAL_SECONDS=2",
 	}
 	if h.backupsBucket != "" {
 		// Pin the sweep interval short so tests can observe scheduled backups

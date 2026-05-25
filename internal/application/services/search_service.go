@@ -20,6 +20,10 @@ package services
 //   - webhook_subscriptions: per-operator secrets surface; access already gated
 //     by P4/A6 surface.
 //   - events: audit log is admin-only and has its own filtered view.
+//   - operator_age_recipients (P15): per-operator pubkey list; not secret, but
+//     has its own per-operator surface (nisctl operator backup list-recipients).
+//     Adding to global search would force a JOIN to filter by author + change
+//     the threat model around recipient enumeration. Keep narrow.
 //
 // Authz: the SearchService RPC is registered as (search, read, KindPerRow)
 // in authz/registry.go. RolePolicy grants all three roles `search.read`; the
