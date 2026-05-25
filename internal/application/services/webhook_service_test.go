@@ -243,7 +243,9 @@ func TestTestSubscription_WildcardSub_StillEnqueues(t *testing.T) {
 		Limit:          10,
 	})
 	require.NoError(t, err)
-	assert.Len(t, deliveries, 1)
+	// 2 deliveries: one for webhook.subscription.created (emitted by CreateSubscription)
+	// and one for webhook.test (emitted by TestSubscription). Both match the wildcard sub.
+	assert.Len(t, deliveries, 2)
 }
 
 func TestListDeliveries_FiltersBySubscription(t *testing.T) {

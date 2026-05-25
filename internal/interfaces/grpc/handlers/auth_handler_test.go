@@ -12,7 +12,8 @@ import (
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
-	"github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
+	sqlmodels "github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/middleware"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -31,13 +32,13 @@ func (s *AuthHandlerTestSuite) SetupTest() {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	s.Require().NoError(err)
 
-	// Run migrations
-	err = db.AutoMigrate(&sql.APIUserModel{})
+	s.db = db
+	// Migrate api_users + events (emit now inserts event rows).
+	err = db.AutoMigrate(&sqlmodels.APIUserModel{}, &sqlmodels.EventModel{})
 	s.Require().NoError(err)
 
-	s.db = db
-	repo := sql.NewAPIUserRepo(db)
-	s.authService = services.NewAuthService(repo, "test-jwt-secret-key-32bytes!!!!!", 1*time.Hour)
+	factory := persistence.NewSQLRepositoryFactoryFromDB(db)
+	s.authService = services.NewAuthService(factory, "test-jwt-secret-key-32bytes!!!!!", 1*time.Hour)
 
 	// NewAuthHandler returns nisv1connect.AuthServiceHandler, but we know it is *AuthHandler
 	s.handler = NewAuthHandler(s.authService).(*AuthHandler)

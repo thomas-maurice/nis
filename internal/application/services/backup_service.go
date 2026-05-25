@@ -98,6 +98,20 @@ func (s *BackupService) UpdateSettings(ctx context.Context, operatorID uuid.UUID
 		if err != nil {
 			return err
 		}
+
+		// P1 diff snapshot: capture pre-mutation values before any assignment.
+		// Dereference pointer-optional fields to avoid pointer-address comparisons
+		// (diff.Set uses reflect.DeepEqual; *int/*int64 compares addresses, not values).
+		beforeBackupEnabled := operator.BackupEnabled
+		var beforeBackupIntervalSeconds int64
+		if operator.BackupInterval != nil {
+			beforeBackupIntervalSeconds = int64(operator.BackupInterval.Seconds())
+		}
+		var beforeBackupRetentionCount int
+		if operator.BackupRetention != nil {
+			beforeBackupRetentionCount = *operator.BackupRetention
+		}
+
 		eventType := entities.EventTypeOperatorBackupEnabled
 		changed := false
 		if settings.Enabled != nil && *settings.Enabled != operator.BackupEnabled {
@@ -133,6 +147,20 @@ func (s *BackupService) UpdateSettings(ctx context.Context, operatorID uuid.UUID
 		if err := repo.Update(ctx, operator); err != nil {
 			return fmt.Errorf("backup: update operator: %w", err)
 		}
+		var afterBackupIntervalSeconds int64
+		if operator.BackupInterval != nil {
+			afterBackupIntervalSeconds = int64(operator.BackupInterval.Seconds())
+		}
+		var afterBackupRetentionCount int
+		if operator.BackupRetention != nil {
+			afterBackupRetentionCount = *operator.BackupRetention
+		}
+
+		var diff events.DiffBuilder
+		diff.Set("backup_enabled", beforeBackupEnabled, operator.BackupEnabled)
+		diff.Set("backup_interval_seconds", beforeBackupIntervalSeconds, afterBackupIntervalSeconds)
+		diff.Set("backup_retention_count", beforeBackupRetentionCount, afterBackupRetentionCount)
+
 		payload := map[string]any{
 			"backup_enabled": operator.BackupEnabled,
 		}
@@ -148,6 +176,7 @@ func (s *BackupService) UpdateSettings(ctx context.Context, operatorID uuid.UUID
 			ResourceType: "operator",
 			ResourceID:   operator.ID.String(),
 			Payload:      payload,
+			Diff:         diff.Finalize(),
 		}); err != nil {
 			return fmt.Errorf("emit %s: %w", eventType, err)
 		}

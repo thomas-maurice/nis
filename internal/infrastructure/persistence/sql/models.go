@@ -739,6 +739,11 @@ type EventModel struct {
 	ResourceType string    `gorm:"type:text;not null;index:idx_events_resource,priority:1"`
 	ResourceID   string    `gorm:"type:text;not null;index:idx_events_resource,priority:2"`
 	Payload      *string   `gorm:"type:text"`
+	// Diff is the P1 field-level before/after change set produced by an
+	// UPDATE mutation. JSON-encoded map[string][2]any keyed by field name.
+	// Nullable — CREATE/DELETE events and updates with no audit-visible
+	// change leave it NULL. See internal/application/events/diff.go.
+	Diff *string `gorm:"type:text"`
 }
 
 func (EventModel) TableName() string { return "events" }
@@ -767,6 +772,9 @@ func (m *EventModel) ToEntity() *entities.Event {
 	if m.Payload != nil {
 		e.Payload = json.RawMessage(*m.Payload)
 	}
+	if m.Diff != nil {
+		e.Diff = json.RawMessage(*m.Diff)
+	}
 	return e
 }
 
@@ -794,6 +802,10 @@ func EventModelFromEntity(e *entities.Event) *EventModel {
 	if len(e.Payload) > 0 {
 		s := string(e.Payload)
 		m.Payload = &s
+	}
+	if len(e.Diff) > 0 {
+		s := string(e.Diff)
+		m.Diff = &s
 	}
 	return m
 }

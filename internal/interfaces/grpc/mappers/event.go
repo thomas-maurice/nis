@@ -36,6 +36,11 @@ func EventToProto(e *entities.Event) *nisv1.Event {
 		payloadJSON = string(e.Payload)
 	}
 
+	diffJSON := ""
+	if len(e.Diff) > 0 {
+		diffJSON = string(e.Diff)
+	}
+
 	return &nisv1.Event{
 		Id:           e.ID.String(),
 		OccurredAt:   timestamppb.New(e.OccurredAt),
@@ -47,6 +52,7 @@ func EventToProto(e *entities.Event) *nisv1.Event {
 		ResourceType: e.ResourceType,
 		ResourceId:   e.ResourceID,
 		PayloadJson:  payloadJSON,
+		DiffJson:     diffJSON,
 	}
 }
 
@@ -60,6 +66,8 @@ func EventFilterFromProto(f *nisv1.EventFilter) repositories.EventFilter {
 		Types:        f.Types,
 		ResourceType: f.ResourceType,
 		ResourceID:   f.ResourceId,
+		ActorType:    f.ActorType,
+		SearchQ:      f.SearchQ,
 		Limit:        int(f.Limit),
 		Cursor:       f.Cursor,
 	}
@@ -73,6 +81,12 @@ func EventFilterFromProto(f *nisv1.EventFilter) repositories.EventFilter {
 	if f.AccountId != "" {
 		if id, err := ParseUUID(f.AccountId); err == nil {
 			out.AccountID = &id
+		}
+	}
+
+	if f.ActorId != "" {
+		if id, err := ParseUUID(f.ActorId); err == nil {
+			out.ActorID = &id
 		}
 	}
 

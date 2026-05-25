@@ -277,7 +277,7 @@ func (h *AuthHandler) UpdateAPIUserPermissions(
 		accountID = &id
 	}
 
-	user, err := h.service.UpdateAPIUserRole(ctx, id, services.UpdateRoleRequest{
+	user, err := h.service.UpdateAPIUserPermissions(ctx, id, services.UpdateRoleRequest{
 		Role:       role,
 		OperatorID: operatorID,
 		AccountID:  accountID,

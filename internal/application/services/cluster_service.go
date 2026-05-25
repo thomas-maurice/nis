@@ -245,6 +245,12 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 		return nil, err
 	}
 
+	// P1 diff snapshot: capture pre-mutation values before any assignment.
+	beforeName := cluster.Name
+	beforeDescription := cluster.Description
+	beforeServerURLs := cluster.ServerURLs
+	beforeSkipVerifyTLS := cluster.SkipVerifyTLS
+
 	// Update fields if provided
 	updated := false
 	if req.Name != nil && *req.Name != cluster.Name {
@@ -292,12 +298,19 @@ func (s *ClusterService) UpdateCluster(ctx context.Context, id uuid.UUID, req Up
 	}
 
 	if s.factory != nil {
+		var diff events.DiffBuilder
+		diff.Set("name", beforeName, cluster.Name)
+		diff.Set("description", beforeDescription, cluster.Description)
+		diff.Set("server_urls", beforeServerURLs, cluster.ServerURLs)
+		diff.Set("skip_verify_tls", beforeSkipVerifyTLS, cluster.SkipVerifyTLS)
+
 		if err := events.EmitSystem(ctx, s.factory, events.Event{
 			Type:         entities.EventTypeClusterUpdated,
 			OperatorID:   &cluster.OperatorID,
 			ResourceType: "cluster",
 			ResourceID:   cluster.ID.String(),
 			Payload:      map[string]any{"name": cluster.Name},
+			Diff:         diff.Finalize(),
 		}); err != nil {
 			return nil, fmt.Errorf("emit cluster.updated: %w", err)
 		}
@@ -320,12 +333,17 @@ func (s *ClusterService) UpdateClusterCredentialsTx(ctx context.Context, tx pers
 	if err != nil {
 		return nil, err
 	}
+
+	var diff events.DiffBuilder
+	diff.SetRedacted("encrypted_creds", true) // credentials always rotate when this succeeds
+
 	if err := events.EmitTx(ctx, tx, events.Event{
 		Type:         entities.EventTypeClusterUpdated,
 		OperatorID:   &cluster.OperatorID,
 		ResourceType: "cluster",
 		ResourceID:   cluster.ID.String(),
 		Payload:      map[string]any{"name": cluster.Name, "changed": []string{"credentials"}},
+		Diff:         diff.Finalize(),
 	}); err != nil {
 		return nil, fmt.Errorf("emit cluster.updated: %w", err)
 	}

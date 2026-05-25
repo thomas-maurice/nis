@@ -9,17 +9,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/thomas-maurice/nis/internal/application/authz"
+	"github.com/thomas-maurice/nis/internal/application/events"
 	"github.com/thomas-maurice/nis/internal/clock"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthService handles authentication and authorization
 type AuthService struct {
-	apiUserRepo repositories.APIUserRepository
-	jwtSecret   []byte
-	tokenTTL    time.Duration
+	factory   persistence.RepositoryFactory
+	jwtSecret []byte
+	tokenTTL  time.Duration
 }
 
 // AuthClaims represents JWT claims for authentication tokens
@@ -32,7 +34,7 @@ type AuthClaims struct {
 
 // NewAuthService creates a new AuthService
 func NewAuthService(
-	apiUserRepo repositories.APIUserRepository,
+	factory persistence.RepositoryFactory,
 	jwtSecret string,
 	tokenTTL time.Duration,
 ) *AuthService {
@@ -40,9 +42,9 @@ func NewAuthService(
 		tokenTTL = 24 * time.Hour // Default to 24 hours
 	}
 	return &AuthService{
-		apiUserRepo: apiUserRepo,
-		jwtSecret:   []byte(jwtSecret),
-		tokenTTL:    tokenTTL,
+		factory:   factory,
+		jwtSecret: []byte(jwtSecret),
+		tokenTTL:  tokenTTL,
 	}
 }
 
@@ -68,7 +70,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 	}
 
 	// Get user by username
-	user, err := s.apiUserRepo.GetByUsername(ctx, req.Username)
+	user, err := s.factory.APIUserRepository().GetByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("invalid username or password")
@@ -124,7 +126,7 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (*e
 		return nil, fmt.Errorf("invalid user ID in token: %w", err)
 	}
 
-	user, err := s.apiUserRepo.GetByID(ctx, userID)
+	user, err := s.factory.APIUserRepository().GetByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, fmt.Errorf("user not found")
@@ -185,7 +187,7 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 	}
 
 	// Check if username already exists
-	existing, err := s.apiUserRepo.GetByUsername(ctx, req.Username)
+	existing, err := s.factory.APIUserRepository().GetByUsername(ctx, req.Username)
 	if err == nil && existing != nil {
 		return nil, repositories.ErrAlreadyExists
 	}
@@ -196,23 +198,39 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	user := &entities.APIUser{
-		ID:           uuid.New(),
-		Username:     req.Username,
-		PasswordHash: string(passwordHash),
-		Role:         req.Role,
-		OperatorID:   req.OperatorID,
-		AccountID:    req.AccountID,
-		CreatedAt:    clock.Now(),
-		UpdatedAt:    clock.Now(),
-	}
-
-	err = s.apiUserRepo.Create(ctx, user)
+	var result *entities.APIUser
+	err = s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user := &entities.APIUser{
+			ID:           uuid.New(),
+			Username:     req.Username,
+			PasswordHash: string(passwordHash),
+			Role:         req.Role,
+			OperatorID:   req.OperatorID,
+			AccountID:    req.AccountID,
+			CreatedAt:    clock.Now(),
+			UpdatedAt:    clock.Now(),
+		}
+		if err := tx.APIUserRepository().Create(ctx, user); err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
+		}
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAPIUserCreated,
+			ResourceType: "api_user",
+			ResourceID:   user.ID.String(),
+			Payload: map[string]any{
+				"username": user.Username,
+				"role":     string(user.Role),
+			},
+		}); err != nil {
+			return fmt.Errorf("emit api_user.created: %w", err)
+		}
+		result = user
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
+		return nil, err
 	}
-
-	return user, nil
+	return result, nil
 }
 
 // GetAPIUser retrieves an API user by ID (admin only)
@@ -221,7 +239,7 @@ func (s *AuthService) GetAPIUser(ctx context.Context, id uuid.UUID, requestingUs
 	if requestingUser.Role != entities.RoleAdmin {
 		return nil, fmt.Errorf("permission denied: only admins can view API users")
 	}
-	return s.apiUserRepo.GetByID(ctx, id)
+	return s.factory.APIUserRepository().GetByID(ctx, id)
 }
 
 // GetAPIUserByUsername retrieves an API user by username (admin only)
@@ -230,7 +248,7 @@ func (s *AuthService) GetAPIUserByUsername(ctx context.Context, username string,
 	if requestingUser.Role != entities.RoleAdmin {
 		return nil, fmt.Errorf("permission denied: only admins can view API users")
 	}
-	return s.apiUserRepo.GetByUsername(ctx, username)
+	return s.factory.APIUserRepository().GetByUsername(ctx, username)
 }
 
 // ListAPIUsers lists all API users (admin only)
@@ -239,7 +257,7 @@ func (s *AuthService) ListAPIUsers(ctx context.Context, requestingUser *entities
 	if requestingUser.Role != entities.RoleAdmin {
 		return nil, fmt.Errorf("permission denied: only admins can view API users")
 	}
-	return s.apiUserRepo.List(ctx, repositories.ListOptions{})
+	return s.factory.APIUserRepository().List(ctx, repositories.ListOptions{})
 }
 
 // ListAPIUsersPage returns one keyset-paginated page of API users. Admin-only.
@@ -249,7 +267,7 @@ func (s *AuthService) ListAPIUsersPage(ctx context.Context, scope authz.Scope, f
 	if !scope.IsAdmin() {
 		return nil, "", fmt.Errorf("permission denied: only admins can view API users")
 	}
-	return s.apiUserRepo.ListPage(ctx, scope, filter)
+	return s.factory.APIUserRepository().ListPage(ctx, scope, filter)
 }
 
 // UpdatePasswordRequest contains data for updating a password
@@ -268,26 +286,45 @@ func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, r
 		return nil, fmt.Errorf("password is required")
 	}
 
-	user, err := s.apiUserRepo.GetByID(ctx, id)
+	var result *entities.APIUser
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user, err := tx.APIUserRepository().GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		// Hash new password
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("failed to hash password: %w", err)
+		}
+
+		user.PasswordHash = string(passwordHash)
+		user.UpdatedAt = clock.Now()
+
+		if err := tx.APIUserRepository().Update(ctx, user); err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		var diff events.DiffBuilder
+		diff.SetRedacted("password_hash", true)
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAPIUserPasswordChanged,
+			ResourceType: "api_user",
+			ResourceID:   user.ID.String(),
+			Payload:      map[string]any{"username": user.Username},
+			Diff:         diff.Finalize(),
+		}); err != nil {
+			return fmt.Errorf("emit api_user.password_changed: %w", err)
+		}
+		result = user
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Hash new password
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	user.PasswordHash = string(passwordHash)
-	user.UpdatedAt = clock.Now()
-
-	err = s.apiUserRepo.Update(ctx, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update user: %w", err)
-	}
-
-	return user, nil
+	return result, nil
 }
 
 // UpdateRoleRequest contains data for updating a user's role
@@ -297,8 +334,9 @@ type UpdateRoleRequest struct {
 	AccountID  *uuid.UUID // Required for account-admin role
 }
 
-// UpdateAPIUserRole updates an API user's role (admin only)
-func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req UpdateRoleRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
+// UpdateAPIUserPermissions updates an API user's role/permissions (admin only).
+// The method is named to match the RPC procedure path for P1 emit-coverage lint.
+func (s *AuthService) UpdateAPIUserPermissions(ctx context.Context, id uuid.UUID, req UpdateRoleRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
 	// Only admins can update API user roles
 	if requestingUser.Role != entities.RoleAdmin {
 		return nil, fmt.Errorf("permission denied: only admins can update API user roles")
@@ -330,22 +368,43 @@ func (s *AuthService) UpdateAPIUserRole(ctx context.Context, id uuid.UUID, req U
 		}
 	}
 
-	user, err := s.apiUserRepo.GetByID(ctx, id)
+	var result *entities.APIUser
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user, err := tx.APIUserRepository().GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		beforeRole := user.Role
+
+		user.Role = req.Role
+		user.OperatorID = req.OperatorID
+		user.AccountID = req.AccountID
+		user.UpdatedAt = clock.Now()
+
+		if err := tx.APIUserRepository().Update(ctx, user); err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		var diff events.DiffBuilder
+		diff.Set("role", string(beforeRole), string(user.Role))
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAPIUserPermissionsChanged,
+			ResourceType: "api_user",
+			ResourceID:   user.ID.String(),
+			Payload:      map[string]any{"username": user.Username, "role": string(user.Role)},
+			Diff:         diff.Finalize(),
+		}); err != nil {
+			return fmt.Errorf("emit api_user.permissions_changed: %w", err)
+		}
+		result = user
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	user.Role = req.Role
-	user.OperatorID = req.OperatorID
-	user.AccountID = req.AccountID
-	user.UpdatedAt = clock.Now()
-
-	err = s.apiUserRepo.Update(ctx, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update user: %w", err)
-	}
-
-	return user, nil
+	return result, nil
 }
 
 // DeleteAPIUser deletes an API user (admin only)
@@ -354,7 +413,21 @@ func (s *AuthService) DeleteAPIUser(ctx context.Context, id uuid.UUID, requestin
 	if requestingUser.Role != entities.RoleAdmin {
 		return fmt.Errorf("permission denied: only admins can delete API users")
 	}
-	return s.apiUserRepo.Delete(ctx, id)
+	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		user, err := tx.APIUserRepository().GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := tx.APIUserRepository().Delete(ctx, id); err != nil {
+			return err
+		}
+		return events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAPIUserDeleted,
+			ResourceType: "api_user",
+			ResourceID:   user.ID.String(),
+			Payload:      map[string]any{"username": user.Username, "role": string(user.Role)},
+		})
+	})
 }
 
 // generateToken generates a JWT token for a user

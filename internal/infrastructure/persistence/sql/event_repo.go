@@ -106,6 +106,20 @@ func (r *EventRepo) List(ctx context.Context, filter repositories.EventFilter) (
 	if filter.Until != nil {
 		query = query.Where("occurred_at <= ?", *filter.Until)
 	}
+	if filter.ActorType != "" {
+		query = query.Where("actor_type = ?", filter.ActorType)
+	}
+	if filter.ActorID != nil {
+		query = query.Where("actor_id = ?", filter.ActorID.String())
+	}
+	if q := filter.SearchQ; q != "" {
+		// Substring match over type AND resource_id. LOWER() on both sides for
+		// dialect-uniform case-insensitivity (Postgres LIKE is case-sensitive;
+		// see search_service.go for the same pattern). Payload is intentionally
+		// excluded — keeping the surface narrow and indexable. P1.
+		pat := "%" + escapeLikeParam(q) + "%"
+		query = query.Where("LOWER(type) LIKE LOWER(?) OR LOWER(resource_id) LIKE LOWER(?)", pat, pat)
+	}
 
 	if filter.Cursor != "" {
 		cur, err := decodeEventCursor(filter.Cursor)

@@ -63,8 +63,24 @@ func (s *WebhookService) CreateSubscription(ctx context.Context, req CreateWebho
 		EventTypes:      req.EventTypes,
 		Enabled:         true,
 	}
-	if err := s.factory.WebhookSubscriptionRepository().Create(ctx, sub); err != nil {
-		return nil, "", fmt.Errorf("create subscription: %w", err)
+	err = s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		if err := tx.WebhookSubscriptionRepository().Create(ctx, sub); err != nil {
+			return fmt.Errorf("create subscription: %w", err)
+		}
+		return events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeWebhookSubscriptionCreated,
+			OperatorID:   &sub.OperatorID,
+			ResourceType: "webhook_subscription",
+			ResourceID:   sub.ID.String(),
+			Payload: map[string]any{
+				"name":        sub.Name,
+				"url":         sub.URL,
+				"event_types": sub.EventTypes,
+			},
+		})
+	})
+	if err != nil {
+		return nil, "", err
 	}
 	return sub, secretHex, nil
 }
@@ -98,36 +114,92 @@ type UpdateWebhookSubscriptionRequest struct {
 }
 
 func (s *WebhookService) UpdateSubscription(ctx context.Context, id uuid.UUID, req UpdateWebhookSubscriptionRequest) (*entities.WebhookSubscription, error) {
-	sub, err := s.factory.WebhookSubscriptionRepository().GetByID(ctx, id)
+	var result *entities.WebhookSubscription
+	err := s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		sub, err := tx.WebhookSubscriptionRepository().GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		beforeName := sub.Name
+		beforeDescription := sub.Description
+		beforeURL := sub.URL
+		beforeEventTypes := sub.EventTypes
+		beforeEnabled := sub.Enabled
+
+		if req.Name != nil {
+			sub.Name = *req.Name
+		}
+		if req.Description != nil {
+			sub.Description = *req.Description
+		}
+		if req.URL != nil {
+			sub.URL = *req.URL
+		}
+		if req.EventTypes != nil {
+			sub.EventTypes = req.EventTypes
+		}
+		if req.Enabled != nil {
+			sub.Enabled = *req.Enabled
+			if *req.Enabled {
+				sub.DisabledReason = ""
+			}
+		}
+		if err := tx.WebhookSubscriptionRepository().Update(ctx, sub); err != nil {
+			return err
+		}
+
+		var diff events.DiffBuilder
+		diff.Set("name", beforeName, sub.Name)
+		diff.Set("description", beforeDescription, sub.Description)
+		diff.Set("url", beforeURL, sub.URL)
+		diff.Set("event_types", beforeEventTypes, sub.EventTypes)
+		diff.Set("enabled", beforeEnabled, sub.Enabled)
+
+		if err := events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeWebhookSubscriptionUpdated,
+			OperatorID:   &sub.OperatorID,
+			ResourceType: "webhook_subscription",
+			ResourceID:   sub.ID.String(),
+			Payload: map[string]any{
+				"name":        sub.Name,
+				"url":         sub.URL,
+				"event_types": sub.EventTypes,
+			},
+			Diff: diff.Finalize(),
+		}); err != nil {
+			return fmt.Errorf("emit webhook.subscription.updated: %w", err)
+		}
+		result = sub
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if req.Name != nil {
-		sub.Name = *req.Name
-	}
-	if req.Description != nil {
-		sub.Description = *req.Description
-	}
-	if req.URL != nil {
-		sub.URL = *req.URL
-	}
-	if req.EventTypes != nil {
-		sub.EventTypes = req.EventTypes
-	}
-	if req.Enabled != nil {
-		sub.Enabled = *req.Enabled
-		if *req.Enabled {
-			sub.DisabledReason = ""
-		}
-	}
-	if err := s.factory.WebhookSubscriptionRepository().Update(ctx, sub); err != nil {
-		return nil, err
-	}
-	return sub, nil
+	return result, nil
 }
 
 func (s *WebhookService) DeleteSubscription(ctx context.Context, id uuid.UUID) error {
-	return s.factory.WebhookSubscriptionRepository().Delete(ctx, id)
+	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		sub, err := tx.WebhookSubscriptionRepository().GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := tx.WebhookSubscriptionRepository().Delete(ctx, id); err != nil {
+			return err
+		}
+		return events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeWebhookSubscriptionDeleted,
+			OperatorID:   &sub.OperatorID,
+			ResourceType: "webhook_subscription",
+			ResourceID:   sub.ID.String(),
+			Payload: map[string]any{
+				"name":        sub.Name,
+				"url":         sub.URL,
+				"event_types": sub.EventTypes,
+			},
+		})
+	})
 }
 
 // TestSubscription emits a webhook.test event scoped to the subscription's operator.

@@ -166,7 +166,26 @@ func (s *APITokenService) ListTokens(ctx context.Context, filter repositories.AP
 // leaves the row in place with revoked_at set. Delete is used by admins for
 // cleanup; revoke is the standard "stop accepting this" flow.
 func (s *APITokenService) DeleteToken(ctx context.Context, id uuid.UUID) error {
-	return s.factory.APITokenRepository().Delete(ctx, id)
+	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
+		token, err := tx.APITokenRepository().GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := tx.APITokenRepository().Delete(ctx, id); err != nil {
+			return err
+		}
+		return events.EmitTx(ctx, tx, events.Event{
+			Type:         entities.EventTypeAPITokenDeleted,
+			OperatorID:   token.OperatorID,
+			AccountID:    token.AccountID,
+			ResourceType: "api_token",
+			ResourceID:   token.ID.String(),
+			Payload: map[string]any{
+				"name":   token.Name,
+				"prefix": token.Prefix,
+			},
+		})
+	})
 }
 
 // RevokeToken marks the token as revoked. Subsequent Authenticate calls will fail.

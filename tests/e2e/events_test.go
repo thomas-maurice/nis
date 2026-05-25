@@ -7,6 +7,8 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -290,4 +292,214 @@ func TestEventsLog_DeleteEmitsOperatorEvent(t *testing.T) {
 			t.Errorf("expected at least one %s event after operator delete, got none (all types: %v)", want, byType)
 		}
 	}
+}
+
+// TestEventsLog_DiffCapturedOnAccountUpdate (P1) verifies that updating an
+// account emits an `account.updated` event whose diff_json carries the
+// field-level before/after change set produced by events.DiffBuilder.
+func TestEventsLog_DiffCapturedOnAccountUpdate(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	opID := h.createOperator(t, "p1-diff-op")
+	accID := h.createAccount(t, opID, "p1-diff-acc")
+
+	// Mutate the description (a benign user-mutable field).
+	newDesc := "updated by P1 test"
+	if _, err := h.accountCli.UpdateAccount(ctx, connect.NewRequest(&nisv1.UpdateAccountRequest{
+		Id:          accID,
+		Description: &newDesc,
+	})); err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
+
+	resp, err := h.eventCli.ListEvents(ctx, connect.NewRequest(&nisv1.ListEventsRequest{
+		Filter: &nisv1.EventFilter{
+			OperatorId: opID,
+			Types:      []string{"account.updated"},
+			Limit:      10,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(resp.Msg.Events) != 1 {
+		t.Fatalf("expected exactly 1 account.updated event, got %d", len(resp.Msg.Events))
+	}
+	evt := resp.Msg.Events[0]
+	if evt.DiffJson == "" {
+		t.Fatal("P1: expected non-empty diff_json on account.updated event, got empty")
+	}
+
+	var diff map[string][2]any
+	if err := json.Unmarshal([]byte(evt.DiffJson), &diff); err != nil {
+		t.Fatalf("unmarshal diff_json: %v\nraw: %s", err, evt.DiffJson)
+	}
+	pair, ok := diff["description"]
+	if !ok {
+		t.Fatalf("expected diff to contain 'description', got keys %v", keysOf(diff))
+	}
+	// Pre-mutation description was the empty string from createAccount.
+	if pair[0] != "" {
+		t.Errorf("description before: want \"\", got %v", pair[0])
+	}
+	if pair[1] != newDesc {
+		t.Errorf("description after: want %q, got %v", newDesc, pair[1])
+	}
+}
+
+// TestEventsLog_DiffEmptyOnNoOpUpdate (P1) verifies that an update RPC that
+// changes nothing produces no audit-visible diff. The event itself may still
+// be emitted with an empty diff_json, OR not emitted at all — the service
+// short-circuits no-op updates. Either is fine; what matters is that diff_json
+// is NOT populated with spurious entries when nothing actually changed.
+func TestEventsLog_DiffEmptyOnNoOpUpdate(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	opID := h.createOperator(t, "p1-noop-op")
+	accID := h.createAccount(t, opID, "p1-noop-acc")
+
+	// Update with the same name → no change.
+	sameName := "p1-noop-acc"
+	if _, err := h.accountCli.UpdateAccount(ctx, connect.NewRequest(&nisv1.UpdateAccountRequest{
+		Id:   accID,
+		Name: &sameName,
+	})); err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
+
+	resp, err := h.eventCli.ListEvents(ctx, connect.NewRequest(&nisv1.ListEventsRequest{
+		Filter: &nisv1.EventFilter{
+			OperatorId: opID,
+			Types:      []string{"account.updated"},
+			Limit:      10,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	for _, e := range resp.Msg.Events {
+		if e.DiffJson == "" {
+			continue
+		}
+		var diff map[string][2]any
+		if err := json.Unmarshal([]byte(e.DiffJson), &diff); err != nil {
+			t.Fatalf("unmarshal diff_json: %v", err)
+		}
+		if len(diff) > 0 {
+			t.Errorf("P1 no-op update should not produce diff entries; got %v", diff)
+		}
+	}
+}
+
+// TestEventsLog_FilterByActor (P1) verifies that filtering by actor_type
+// narrows results to events with that exact actor type.
+func TestEventsLog_FilterByActor(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	// All actions in this harness run as the admin user → ActorType="user".
+	_ = h.createOperator(t, "p1-actor-op")
+
+	resp, err := h.eventCli.ListEvents(ctx, connect.NewRequest(&nisv1.ListEventsRequest{
+		Filter: &nisv1.EventFilter{
+			ActorType: "user",
+			Limit:     50,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("ListEvents(actor_type=user): %v", err)
+	}
+	if len(resp.Msg.Events) == 0 {
+		t.Fatal("expected user-actor events, got none")
+	}
+	for _, e := range resp.Msg.Events {
+		if e.ActorType != "user" {
+			t.Errorf("actor_type filter leaked: got %s on event %s", e.ActorType, e.Type)
+		}
+	}
+
+	// system filter should NOT match the admin-driven create above.
+	respSys, err := h.eventCli.ListEvents(ctx, connect.NewRequest(&nisv1.ListEventsRequest{
+		Filter: &nisv1.EventFilter{
+			ActorType: "system",
+			Types:     []string{"operator.created"},
+			Limit:     10,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("ListEvents(actor_type=system): %v", err)
+	}
+	if len(respSys.Msg.Events) > 0 {
+		t.Errorf("expected no system-actor operator.created events; got %d", len(respSys.Msg.Events))
+	}
+}
+
+// TestEventsLog_FilterByResourceID (P1) verifies the resource_id filter
+// returns only events for that exact resource.
+func TestEventsLog_FilterByResourceID(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	opID := h.createOperator(t, "p1-resid-op")
+	_ = h.createAccount(t, opID, "p1-resid-other-acc")
+	target := h.createAccount(t, opID, "p1-resid-target")
+
+	resp, err := h.eventCli.ListEvents(ctx, connect.NewRequest(&nisv1.ListEventsRequest{
+		Filter: &nisv1.EventFilter{
+			ResourceId: target,
+			Limit:      10,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(resp.Msg.Events) == 0 {
+		t.Fatal("expected at least one event for the target resource, got none")
+	}
+	for _, e := range resp.Msg.Events {
+		if e.ResourceId != target {
+			t.Errorf("resource_id filter leaked: got %s on event %s", e.ResourceId, e.Type)
+		}
+	}
+}
+
+// TestEventsLog_SearchQ (P1) verifies the case-insensitive substring filter
+// over `type` and `resource_id` (NOT payload, per P1 design).
+func TestEventsLog_SearchQ(t *testing.T) {
+	h := startStack(t)
+	ctx := context.Background()
+
+	opID := h.createOperator(t, "p1-search-op")
+	_ = h.createAccount(t, opID, "p1-search-acc")
+
+	// "account.created" matches via the type column.
+	resp, err := h.eventCli.ListEvents(ctx, connect.NewRequest(&nisv1.ListEventsRequest{
+		Filter: &nisv1.EventFilter{
+			OperatorId: opID,
+			SearchQ:    "ACCOUNT.CREA",
+			Limit:      10,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("ListEvents(search_q): %v", err)
+	}
+	if len(resp.Msg.Events) == 0 {
+		t.Fatal("expected at least one event matching ACCOUNT.CREA in type, got none")
+	}
+	for _, e := range resp.Msg.Events {
+		if !strings.Contains(strings.ToLower(e.Type), "account.crea") {
+			t.Errorf("search_q match leaked: type=%s does not contain 'account.crea'", e.Type)
+		}
+	}
+}
+
+// keysOf is a small test helper to make diff-key assertion failures readable.
+func keysOf(m map[string][2]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

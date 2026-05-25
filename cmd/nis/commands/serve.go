@@ -280,7 +280,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	scopedKeyService.WithClusterService(clusterService)
 
 	authService := services.NewAuthService(
-		repoFactory.APIUserRepository(),
+		repoFactory,
 		jwtSecret,
 		jwtTTL,
 	)

@@ -94,7 +94,7 @@ func (s *RBACIsolationTestSuite) SetupSuite() {
 	)
 
 	s.authService = services.NewAuthService(
-		repoFactory.APIUserRepository(),
+		repoFactory,
 		"test-jwt-secret-key-32-bytes!!",
 		24*time.Hour,
 	)

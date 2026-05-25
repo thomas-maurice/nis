@@ -264,11 +264,31 @@ type UpdateUserRequest struct {
 
 // UpdateUser updates a user's metadata and regenerates JWT
 func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*entities.User, error) {
+	// P1 diff snapshot vars: set inside updateFn before any field mutation so
+	// the factory path can build the diff after the closure returns.
+	var (
+		beforeName             string
+		beforeDescription      string
+		beforeScopedKeyID      string // stringified UUID or "" for nil
+		beforeJWTTTLSeconds    int64  // 0 means "no override"
+		beforeJWTChanged       bool   // sentinel: did JWT regenerate?
+	)
+
 	updateFn := func(userRepo repositories.UserRepository, accountRepo repositories.AccountRepository, scopedKeyRepo repositories.ScopedSigningKeyRepository, operatorRepo repositories.OperatorRepository) (*entities.User, error) {
 		// Get existing user
 		user, err := userRepo.GetByID(ctx, id)
 		if err != nil {
 			return nil, err
+		}
+
+		// Snapshot pre-mutation values.
+		beforeName = user.Name
+		beforeDescription = user.Description
+		if user.ScopedSigningKeyID != nil {
+			beforeScopedKeyID = user.ScopedSigningKeyID.String()
+		}
+		if user.JWTTTL != nil {
+			beforeJWTTTLSeconds = int64(user.JWTTTL.Seconds())
 		}
 
 		// Update fields if provided
@@ -321,6 +341,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 		}
 
 		// Regenerate JWT with updated metadata and the effective TTL.
+		beforeJWTChanged = true // JWT always regenerates when a field changes
 		mint, err := s.jwtService.GenerateUserJWT(ctx, user, account, scopedKey, user.EffectiveJWTTTL(operator))
 		if err != nil {
 			return nil, fmt.Errorf("failed to regenerate user JWT: %w", err)
@@ -357,6 +378,23 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 		if err != nil {
 			return fmt.Errorf("emit user.updated: lookup account: %w", err)
 		}
+
+		var afterScopedKeyID string
+		if user.ScopedSigningKeyID != nil {
+			afterScopedKeyID = user.ScopedSigningKeyID.String()
+		}
+		var afterJWTTTLSeconds int64
+		if user.JWTTTL != nil {
+			afterJWTTTLSeconds = int64(user.JWTTTL.Seconds())
+		}
+
+		var diff events.DiffBuilder
+		diff.Set("name", beforeName, user.Name)
+		diff.Set("description", beforeDescription, user.Description)
+		diff.Set("scoped_signing_key_id", beforeScopedKeyID, afterScopedKeyID)
+		diff.Set("jwt_ttl_seconds", beforeJWTTTLSeconds, afterJWTTTLSeconds)
+		diff.SetRedacted("jwt", beforeJWTChanged)
+
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeUserUpdated,
 			OperatorID:   &account.OperatorID,
@@ -364,6 +402,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUs
 			ResourceType: "user",
 			ResourceID:   user.ID.String(),
 			Payload:      map[string]any{"name": user.Name},
+			Diff:         diff.Finalize(),
 		}); err != nil {
 			return fmt.Errorf("emit user.updated: %w", err)
 		}

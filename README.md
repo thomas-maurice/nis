@@ -375,7 +375,9 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `cluster.account.deleted_from_resolver` | A successful `$SYS.REQ.CLAIMS.DELETE` for one account on one cluster (A13-full `cluster.account.delete` handler). |
 | `cluster.health_changed` | The 60s probe sees a healthy→unhealthy or unhealthy→healthy transition |
 | `webhook.test` | Operator clicks "Send Test" on a subscription |
-| `api_token.created` / `api_token.revoked` | Service-account API token lifecycle |
+| `webhook.subscription.created` / `webhook.subscription.updated` / `webhook.subscription.deleted` | Webhook subscription lifecycle (P1) |
+| `api_token.created` / `api_token.revoked` / `api_token.deleted` | Service-account API token lifecycle |
+| `api_user.created` / `api_user.password_changed` / `api_user.permissions_changed` / `api_user.deleted` | Local API-user account lifecycle (P1) |
 | `user.revoked` | RevokeUser added a user's pubkey to the account JWT's revocations map |
 | `user.cred.expiring_soon` | Sweeper found a user JWT expiring inside the operator's warn window |
 | `user.cred.expired` | Sweeper found a user JWT past `exp` (auto-renew is NOT applied — explicit `RegenerateUserCredentials` required) |
@@ -384,15 +386,23 @@ Every mutation through NIS (create/update/delete on operators, accounts, users, 
 | `template.created` / `template.updated` / `template.deleted` | Permission template lifecycle (P6). `template.updated` carries `bumped:true` when the edit created a new version |
 | `template.applied_to_scoped_key` | An SSK adopted a template version. `action` payload distinguishes `create` (SSK was created from the template), `bump` (existing SSK was rolled to a new version), and `detach` |
 
-Events carry `actor_type` (`user` for RPC-driven events from human logins, `api_token` for RPCs driven by a service-account token, `system` for background ones), `actor_id` (the API user OR the token ID, depending on actor_type), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, and a free-form JSON `payload` with event-specific detail.
+Events carry `actor_type` (`user` for RPC-driven events from human logins, `api_token` for RPCs driven by a service-account token, `system` for background ones), `actor_id` (the API user OR the token ID, depending on actor_type), `operator_id` / `account_id` scope, `resource_type` + `resource_id`, a free-form JSON `payload` with event-specific detail, and (on UPDATE events) a sparse field-level `diff_json` produced by P1.
 
 The events table is **append-only**. Retention defaults to 30 days, configurable via `--events-retention-days` / `EVENTS_RETENTION_DAYS`. The audit log survives the deletion of the resources it references (operator_id is a soft scope, not an FK). FK CASCADE deletions inside the database (e.g. an operator delete that cascade-removes its $SYS account) emit only the top-level event — `operator.deleted` — not one event per cascaded row.
 
+### Audit-log diffs (P1)
+
+UPDATE-class events carry a `diff_json` field with the sparse field-level change set captured at the mutation site: `{"field_name": [before, after], ...}`. Only fields that actually changed are present; no-op updates leave the column NULL. CREATE/DELETE events do not carry a diff (the full state is already in the entity).
+
+- **Sensitive fields are redacted automatically.** Field names with the suffixes `_secret`, `_password`, or `_access_key` (shared with the running-config redaction rules) are stored as `"***REDACTED***"` on both sides. JWTs, encrypted seeds, and password hashes are redacted via an explicit call at the emit site even though their names don't match the suffix.
+- **Coverage is CI-enforced.** A lint test (`internal/interfaces/grpc/handlers/handler_emit_lint_test.go`) walks the authz registry and asserts every Create/Update/Delete mutation handler reaches an `events.EmitTx` / `events.EmitSystem` call in its service layer. New mutation RPCs fail the build until they emit. A small whitelist (≤5 entries with justification) carves out the legitimate non-emitters (e.g. job retry/cancel emit from the substrate, not the handler).
+- **UI surface.** The Events page detail modal renders the diff as a two-column before→after table above the raw payload block.
+
 ### Browsing the log
 
-- UI: **Events** page (admin-only). Filter by type, operator, time window. Click a row for the full JSON payload.
+- UI: **Events** page (admin-only). Filter by type, operator, exact since/until, actor (type + ID), resource ID, and free-text search across type/resource_id. Click a row for the full payload + diff.
 - CLI: `nisctl event list [--type ...] [--operator ...] [--since 24h] [--limit 50] [--cursor ...]`, `nisctl event get <id>`.
-- RPC: `EventService.ListEvents`, `EventService.GetEvent` (admin-only in v1; per-operator scoping is a v1.1 follow-up).
+- RPC: `EventService.ListEvents`, `EventService.GetEvent` (admin-only in v1; per-operator scoping is a v1.1 follow-up). `ListEventsRequest.filter` exposes `types`, `resource_type`, `resource_id`, `operator_id`, `account_id`, `actor_type`, `actor_id`, `search_q`, `since`, `until`, plus `limit`/`cursor`. `search_q` is a case-insensitive substring over `type` AND `resource_id`; payload is intentionally NOT searched.
 
 ### Webhook subscriptions
 

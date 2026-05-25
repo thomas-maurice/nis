@@ -19,6 +19,10 @@ message Event {
   string resource_type = 8;
   string resource_id = 9;
   string payload_json = 10;
+  // P1 field-level before/after diff for UPDATE events. JSON-encoded
+  // map[string][2]any keyed by caller-named fields. Empty string when
+  // the event has no diff (CREATE/DELETE/no-op-update).
+  string diff_json = 11;
 }
 
 // EventFilter mirrors repositories.EventFilter for the wire.
@@ -32,6 +36,15 @@ message EventFilter {
   google.protobuf.Timestamp until = 7;
   int32 limit = 8;
   string cursor = 9;
+  // P1 actor filters. actor_type ∈ {"user","api_token","system"}; empty
+  // = no constraint. actor_id is a UUID string for user / api_token rows;
+  // empty = no constraint.
+  string actor_type = 10;
+  string actor_id = 11;
+  // P1 substring search (case-insensitive LIKE) over type AND resource_id.
+  // Empty = no constraint. Payload is intentionally NOT searched — keeping
+  // the surface narrow and indexable.
+  string search_q = 12;
 }
 
 message ListEventsRequest {

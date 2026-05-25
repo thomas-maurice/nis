@@ -52,7 +52,8 @@ type Event struct {
 	AccountID    *uuid.UUID
 	ResourceType string
 	ResourceID   string
-	Payload      any // marshalled to JSON; pass nil for no payload
+	Payload      any  // marshalled to JSON; pass nil for no payload
+	Diff         Diff // P1 field-level before/after diff; nil for non-update events
 }
 
 // EmitTx writes the event AND fans out matching webhook deliveries inside the
@@ -126,6 +127,15 @@ func emit(ctx context.Context, tx persistence.RepositoryFactory, in Event, actor
 		payloadRaw = b
 	}
 
+	var diffRaw json.RawMessage
+	if len(in.Diff) > 0 {
+		b, err := json.Marshal(in.Diff)
+		if err != nil {
+			return fmt.Errorf("marshal event diff: %w", err)
+		}
+		diffRaw = b
+	}
+
 	evt := &entities.Event{
 		ID:           uuid.New(),
 		OccurredAt:   clock.Now(),
@@ -137,6 +147,7 @@ func emit(ctx context.Context, tx persistence.RepositoryFactory, in Event, actor
 		ResourceType: in.ResourceType,
 		ResourceID:   in.ResourceID,
 		Payload:      payloadRaw,
+		Diff:         diffRaw,
 	}
 
 	if err := tx.EventRepository().Create(ctx, evt); err != nil {

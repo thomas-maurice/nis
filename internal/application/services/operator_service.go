@@ -260,6 +260,10 @@ func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req 
 			return err
 		}
 
+		// P1 diff snapshot: capture pre-mutation values before any assignment.
+		beforeName := operator.Name
+		beforeDescription := operator.Description
+
 		// Update fields if provided
 		updated := false
 		if req.Name != nil && *req.Name != operator.Name {
@@ -299,12 +303,18 @@ func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req 
 			return fmt.Errorf("failed to update operator: %w", err)
 		}
 
+		var diff events.DiffBuilder
+		diff.Set("name", beforeName, operator.Name)
+		diff.Set("description", beforeDescription, operator.Description)
+		diff.SetRedacted("jwt", true) // JWT always regenerates on UpdateOperator
+
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeOperatorUpdated,
 			OperatorID:   &operator.ID,
 			ResourceType: "operator",
 			ResourceID:   operator.ID.String(),
 			Payload:      map[string]any{"name": operator.Name},
+			Diff:         diff.Finalize(),
 		}); err != nil {
 			return fmt.Errorf("emit operator.updated: %w", err)
 		}
@@ -345,6 +355,13 @@ func (s *OperatorService) SetJWTPolicy(ctx context.Context, id uuid.UUID, p JWTP
 		if err != nil {
 			return err
 		}
+
+		// P1 diff snapshot: capture pre-mutation policy values.
+		beforeUserJWTTTL := operator.UserJWTTTL
+		beforeAccountJWTTTL := operator.AccountJWTTTL
+		beforeJWTWarnWindow := operator.JWTWarnWindow
+		beforeJWTAutoRenew := operator.JWTAutoRenew
+
 		changed := false
 		if p.UserJWTTTL != nil && *p.UserJWTTTL != operator.UserJWTTTL {
 			operator.UserJWTTTL = *p.UserJWTTTL
@@ -370,6 +387,12 @@ func (s *OperatorService) SetJWTPolicy(ctx context.Context, id uuid.UUID, p JWTP
 		if err := repo.Update(ctx, operator); err != nil {
 			return fmt.Errorf("failed to update operator JWT policy: %w", err)
 		}
+		var diff events.DiffBuilder
+		diff.Set("user_jwt_ttl_seconds", int64(beforeUserJWTTTL.Seconds()), int64(operator.UserJWTTTL.Seconds()))
+		diff.Set("account_jwt_ttl_seconds", int64(beforeAccountJWTTTL.Seconds()), int64(operator.AccountJWTTTL.Seconds()))
+		diff.Set("jwt_warn_window_seconds", int64(beforeJWTWarnWindow.Seconds()), int64(operator.JWTWarnWindow.Seconds()))
+		diff.Set("jwt_auto_renew", beforeJWTAutoRenew, operator.JWTAutoRenew)
+
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeOperatorUpdated,
 			OperatorID:   &operator.ID,
@@ -382,6 +405,7 @@ func (s *OperatorService) SetJWTPolicy(ctx context.Context, id uuid.UUID, p JWTP
 				"jwt_warn_window_seconds": int64(operator.JWTWarnWindow.Seconds()),
 				"jwt_auto_renew":          operator.JWTAutoRenew,
 			},
+			Diff: diff.Finalize(),
 		}); err != nil {
 			return fmt.Errorf("emit operator.updated (jwt_policy): %w", err)
 		}
@@ -418,6 +442,8 @@ func (s *OperatorService) SetSystemAccountTx(ctx context.Context, tx persistence
 		return nil, fmt.Errorf("invalid system account public key: must start with 'A'")
 	}
 
+	beforeSystemAccountPubKey := operator.SystemAccountPubKey
+
 	// Update system account
 	operator.SystemAccountPubKey = systemAccountPubKey
 	operator.UpdatedAt = clock.Now()
@@ -440,6 +466,20 @@ func (s *OperatorService) SetSystemAccountTx(ctx context.Context, tx persistence
 	// Save changes
 	if err := repo.Update(ctx, operator); err != nil {
 		return nil, fmt.Errorf("failed to update operator: %w", err)
+	}
+
+	var diff events.DiffBuilder
+	diff.Set("system_account_pub_key", beforeSystemAccountPubKey, operator.SystemAccountPubKey)
+
+	if err := events.EmitTx(ctx, tx, events.Event{
+		Type:         entities.EventTypeOperatorUpdated,
+		OperatorID:   &operator.ID,
+		ResourceType: "operator",
+		ResourceID:   operator.ID.String(),
+		Payload:      map[string]any{"name": operator.Name, "changed": []string{"system_account"}},
+		Diff:         diff.Finalize(),
+	}); err != nil {
+		return nil, fmt.Errorf("emit operator.updated (set_system_account): %w", err)
 	}
 
 	return operator, nil

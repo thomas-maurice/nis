@@ -24,17 +24,21 @@ const (
 
 // Event is one row from the audit log / event substrate.
 type Event struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OccurredAt    *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
-	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
-	ActorType     string                 `protobuf:"bytes,4,opt,name=actor_type,json=actorType,proto3" json:"actor_type,omitempty"`
-	ActorId       string                 `protobuf:"bytes,5,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
-	OperatorId    string                 `protobuf:"bytes,6,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	AccountId     string                 `protobuf:"bytes,7,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	ResourceType  string                 `protobuf:"bytes,8,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
-	ResourceId    string                 `protobuf:"bytes,9,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
-	PayloadJson   string                 `protobuf:"bytes,10,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OccurredAt   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	Type         string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	ActorType    string                 `protobuf:"bytes,4,opt,name=actor_type,json=actorType,proto3" json:"actor_type,omitempty"`
+	ActorId      string                 `protobuf:"bytes,5,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	OperatorId   string                 `protobuf:"bytes,6,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	AccountId    string                 `protobuf:"bytes,7,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	ResourceType string                 `protobuf:"bytes,8,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	ResourceId   string                 `protobuf:"bytes,9,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	PayloadJson  string                 `protobuf:"bytes,10,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	// P1 field-level before/after diff for UPDATE events. JSON-encoded
+	// map[string][2]any keyed by caller-named fields. Empty string when
+	// the event has no diff (CREATE/DELETE/no-op-update).
+	DiffJson      string `protobuf:"bytes,11,opt,name=diff_json,json=diffJson,proto3" json:"diff_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -139,18 +143,34 @@ func (x *Event) GetPayloadJson() string {
 	return ""
 }
 
+func (x *Event) GetDiffJson() string {
+	if x != nil {
+		return x.DiffJson
+	}
+	return ""
+}
+
 // EventFilter mirrors repositories.EventFilter for the wire.
 type EventFilter struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Types         []string               `protobuf:"bytes,1,rep,name=types,proto3" json:"types,omitempty"`
-	ResourceType  string                 `protobuf:"bytes,2,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
-	ResourceId    string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
-	OperatorId    string                 `protobuf:"bytes,4,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	AccountId     string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Since         *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=since,proto3" json:"since,omitempty"`
-	Until         *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=until,proto3" json:"until,omitempty"`
-	Limit         int32                  `protobuf:"varint,8,opt,name=limit,proto3" json:"limit,omitempty"`
-	Cursor        string                 `protobuf:"bytes,9,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Types        []string               `protobuf:"bytes,1,rep,name=types,proto3" json:"types,omitempty"`
+	ResourceType string                 `protobuf:"bytes,2,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	ResourceId   string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	OperatorId   string                 `protobuf:"bytes,4,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	AccountId    string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Since        *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=since,proto3" json:"since,omitempty"`
+	Until        *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=until,proto3" json:"until,omitempty"`
+	Limit        int32                  `protobuf:"varint,8,opt,name=limit,proto3" json:"limit,omitempty"`
+	Cursor       string                 `protobuf:"bytes,9,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	// P1 actor filters. actor_type ∈ {"user","api_token","system"}; empty
+	// = no constraint. actor_id is a UUID string for user / api_token rows;
+	// empty = no constraint.
+	ActorType string `protobuf:"bytes,10,opt,name=actor_type,json=actorType,proto3" json:"actor_type,omitempty"`
+	ActorId   string `protobuf:"bytes,11,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	// P1 substring search (case-insensitive LIKE) over type AND resource_id.
+	// Empty = no constraint. Payload is intentionally NOT searched — keeping
+	// the surface narrow and indexable.
+	SearchQ       string `protobuf:"bytes,12,opt,name=search_q,json=searchQ,proto3" json:"search_q,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -244,6 +264,27 @@ func (x *EventFilter) GetLimit() int32 {
 func (x *EventFilter) GetCursor() string {
 	if x != nil {
 		return x.Cursor
+	}
+	return ""
+}
+
+func (x *EventFilter) GetActorType() string {
+	if x != nil {
+		return x.ActorType
+	}
+	return ""
+}
+
+func (x *EventFilter) GetActorId() string {
+	if x != nil {
+		return x.ActorId
+	}
+	return ""
+}
+
+func (x *EventFilter) GetSearchQ() string {
+	if x != nil {
+		return x.SearchQ
 	}
 	return ""
 }
@@ -436,7 +477,7 @@ var File_nis_v1_event_proto protoreflect.FileDescriptor
 
 const file_nis_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x12nis/v1/event.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcb\x02\n" +
+	"\x12nis/v1/event.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe8\x02\n" +
 	"\x05Event\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12;\n" +
 	"\voccurred_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
@@ -453,7 +494,8 @@ const file_nis_v1_event_proto_rawDesc = "" +
 	"\vresource_id\x18\t \x01(\tR\n" +
 	"resourceId\x12!\n" +
 	"\fpayload_json\x18\n" +
-	" \x01(\tR\vpayloadJson\"\xbb\x02\n" +
+	" \x01(\tR\vpayloadJson\x12\x1b\n" +
+	"\tdiff_json\x18\v \x01(\tR\bdiffJson\"\x90\x03\n" +
 	"\vEventFilter\x12\x14\n" +
 	"\x05types\x18\x01 \x03(\tR\x05types\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12\x1f\n" +
@@ -466,7 +508,12 @@ const file_nis_v1_event_proto_rawDesc = "" +
 	"\x05since\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x120\n" +
 	"\x05until\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x05until\x12\x14\n" +
 	"\x05limit\x18\b \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06cursor\x18\t \x01(\tR\x06cursor\"@\n" +
+	"\x06cursor\x18\t \x01(\tR\x06cursor\x12\x1d\n" +
+	"\n" +
+	"actor_type\x18\n" +
+	" \x01(\tR\tactorType\x12\x19\n" +
+	"\bactor_id\x18\v \x01(\tR\aactorId\x12\x19\n" +
+	"\bsearch_q\x18\f \x01(\tR\asearchQ\"@\n" +
 	"\x11ListEventsRequest\x12+\n" +
 	"\x06filter\x18\x01 \x01(\v2\x13.nis.v1.EventFilterR\x06filter\"\\\n" +
 	"\x12ListEventsResponse\x12%\n" +

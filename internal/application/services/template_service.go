@@ -278,6 +278,10 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 			return err
 		}
 
+		// P1 diff snapshot: capture pre-mutation values before any assignment.
+		beforeDescription := tpl.Description
+		beforeLatestVersion := tpl.LatestVersion
+
 		latest, err := tx.TemplateVersionRepository().GetByTemplateAndNumber(ctx, id, tpl.LatestVersion)
 		if err != nil {
 			return fmt.Errorf("get latest version: %w", err)
@@ -418,6 +422,10 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 			if err := tx.TemplateRepository().Update(ctx, tpl); err != nil {
 				return fmt.Errorf("update template: %w", err)
 			}
+			var diff events.DiffBuilder
+			diff.Set("description", beforeDescription, tpl.Description)
+			diff.Set("latest_version", beforeLatestVersion, tpl.LatestVersion)
+
 			payload := map[string]any{"name": tpl.Name, "version": tpl.LatestVersion, "bumped": shouldBump}
 			if err := events.EmitTx(ctx, tx, events.Event{
 				Type:         entities.EventTypeTemplateUpdated,
@@ -425,6 +433,7 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, req 
 				ResourceType: "template",
 				ResourceID:   tpl.ID.String(),
 				Payload:      payload,
+				Diff:         diff.Finalize(),
 			}); err != nil {
 				return fmt.Errorf("emit template.updated: %w", err)
 			}

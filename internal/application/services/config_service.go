@@ -49,13 +49,15 @@ import (
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
+
+	"github.com/thomas-maurice/nis/internal/application/redact"
 )
 
 // redactionPlaceholder is the literal we substitute for any redacted leaf
 // value. Empty-string credentials (unset env) still render as the
 // placeholder so an admin sees the key exists and is unconfigured at the
 // same place a configured-but-redacted key would appear.
-const redactionPlaceholder = "***REDACTED***"
+const redactionPlaceholder = redact.Placeholder
 
 // redactedPaths is the exact-path allowlist. Paths use viper dot notation.
 // Wildcards aren't supported — encryption.keys array indices are handled
@@ -66,16 +68,6 @@ var redactedPaths = map[string]bool{
 	"encryption.keys.key":          true, // walker keeps "encryption.keys" stable across []any descent, then appends ".key" on the map elem
 	"backups.s3.access_key_id":     true,
 	"backups.s3.secret_access_key": true,
-}
-
-// redactedSuffixes is the safety net for credentials added later. Any leaf
-// whose final dotted segment ends in one of these suffixes is redacted.
-// "_key" is intentionally NOT here because legitimate non-secret config
-// uses it (encryption.current_key_id, encryption.key_id).
-var redactedSuffixes = []string{
-	"_secret",
-	"_password",
-	"_access_key",
 }
 
 // extraKnownKeys is the list of viper keys that don't have a SetDefault
@@ -271,12 +263,7 @@ func lastSegment(path string) string {
 }
 
 func leafMatchesSuffix(leaf string) bool {
-	for _, suf := range redactedSuffixes {
-		if strings.HasSuffix(leaf, suf) {
-			return true
-		}
-	}
-	return false
+	return redact.HasSensitiveSuffix(leaf)
 }
 
 // insertNested writes value at the nested path inside root, creating

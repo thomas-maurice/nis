@@ -281,6 +281,12 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 			return err
 		}
 
+		// P1 diff snapshot: capture pre-mutation values of the user-mutable
+		// fields BEFORE any assignment below, so the diff reflects intent
+		// rather than the post-write state of the entity.
+		beforeName := acc.Name
+		beforeDescription := acc.Description
+
 		// Update fields if provided
 		updated := false
 		if req.Name != nil && *req.Name != acc.Name {
@@ -341,6 +347,10 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 			return fmt.Errorf("failed to update account: %w", err)
 		}
 
+		var diff events.DiffBuilder
+		diff.Set("name", beforeName, acc.Name)
+		diff.Set("description", beforeDescription, acc.Description)
+
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeAccountUpdated,
 			OperatorID:   &acc.OperatorID,
@@ -348,6 +358,7 @@ func (s *AccountService) UpdateAccount(ctx context.Context, id uuid.UUID, req Up
 			ResourceType: "account",
 			ResourceID:   acc.ID.String(),
 			Payload:      map[string]any{"name": acc.Name},
+			Diff:         diff.Finalize(),
 		}); err != nil {
 			return fmt.Errorf("emit account.updated: %w", err)
 		}
@@ -385,6 +396,13 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 		if err != nil {
 			return err
 		}
+
+		// P1 diff snapshot — see UpdateAccount for the snapshot-before-mutate rule.
+		beforeEnabled := acc.JetStreamEnabled
+		beforeMaxMemory := acc.JetStreamMaxMemory
+		beforeMaxStorage := acc.JetStreamMaxStorage
+		beforeMaxStreams := acc.JetStreamMaxStreams
+		beforeMaxConsumers := acc.JetStreamMaxConsumers
 
 		// Update JetStream configuration
 		acc.JetStreamEnabled = req.Enabled
@@ -425,6 +443,13 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 			return fmt.Errorf("failed to update account: %w", err)
 		}
 
+		var diff events.DiffBuilder
+		diff.Set("jet_stream_enabled", beforeEnabled, acc.JetStreamEnabled)
+		diff.Set("jet_stream_max_memory", beforeMaxMemory, acc.JetStreamMaxMemory)
+		diff.Set("jet_stream_max_storage", beforeMaxStorage, acc.JetStreamMaxStorage)
+		diff.Set("jet_stream_max_streams", beforeMaxStreams, acc.JetStreamMaxStreams)
+		diff.Set("jet_stream_max_consumers", beforeMaxConsumers, acc.JetStreamMaxConsumers)
+
 		if err := events.EmitTx(ctx, tx, events.Event{
 			Type:         entities.EventTypeAccountUpdated,
 			OperatorID:   &acc.OperatorID,
@@ -432,6 +457,7 @@ func (s *AccountService) UpdateJetStreamLimits(ctx context.Context, id uuid.UUID
 			ResourceType: "account",
 			ResourceID:   acc.ID.String(),
 			Payload:      map[string]any{"name": acc.Name, "changed": []string{"jetstream_limits"}},
+			Diff:         diff.Finalize(),
 		}); err != nil {
 			return fmt.Errorf("emit account.updated: %w", err)
 		}

@@ -88,7 +88,7 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 
 	// Initialize service
 	authService := services.NewAuthService(
-		repoFactory.APIUserRepository(),
+		repoFactory,
 		"dummy-secret", // JWT secret not needed for user creation
 		0,
 	)
@@ -134,7 +134,7 @@ func runUserList(cmd *cobra.Command, args []string) error {
 
 	// Initialize service
 	authService := services.NewAuthService(
-		repoFactory.APIUserRepository(),
+		repoFactory,
 		"dummy-secret", // JWT secret not needed for listing
 		0,
 	)

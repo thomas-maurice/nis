@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
-	"github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
+	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
+	sqlmodels "github.com/thomas-maurice/nis/internal/infrastructure/persistence/sql"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -17,6 +18,7 @@ import (
 type AuthServiceTestSuite struct {
 	suite.Suite
 	db          *gorm.DB
+	factory     persistence.RepositoryFactory
 	repo        repositories.APIUserRepository
 	authService *AuthService
 	adminUser   *entities.APIUser // Admin user for testing
@@ -27,15 +29,17 @@ func (s *AuthServiceTestSuite) SetupTest() {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	s.Require().NoError(err)
 
-	// Run migrations
+	// Run migrations — api_users + events (emit now inserts event rows).
 	err = db.AutoMigrate(
-		&entities.APIUser{},
+		&sqlmodels.APIUserModel{},
+		&sqlmodels.EventModel{},
 	)
 	s.Require().NoError(err)
 
 	s.db = db
-	s.repo = sql.NewAPIUserRepo(db)
-	s.authService = NewAuthService(s.repo, "test-secret-key-for-jwt-signing", 1*time.Hour)
+	s.factory = persistence.NewSQLRepositoryFactoryFromDB(db)
+	s.repo = s.factory.APIUserRepository()
+	s.authService = NewAuthService(s.factory, "test-secret-key-for-jwt-signing", 1*time.Hour)
 
 	// Create an admin user for tests
 	s.adminUser = &entities.APIUser{
@@ -190,7 +194,7 @@ func (s *AuthServiceTestSuite) TestValidateToken_ExpiredToken() {
 	ctx := context.Background()
 
 	// Create a service with very short TTL
-	shortTTLService := NewAuthService(s.repo, "test-secret-key-for-jwt-signing", 1*time.Millisecond)
+	shortTTLService := NewAuthService(s.factory, "test-secret-key-for-jwt-signing", 1*time.Millisecond)
 
 	// Create a user and login
 	_, err := shortTTLService.CreateAPIUser(ctx, CreateAPIUserRequest{
@@ -268,7 +272,7 @@ func (s *AuthServiceTestSuite) TestUpdateAPIUserRole() {
 	s.Equal(entities.RoleAccountAdmin, user.Role)
 
 	// Update role to admin
-	updatedUser, err := s.authService.UpdateAPIUserRole(ctx, user.ID, UpdateRoleRequest{
+	updatedUser, err := s.authService.UpdateAPIUserPermissions(ctx, user.ID, UpdateRoleRequest{
 		Role: entities.RoleAdmin,
 	}, s.adminUser)
 

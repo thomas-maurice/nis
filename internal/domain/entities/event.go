@@ -62,9 +62,17 @@ const (
 	// successful delete-claim round-trip; failures live in the job row's
 	// last_error and surface via JobsView + the drift dashboard.
 	EventTypeClusterAccountDeletedFromResolver = "cluster.account.deleted_from_resolver"
-	EventTypeWebhookTest          = "webhook.test"
-	EventTypeAPITokenCreated      = "api_token.created"
-	EventTypeAPITokenRevoked      = "api_token.revoked"
+	EventTypeWebhookTest                    = "webhook.test"
+	EventTypeWebhookSubscriptionCreated     = "webhook.subscription.created"
+	EventTypeWebhookSubscriptionUpdated     = "webhook.subscription.updated"
+	EventTypeWebhookSubscriptionDeleted     = "webhook.subscription.deleted"
+	EventTypeAPITokenCreated                = "api_token.created"
+	EventTypeAPITokenRevoked                = "api_token.revoked"
+	EventTypeAPITokenDeleted                = "api_token.deleted"
+	EventTypeAPIUserCreated                 = "api_user.created"
+	EventTypeAPIUserPasswordChanged         = "api_user.password_changed"
+	EventTypeAPIUserPermissionsChanged      = "api_user.permissions_changed"
+	EventTypeAPIUserDeleted                 = "api_user.deleted"
 	EventTypeTemplateCreated      = "template.created"
 	EventTypeTemplateUpdated      = "template.updated"
 	EventTypeTemplateDeleted      = "template.deleted"
@@ -114,4 +122,9 @@ type Event struct {
 	ResourceType string
 	ResourceID   string
 	Payload      json.RawMessage // nullable
+	// Diff is the P1 field-level before/after change set for UPDATE mutations.
+	// JSON-encoded map[string][2]any keyed by caller-named fields. Nil on
+	// CREATE/DELETE events and on no-op updates. See
+	// internal/application/events/diff.go for the builder.
+	Diff json.RawMessage // nullable
 }

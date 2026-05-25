@@ -62,6 +62,15 @@ export class Event extends Message<Event> {
    */
   payloadJson = "";
 
+  /**
+   * P1 field-level before/after diff for UPDATE events. JSON-encoded
+   * map[string][2]any keyed by caller-named fields. Empty string when
+   * the event has no diff (CREATE/DELETE/no-op-update).
+   *
+   * @generated from field: string diff_json = 11;
+   */
+  diffJson = "";
+
   constructor(data?: PartialMessage<Event>) {
     super();
     proto3.util.initPartial(data, this);
@@ -80,6 +89,7 @@ export class Event extends Message<Event> {
     { no: 8, name: "resource_type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 9, name: "resource_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 10, name: "payload_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "diff_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Event {
@@ -150,6 +160,29 @@ export class EventFilter extends Message<EventFilter> {
    */
   cursor = "";
 
+  /**
+   * P1 actor filters. actor_type ∈ {"user","api_token","system"}; empty
+   * = no constraint. actor_id is a UUID string for user / api_token rows;
+   * empty = no constraint.
+   *
+   * @generated from field: string actor_type = 10;
+   */
+  actorType = "";
+
+  /**
+   * @generated from field: string actor_id = 11;
+   */
+  actorId = "";
+
+  /**
+   * P1 substring search (case-insensitive LIKE) over type AND resource_id.
+   * Empty = no constraint. Payload is intentionally NOT searched — keeping
+   * the surface narrow and indexable.
+   *
+   * @generated from field: string search_q = 12;
+   */
+  searchQ = "";
+
   constructor(data?: PartialMessage<EventFilter>) {
     super();
     proto3.util.initPartial(data, this);
@@ -167,6 +200,9 @@ export class EventFilter extends Message<EventFilter> {
     { no: 7, name: "until", kind: "message", T: Timestamp },
     { no: 8, name: "limit", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 9, name: "cursor", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "actor_type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "actor_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 12, name: "search_q", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EventFilter {

@@ -26,8 +26,8 @@
             </select>
           </div>
           <div class="col-md-3">
-            <label class="form-label">Operator ID</label>
-            <input v-model="filterOperatorId" type="text" class="form-control" placeholder="Optional operator ID" />
+            <label class="form-label">Until <span class="text-muted small">(optional)</span></label>
+            <input v-model="filterUntil" type="datetime-local" class="form-control" />
           </div>
           <div class="col-md-3 d-flex gap-2">
             <button class="btn btn-primary flex-fill" @click="applyFilters" :disabled="loading">
@@ -42,6 +42,33 @@
             >
               Clear
             </button>
+          </div>
+        </div>
+        <div class="row g-3 align-items-end mt-1">
+          <div class="col-md-3">
+            <label class="form-label">Operator ID</label>
+            <input v-model="filterOperatorId" type="text" class="form-control" placeholder="UUID" />
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Actor Type</label>
+            <select v-model="filterActorType" class="form-select">
+              <option value="">Any</option>
+              <option value="user">user</option>
+              <option value="api_token">api_token</option>
+              <option value="system">system</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Actor ID</label>
+            <input v-model="filterActorId" type="text" class="form-control" placeholder="UUID" />
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Resource ID</label>
+            <input v-model="filterResourceId" type="text" class="form-control" placeholder="UUID" />
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Search</label>
+            <input v-model="filterSearchQ" type="text" class="form-control" placeholder="type / id substring" />
           </div>
         </div>
       </div>
@@ -222,6 +249,26 @@
               </template>
             </dl>
 
+            <div v-if="selectedEvent.diffJson && diffRows(selectedEvent.diffJson).length" class="mb-3">
+              <label class="form-label fw-bold">Changes (before → after)</label>
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 25%">Field</th>
+                    <th>Before</th>
+                    <th>After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in diffRows(selectedEvent.diffJson)" :key="row.key">
+                    <td><code>{{ row.key }}</code></td>
+                    <td><code class="text-break">{{ formatDiffValue(row.before) }}</code></td>
+                    <td><code class="text-break">{{ formatDiffValue(row.after) }}</code></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <div v-if="selectedEvent.payloadJson">
               <label class="form-label fw-bold">Payload</label>
               <CodeBlock :content="parsedPayload(selectedEvent.payloadJson)" :can-copy="true" />
@@ -246,11 +293,25 @@ import CodeBlock from '@/components/CodeBlock.vue'
 const KNOWN_EVENT_TYPES = [
   'account.created', 'account.updated', 'account.deleted',
   'user.created', 'user.updated', 'user.deleted',
+  'user.revoked', 'user.cred.expiring_soon', 'user.cred.expired',
+  'user.cred.renewed', 'user.revocation_pruned',
   'operator.created', 'operator.updated', 'operator.deleted',
   'scoped_key.created', 'scoped_key.updated', 'scoped_key.deleted',
+  'scoped_key.rotated',
   'cluster.created', 'cluster.updated', 'cluster.deleted',
   'cluster.synced', 'cluster.sync_failed', 'cluster.health_changed',
+  'cluster.account.synced', 'cluster.account.deleted_from_resolver',
+  'template.created', 'template.updated', 'template.deleted',
+  'template.applied_to_scoped_key',
   'webhook.test',
+  'webhook.subscription.created', 'webhook.subscription.updated', 'webhook.subscription.deleted',
+  'api_token.created', 'api_token.revoked', 'api_token.deleted',
+  'api_user.created', 'api_user.password_changed', 'api_user.permissions_changed', 'api_user.deleted',
+  'operator.backup.enabled', 'operator.backup.disabled',
+  'operator.backup.succeeded', 'operator.backup.failed', 'operator.backup.deleted',
+  'operator.backup.recipient_added', 'operator.backup.recipient_removed',
+  'job.enqueued', 'job.started', 'job.succeeded', 'job.failed',
+  'job.dead_lettered', 'job.cancelled', 'job.retried',
 ]
 
 const events = ref([])
@@ -263,7 +324,12 @@ const apiUserNames = ref({})
 
 const filterTypes = ref([])
 const filterSince = ref('24h')
+const filterUntil = ref('')
 const filterOperatorId = ref('')
+const filterActorType = ref('')
+const filterActorId = ref('')
+const filterResourceId = ref('')
+const filterSearchQ = ref('')
 
 function sinceTimestamp(since) {
   if (since === 'all') return undefined
@@ -279,8 +345,16 @@ function buildFilter(cursor) {
   }
   if (filterTypes.value.length > 0) f.types = filterTypes.value
   if (filterOperatorId.value.trim()) f.operatorId = filterOperatorId.value.trim()
-  const ts = sinceTimestamp(filterSince.value)
-  if (ts) f.since = ts
+  if (filterActorType.value) f.actorType = filterActorType.value
+  if (filterActorId.value.trim()) f.actorId = filterActorId.value.trim()
+  if (filterResourceId.value.trim()) f.resourceId = filterResourceId.value.trim()
+  if (filterSearchQ.value.trim()) f.searchQ = filterSearchQ.value.trim()
+  const sinceTs = sinceTimestamp(filterSince.value)
+  if (sinceTs) f.since = sinceTs
+  if (filterUntil.value) {
+    const untilDate = new Date(filterUntil.value)
+    if (!isNaN(untilDate.getTime())) f.until = Timestamp.fromDate(untilDate)
+  }
   return f
 }
 
@@ -326,6 +400,11 @@ const clearFilters = () => {
   filterTypes.value = []
   filterOperatorId.value = ''
   filterSince.value = '24h'
+  filterUntil.value = ''
+  filterActorType.value = ''
+  filterActorId.value = ''
+  filterResourceId.value = ''
+  filterSearchQ.value = ''
   loadFirstPage()
 }
 
@@ -415,6 +494,27 @@ function parsedPayload(json) {
   } catch {
     return json
   }
+}
+
+// diffRows turns the events.diff JSON shape ({ field: [before, after], ... })
+// into an array of {key, before, after} rows for the detail-modal table.
+function diffRows(json) {
+  if (!json) return []
+  try {
+    const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== 'object') return []
+    return Object.entries(parsed)
+      .filter(([, v]) => Array.isArray(v) && v.length === 2)
+      .map(([key, [before, after]]) => ({ key, before, after }))
+  } catch {
+    return []
+  }
+}
+
+function formatDiffValue(v) {
+  if (v === null || v === undefined) return 'null'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
 }
 
 onMounted(async () => {

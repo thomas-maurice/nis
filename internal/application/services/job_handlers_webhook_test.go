@@ -350,6 +350,13 @@ func TestEmit_JobEnqueueFailure_RollsBackDelivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Capture baseline counts after setup (CreateSubscription now emits
+	// webhook.subscription.created which fans out to the wildcard sub).
+	baseDeliveries, err := factory.WebhookDeliveryRepository().List(ctx, repositories.WebhookDeliveryFilter{Limit: 100})
+	require.NoError(t, err)
+	baseEvents, err := factory.EventRepository().List(ctx, repositories.EventFilter{Limit: 100})
+	require.NoError(t, err)
+
 	// Install a faulty enqueuer that always errors. Restore at end so we
 	// don't poison other tests in the same binary.
 	sentinel := errors.New("forced enqueue failure")
@@ -368,15 +375,14 @@ func TestEmit_JobEnqueueFailure_RollsBackDelivery(t *testing.T) {
 	})
 	require.ErrorIs(t, emitErr, sentinel)
 
-	// Neither the event nor the delivery should have committed.
+	// Neither the new event nor the new delivery should have committed.
 	deliveries, err := factory.WebhookDeliveryRepository().List(ctx, repositories.WebhookDeliveryFilter{Limit: 100})
 	require.NoError(t, err)
-	assert.Empty(t, deliveries, "delivery row must roll back when companion job enqueue fails")
+	assert.Len(t, deliveries, len(baseDeliveries), "delivery row must roll back when companion job enqueue fails")
 
-	// Event log should also be empty.
-	res, err := factory.EventRepository().List(ctx, repositories.EventFilter{Limit: 10})
+	res, err := factory.EventRepository().List(ctx, repositories.EventFilter{Limit: 100})
 	require.NoError(t, err)
-	assert.Empty(t, res.Events)
+	assert.Len(t, res.Events, len(baseEvents.Events), "event row must roll back when companion job enqueue fails")
 }
 
 // --- Catch-up scan ---

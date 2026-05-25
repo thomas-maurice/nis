@@ -17,8 +17,17 @@ type EventFilter struct {
 	AccountID    *uuid.UUID
 	Since        *time.Time
 	Until        *time.Time
-	Limit        int    // <=0 → service-default
-	Cursor       string // opaque; pass NextCursor from previous response
+	// P1 actor narrowing. ActorType ∈ {"user","api_token","system"}; empty
+	// = no constraint. ActorID is a UUID for user/api_token rows; nil = no
+	// constraint. Independent — set either, both, or neither.
+	ActorType string
+	ActorID   *uuid.UUID
+	// SearchQ is a case-insensitive substring match across `type` and
+	// `resource_id`. Empty = no constraint. Payload is intentionally NOT
+	// searched — see PROPOSALS.md P1.
+	SearchQ string
+	Limit   int    // <=0 → service-default
+	Cursor  string // opaque; pass NextCursor from previous response
 }
 
 // EventListResult carries a page of events plus the cursor for the next page.
