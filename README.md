@@ -642,6 +642,104 @@ CLI precedence: `--token` flag > `NIS_TOKEN` env > stored session from
 `nisctl login`. Tokens are validated only on resource RPCs; they cannot be
 used on `AuthService.Login` to mint a fresh JWT.
 
+## Organizations & SSO
+
+NIS is multi-tenant. An **organization** is the top-level tenant: every
+operator (and transitively every account, user, and cluster) belongs to
+exactly one organization. Platform admins (`role=admin`) are org-less and see
+everything; an **org-admin** manages exactly one organization and everything
+beneath it.
+
+Every existing deployment is migrated into a single **default organization**
+(`00000000-0000-0000-0000-000000000001`); pre-existing operators and non-admin
+api_users are assigned to it automatically. The default org cannot be deleted.
+
+```bash
+# Org CRUD (create/delete is admin-only; org-admins can read+update their own).
+nisctl org create "Acme Corp" --slug acme --description "Acme tenant"
+nisctl org list
+nisctl org get <id>            # or: nisctl org get --slug acme
+nisctl org update <id> --name "Acme Inc"   # slug is immutable
+nisctl org delete <id>
+
+# Assign a new operator to an org (omit --org for the default org).
+nisctl operator create acme-operator --org <org-id>
+```
+
+### OIDC SSO configuration
+
+Each organization can have one OIDC SSO configuration (e.g. Authentik, Keycloak,
+Dex, Okta). The client secret is **write-only** — it is encrypted at rest and
+never returned by any read RPC (`org sso get` shows `client_secret_set: true`).
+
+```bash
+nisctl org sso set <org-id> \
+  --issuer https://idp.example.com/application/o/nis/ \
+  --client-id nis \
+  --client-secret 's3cret' \
+  --scopes "openid profile email groups" \
+  --group-claim groups \
+  --default-role account-admin \
+  --enabled
+nisctl org sso get <org-id>
+nisctl org sso delete <org-id>
+```
+
+**Group → role mappings** map an IdP group value to a NIS role + scope. They are
+replace-all (the whole set is set atomically). A mapping's role may be
+`org-admin`, `operator-admin`, or `account-admin` — **never `admin`** (SSO can
+never grant platform-admin; this is enforced server-side). `--default-role`
+likewise cannot be `admin`, and an empty default role denies login when no
+mapping matches.
+
+```bash
+# Repeatable --mapping spec: group_value:role:priority[@scope_id]
+nisctl org sso mappings set <org-id> \
+  --mapping "nis-admins:org-admin:10" \
+  --mapping "platform:operator-admin:20@<operator-uuid>"
+
+# Or a JSON array via --file (use "-" for stdin):
+nisctl org sso mappings set <org-id> --file mappings.json
+nisctl org sso mappings list <org-id>
+```
+
+Mappings are evaluated by ascending priority (lowest first); first match wins.
+
+### Logging in via SSO (Web UI)
+
+Once an org has SSO enabled, users sign in from the NIS login page:
+
+- The login page has a **"Continue with SSO"** field — enter the org **slug** and
+  it navigates to `/auth/oidc/start?org=<slug>`, which 302-redirects to the IdP.
+- Deep link: `/login?org=<slug>` auto-triggers the redirect (handy for bookmarks
+  and IdP-initiated "launch" tiles).
+- After the IdP authenticates the user, NIS handles `/auth/oidc/callback`,
+  JIT-provisions or finds the matching `api_user` (role resolved from the group
+  mappings), and redirects to the SPA `/login/callback#token=<jwt>`. The SPA
+  reads the session JWT from the URL fragment and immediately strips it from the
+  address bar (`history.replaceState`) so it never lands in history or `Referer`.
+- The username/password form remains a **break-glass** path for the platform
+  admin and any local users, and is unaffected by SSO being enabled or an IdP
+  being unreachable.
+
+SSO-provisioned users are **OIDC-managed**: their role comes from the group
+mappings on every login, so manual password/role edits on those rows are
+rejected (change the mapping instead).
+
+> **`server.public_url` is required for SSO.** It is the externally-reachable
+> base URL NIS uses to build the OIDC `redirect_uri`
+> (`<public_url>/auth/oidc/callback`) and the post-login SPA redirect. Set it in
+> `config.yaml` (`server.public_url`) or via the matching env var/flag. With it
+> empty, the OIDC start endpoint cannot construct a valid callback and login
+> fails. It must exactly match a redirect URI registered in the IdP client. The
+> SSO Configuration card in the org detail view displays this exact redirect URI
+> (with a copy button) so you can paste it into your IdP; if `server.public_url`
+> is unset it shows a warning instead of a URL.
+
+Platform admins manage organizations from the **Organizations** nav item;
+org-admins get a **My Organization** item that opens their org's detail page
+(SSO config editor, role-mapping editor, and org-scoped user management).
+
 ## API access
 
 NIS exposes a Connect-RPC API (Protobuf over HTTP, both gRPC and gRPC-Web are
@@ -688,7 +786,7 @@ happens entirely inside the database query.
 | WebhookService | ListWebhookSubscriptions | `operator_id`, `enabled`, `event_type_match` |
 | WebhookService | ListWebhookDeliveries | `subscription_id`, `status` |
 | APITokenService | ListAPITokens | `include_revoked` (admin: `created_by_user_id`) |
-| AuthService | ListAPIUsers (admin-only) | `role`, `username_like` |
+| AuthService | ListAPIUsers (admin: all; org-admin: own org) | `role`, `username_like`, `auth_source` |
 | BackupService | ListOperatorBackups | `operator_id`, `trigger_kind` |
 | JobService | ListJobs (already cursor-paginated pre-A7) | types, statuses, since/until |
 | EventService | ListEvents (already cursor-paginated pre-A7) | types, resource, since/until |

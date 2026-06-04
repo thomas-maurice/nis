@@ -15,6 +15,7 @@ import { TemplateService } from '@/gen/nis/v1/template_connect'
 import { JobService } from '@/gen/nis/v1/job_connect'
 import { BackupService } from '@/gen/nis/v1/backup_connect'
 import { ConfigService } from '@/gen/nis/v1/config_connect'
+import { OrganizationService } from '@/gen/nis/v1/organization_connect'
 
 // Determine API base URL
 const API_BASE_URL = import.meta.env.DEV
@@ -53,3 +54,4 @@ export const templateClient: PromiseClient<typeof TemplateService> = createPromi
 export const jobClient: PromiseClient<typeof JobService> = createPromiseClient(JobService, transport)
 export const backupClient: PromiseClient<typeof BackupService> = createPromiseClient(BackupService, transport)
 export const configClient: PromiseClient<typeof ConfigService> = createPromiseClient(ConfigService, transport)
+export const organizationClient: PromiseClient<typeof OrganizationService> = createPromiseClient(OrganizationService, transport)

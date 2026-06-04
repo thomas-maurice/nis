@@ -28,6 +28,8 @@ message APIToken {
   google.protobuf.Timestamp revoked_at = 11;
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp updated_at = 13;
+  // organization_id is the owning org; empty for platform-admin tokens (role=admin, null org).
+  string organization_id = 14;
 }
 
 message CreateAPITokenRequest {
@@ -37,6 +39,9 @@ message CreateAPITokenRequest {
   string operator_id = 4;
   string account_id = 5;
   google.protobuf.Timestamp expires_at = 6;
+  // organization_id is used by platform admins to place a token in a specific
+  // org. Org-admin callers always mint in their own org (server enforces this).
+  string organization_id = 7;
 }
 
 message CreateAPITokenResponse {

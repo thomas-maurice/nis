@@ -24,14 +24,18 @@ const (
 
 // APIUser represents an API user for authentication
 type APIUser struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
-	Permissions   []string               `protobuf:"bytes,3,rep,name=permissions,proto3" json:"permissions,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	OperatorId    *string                `protobuf:"bytes,6,opt,name=operator_id,json=operatorId,proto3,oneof" json:"operator_id,omitempty"` // Required for operator-admin role
-	AccountId     *string                `protobuf:"bytes,7,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`    // Required for account-admin role
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Username    string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Permissions []string               `protobuf:"bytes,3,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	OperatorId  *string                `protobuf:"bytes,6,opt,name=operator_id,json=operatorId,proto3,oneof" json:"operator_id,omitempty"` // Required for operator-admin role
+	AccountId   *string                `protobuf:"bytes,7,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`    // Required for account-admin role
+	// organization_id is the owning org; empty for platform admins (role=admin).
+	OrganizationId string `protobuf:"bytes,8,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	// auth_source is "local" for password users, "oidc" for SSO-provisioned users.
+	AuthSource    string `protobuf:"bytes,9,opt,name=auth_source,json=authSource,proto3" json:"auth_source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -111,6 +115,20 @@ func (x *APIUser) GetOperatorId() string {
 func (x *APIUser) GetAccountId() string {
 	if x != nil && x.AccountId != nil {
 		return *x.AccountId
+	}
+	return ""
+}
+
+func (x *APIUser) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *APIUser) GetAuthSource() string {
+	if x != nil {
+		return x.AuthSource
 	}
 	return ""
 }
@@ -321,14 +339,17 @@ func (x *ValidateTokenResponse) GetUser() *APIUser {
 
 // CreateAPIUserRequest is the request to create a new API user
 type CreateAPIUserRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
-	Permissions   []string               `protobuf:"bytes,3,rep,name=permissions,proto3" json:"permissions,omitempty"`
-	OperatorId    *string                `protobuf:"bytes,4,opt,name=operator_id,json=operatorId,proto3,oneof" json:"operator_id,omitempty"` // Required for operator-admin role
-	AccountId     *string                `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`    // Required for account-admin role
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Username    string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Password    string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	Permissions []string               `protobuf:"bytes,3,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	OperatorId  *string                `protobuf:"bytes,4,opt,name=operator_id,json=operatorId,proto3,oneof" json:"operator_id,omitempty"` // Required for operator-admin role
+	AccountId   *string                `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`    // Required for account-admin role
+	// organization_id is optional for admin callers; org-admin callers always
+	// create in their own org (server ignores this field for them).
+	OrganizationId string `protobuf:"bytes,6,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateAPIUserRequest) Reset() {
@@ -392,6 +413,13 @@ func (x *CreateAPIUserRequest) GetOperatorId() string {
 func (x *CreateAPIUserRequest) GetAccountId() string {
 	if x != nil && x.AccountId != nil {
 		return *x.AccountId
+	}
+	return ""
+}
+
+func (x *CreateAPIUserRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
 	}
 	return ""
 }
@@ -623,10 +651,12 @@ func (x *GetAPIUserByUsernameResponse) GetUser() *APIUser {
 
 // ListAPIUsersRequest is the request to list API users.
 type ListAPIUsersRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
-	UsernameLike  string                 `protobuf:"bytes,2,opt,name=username_like,json=usernameLike,proto3" json:"username_like,omitempty"`
-	Page          *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Role         string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
+	UsernameLike string                 `protobuf:"bytes,2,opt,name=username_like,json=usernameLike,proto3" json:"username_like,omitempty"`
+	Page         *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	// auth_source filters by credential source ("local" | "oidc"); "" returns all.
+	AuthSource    string `protobuf:"bytes,4,opt,name=auth_source,json=authSource,proto3" json:"auth_source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -680,6 +710,13 @@ func (x *ListAPIUsersRequest) GetPage() *PageRequest {
 		return x.Page
 	}
 	return nil
+}
+
+func (x *ListAPIUsersRequest) GetAuthSource() string {
+	if x != nil {
+		return x.AuthSource
+	}
+	return ""
 }
 
 // ListAPIUsersResponse is the response from listing API users.
@@ -1033,7 +1070,7 @@ var File_nis_v1_auth_proto protoreflect.FileDescriptor
 
 const file_nis_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x11nis/v1/auth.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13nis/v1/common.proto\"\xb6\x02\n" +
+	"\x11nis/v1/auth.proto\x12\x06nis.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13nis/v1/common.proto\"\x80\x03\n" +
 	"\aAPIUser\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12 \n" +
@@ -1045,7 +1082,10 @@ const file_nis_v1_auth_proto_rawDesc = "" +
 	"\voperator_id\x18\x06 \x01(\tH\x00R\n" +
 	"operatorId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"account_id\x18\a \x01(\tH\x01R\taccountId\x88\x01\x01B\x0e\n" +
+	"account_id\x18\a \x01(\tH\x01R\taccountId\x88\x01\x01\x12'\n" +
+	"\x0forganization_id\x18\b \x01(\tR\x0eorganizationId\x12\x1f\n" +
+	"\vauth_source\x18\t \x01(\tR\n" +
+	"authSourceB\x0e\n" +
 	"\f_operator_idB\r\n" +
 	"\v_account_id\"F\n" +
 	"\fLoginRequest\x12\x1a\n" +
@@ -1058,7 +1098,7 @@ const file_nis_v1_auth_proto_rawDesc = "" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"R\n" +
 	"\x15ValidateTokenResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12#\n" +
-	"\x04user\x18\x02 \x01(\v2\x0f.nis.v1.APIUserR\x04user\"\xd9\x01\n" +
+	"\x04user\x18\x02 \x01(\v2\x0f.nis.v1.APIUserR\x04user\"\x82\x02\n" +
 	"\x14CreateAPIUserRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12 \n" +
@@ -1066,7 +1106,8 @@ const file_nis_v1_auth_proto_rawDesc = "" +
 	"\voperator_id\x18\x04 \x01(\tH\x00R\n" +
 	"operatorId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"account_id\x18\x05 \x01(\tH\x01R\taccountId\x88\x01\x01B\x0e\n" +
+	"account_id\x18\x05 \x01(\tH\x01R\taccountId\x88\x01\x01\x12'\n" +
+	"\x0forganization_id\x18\x06 \x01(\tR\x0eorganizationIdB\x0e\n" +
 	"\f_operator_idB\r\n" +
 	"\v_account_id\"<\n" +
 	"\x15CreateAPIUserResponse\x12#\n" +
@@ -1078,11 +1119,13 @@ const file_nis_v1_auth_proto_rawDesc = "" +
 	"\x1bGetAPIUserByUsernameRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\"C\n" +
 	"\x1cGetAPIUserByUsernameResponse\x12#\n" +
-	"\x04user\x18\x01 \x01(\v2\x0f.nis.v1.APIUserR\x04user\"w\n" +
+	"\x04user\x18\x01 \x01(\v2\x0f.nis.v1.APIUserR\x04user\"\x98\x01\n" +
 	"\x13ListAPIUsersRequest\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12#\n" +
 	"\rusername_like\x18\x02 \x01(\tR\fusernameLike\x12'\n" +
-	"\x04page\x18\x03 \x01(\v2\x13.nis.v1.PageRequestR\x04page\"^\n" +
+	"\x04page\x18\x03 \x01(\v2\x13.nis.v1.PageRequestR\x04page\x12\x1f\n" +
+	"\vauth_source\x18\x04 \x01(\tR\n" +
+	"authSource\"^\n" +
 	"\x14ListAPIUsersResponse\x12%\n" +
 	"\x05users\x18\x01 \x03(\v2\x0f.nis.v1.APIUserR\x05users\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +

@@ -108,6 +108,20 @@ const (
 	// retrievable via Get if needed).
 	EventTypeOperatorBackupRecipientAdded   = "operator.backup.recipient_added"
 	EventTypeOperatorBackupRecipientRemoved = "operator.backup.recipient_removed"
+
+	// OIDC SSO login events (chunk 4). EmitSystem is used from the callback
+	// handler because there is no request-context authed user during JIT
+	// provisioning.
+	EventTypeAPIUserSSOProvisioned = "api_user.sso_provisioned"
+	EventTypeAPIUserSSOLogin       = "api_user.sso_login"
+
+	// Organizations + SSO (chunk 3).
+	EventTypeOrganizationCreated          = "organization.created"
+	EventTypeOrganizationUpdated          = "organization.updated"
+	EventTypeOrganizationDeleted          = "organization.deleted"
+	EventTypeOrganizationSSOConfigured    = "organization.sso.configured"
+	EventTypeOrganizationSSOConfigDeleted = "organization.sso.config_deleted"
+	EventTypeOrganizationSSOMappingsUpdated = "organization.sso.mappings_updated"
 )
 
 // Event is a single audit-log entry. Stored append-only in the events table.

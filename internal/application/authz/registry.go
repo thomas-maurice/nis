@@ -102,22 +102,24 @@ type Procedure struct {
 // typos in the policy table are compile errors. The values preserve the
 // pre-A17 casbin_policy.csv strings exactly.
 const (
-	ResourceOperator   = "operator"
-	ResourceAccount    = "account"
-	ResourceUser       = "user"
-	ResourceScopedKey  = "scoped_key"
-	ResourceCluster    = "cluster"
-	ResourceExport     = "export"
-	ResourceAPIUser    = "api_user"
-	ResourceAuth       = "auth"
-	ResourceEvent      = "event"
-	ResourceWebhook    = "webhook"
-	ResourceAPIToken   = "apitoken"
-	ResourceSearch     = "search"
-	ResourceTemplate   = "template"
-	ResourceJob        = "job"
-	ResourceBackup     = "backup"
-	ResourceConfig     = "config"
+	ResourceOperator     = "operator"
+	ResourceAccount      = "account"
+	ResourceUser         = "user"
+	ResourceScopedKey    = "scoped_key"
+	ResourceCluster      = "cluster"
+	ResourceExport       = "export"
+	ResourceAPIUser      = "api_user"
+	ResourceAuth         = "auth"
+	ResourceEvent        = "event"
+	ResourceWebhook      = "webhook"
+	ResourceAPIToken     = "apitoken"
+	ResourceSearch       = "search"
+	ResourceTemplate     = "template"
+	ResourceJob          = "job"
+	ResourceBackup       = "backup"
+	ResourceConfig       = "config"
+	ResourceOrganization = "organization"
+	ResourceSSO          = "sso"
 )
 
 // Action names. Same constants-for-typo-protection rationale as Resource.
@@ -246,6 +248,23 @@ var Procedures = map[string]Procedure{
 	nisv1connect.OperatorServiceSetJWTPolicyProcedure:      {Resource: ResourceOperator, Action: ActionUpdate, Kind: KindPerRow},
 	nisv1connect.OperatorServiceRunJWTExpirySweepProcedure: {Resource: ResourceOperator, Action: ActionUpdate, Kind: KindPerRow},
 
+	// OrganizationService (orgs + SSO). Create/Delete of orgs is admin-only
+	// (KindRoleOnly + requireAdmin); everything else narrows per-row via
+	// PermissionService (CanReadOrganization / CanUpdateOrganization /
+	// CanManageSSO / CanReadSSO). SSO config + role mappings are keyed on the
+	// org, so the (sso, *) resource carries them.
+	nisv1connect.OrganizationServiceCreateOrganizationProcedure:    {Resource: ResourceOrganization, Action: ActionCreate, Kind: KindRoleOnly},
+	nisv1connect.OrganizationServiceGetOrganizationProcedure:       {Resource: ResourceOrganization, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceGetOrganizationBySlugProcedure: {Resource: ResourceOrganization, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceListOrganizationsProcedure:     {Resource: ResourceOrganization, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceUpdateOrganizationProcedure:    {Resource: ResourceOrganization, Action: ActionUpdate, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceDeleteOrganizationProcedure:    {Resource: ResourceOrganization, Action: ActionDelete, Kind: KindRoleOnly},
+	nisv1connect.OrganizationServiceGetSSOConfigProcedure:          {Resource: ResourceSSO, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceSetSSOConfigProcedure:          {Resource: ResourceSSO, Action: ActionUpdate, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceDeleteSSOConfigProcedure:       {Resource: ResourceSSO, Action: ActionDelete, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceListSSORoleMappingsProcedure:   {Resource: ResourceSSO, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.OrganizationServiceSetSSORoleMappingsProcedure:    {Resource: ResourceSSO, Action: ActionUpdate, Kind: KindPerRow},
+
 	// ScopedSigningKeyService. rotate / detach / settracklatest map to
 	// "update" per pre-A17 verb-prefix table.
 	nisv1connect.ScopedSigningKeyServiceCreateScopedSigningKeyProcedure:    {Resource: ResourceScopedKey, Action: ActionCreate, Kind: KindPerRow},
@@ -332,6 +351,28 @@ var RolePolicy = []RoleGrant{
 	{Role: entities.RoleAdmin, Resource: ResourceJob, Actions: []string{ActionRead, ActionUpdate, ActionDelete}},
 	{Role: entities.RoleAdmin, Resource: ResourceBackup, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
 	{Role: entities.RoleAdmin, Resource: ResourceConfig, Actions: []string{ActionRead}},
+	{Role: entities.RoleAdmin, Resource: ResourceOrganization, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleAdmin, Resource: ResourceSSO, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+
+	// org-admin — manages one organization and everything beneath it.
+	// operator is read-only; organization is read+update (own org only — fine-grained
+	// ownsOrganization check is in PermissionService); SSO and api_user are fully
+	// managed; account/user/cluster/scoped_key/template/webhook/backup are CRUD.
+	// Cannot create/delete organizations (admin-only data-loss guard).
+	{Role: entities.RoleOrgAdmin, Resource: ResourceOrganization, Actions: []string{ActionRead, ActionUpdate}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceSSO, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceAPIUser, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceOperator, Actions: []string{ActionRead}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceAccount, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceUser, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceCluster, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceScopedKey, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceTemplate, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceWebhook, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceBackup, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceAPIToken, Actions: []string{ActionCreate, ActionRead, ActionDelete}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceSearch, Actions: []string{ActionRead}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceExport, Actions: []string{ActionRead}},
 
 	// operator-admin — scoped to ONE operator. Can manage everything under
 	// that operator EXCEPT the operator itself (no rename/delete). Cannot

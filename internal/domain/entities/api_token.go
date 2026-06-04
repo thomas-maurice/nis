@@ -26,11 +26,18 @@ type APIToken struct {
 	Role            APIUserRole
 	OperatorID      *uuid.UUID // required when Role == operator-admin
 	AccountID       *uuid.UUID // required when Role == account-admin
-	ExpiresAt       *time.Time // nil = never expires
-	LastUsedAt      *time.Time // nil = never used
-	RevokedAt       *time.Time // non-nil = revoked
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+
+	// OrganizationID ties a service-account token to an org. Nullable:
+	// platform-admin-minted tokens are NULL; org-scoped service-account tokens
+	// carry the org they were minted for. Stored here (not derived from the
+	// creator) so offboarding the creator doesn't change the token's scope.
+	OrganizationID *uuid.UUID
+
+	ExpiresAt  *time.Time // nil = never expires
+	LastUsedAt *time.Time // nil = never used
+	RevokedAt  *time.Time // non-nil = revoked
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // IsExpired reports whether the token's expiry has passed. Returns false when ExpiresAt is nil.

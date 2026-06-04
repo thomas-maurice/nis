@@ -54,11 +54,21 @@ type CreateAPITokenRequest struct {
 	// when an admin uses the offline `nis user create`-style flow (no such flow
 	// today, but the FK is nullable to keep that option open).
 	CreatedByUserID *uuid.UUID
+	// OrganizationID ties the token to an org. If nil when CreateToken is called,
+	// it is derived from the operator or account scope (see CreateToken). Platform
+	// admin tokens leave this nil.
+	OrganizationID *uuid.UUID
 }
 
 // CreateToken generates a random plaintext token, persists its hash, emits an
 // api_token.created event, and returns the entity + plaintext (the latter visible
 // once and only once).
+//
+// If req.OrganizationID is nil on entry, it is derived from the token's scope:
+//   - operator-admin: look up the operator and use its OrganizationID.
+//   - account-admin:  look up the account → its operator → operator.OrganizationID.
+//   - org-admin:      must be set by the caller (handler enforces this).
+//   - admin:          left nil (platform token, org-less).
 func (s *APITokenService) CreateToken(ctx context.Context, req CreateAPITokenRequest) (*entities.APIToken, string, error) {
 	if req.Name == "" {
 		return nil, "", fmt.Errorf("name is required")
@@ -84,6 +94,35 @@ func (s *APITokenService) CreateToken(ctx context.Context, req CreateAPITokenReq
 	case entities.RoleAdmin:
 		if req.OperatorID != nil || req.AccountID != nil {
 			return nil, "", fmt.Errorf("operator_id and account_id must not be set for admin role")
+		}
+	case entities.RoleOrgAdmin:
+		if req.OrganizationID == nil {
+			return nil, "", fmt.Errorf("organization_id is required for org-admin role tokens")
+		}
+	}
+
+	// Derive OrganizationID from scope when not already set by the caller.
+	// This ensures org-subquery filtering in api_token_repo.ListPage works
+	// correctly for operator-admin and account-admin tokens.
+	if req.OrganizationID == nil {
+		switch req.Role {
+		case entities.RoleOperatorAdmin:
+			op, err := s.factory.OperatorRepository().GetByID(ctx, *req.OperatorID)
+			if err != nil {
+				return nil, "", fmt.Errorf("derive org from operator: %w", err)
+			}
+			req.OrganizationID = &op.OrganizationID
+		case entities.RoleAccountAdmin:
+			acct, err := s.factory.AccountRepository().GetByID(ctx, *req.AccountID)
+			if err != nil {
+				return nil, "", fmt.Errorf("derive org from account: %w", err)
+			}
+			op, err := s.factory.OperatorRepository().GetByID(ctx, acct.OperatorID)
+			if err != nil {
+				return nil, "", fmt.Errorf("derive org from account's operator: %w", err)
+			}
+			req.OrganizationID = &op.OrganizationID
+		// admin and org-admin are handled above (admin stays nil, org-admin errors above).
 		}
 	}
 
@@ -116,6 +155,7 @@ func (s *APITokenService) CreateToken(ctx context.Context, req CreateAPITokenReq
 		Role:            req.Role,
 		OperatorID:      req.OperatorID,
 		AccountID:       req.AccountID,
+		OrganizationID:  req.OrganizationID,
 		ExpiresAt:       req.ExpiresAt,
 		CreatedAt:       now,
 		UpdatedAt:       now,
@@ -250,14 +290,17 @@ func (s *APITokenService) Authenticate(ctx context.Context, plaintext string) (*
 // SyntheticAPIUser builds an APIUser that matches the token's role+scope for
 // downstream PermissionService checks. The synthetic user's ID is the token ID
 // — it never collides with a real api_users row, and is only used in-context.
+// OrganizationID is carried from the token so that ScopeFromAPIUser returns
+// the correct org-scoped scope for org-admin-role tokens.
 func (s *APITokenService) SyntheticAPIUser(token *entities.APIToken) *entities.APIUser {
 	return &entities.APIUser{
-		ID:         token.ID,
-		Username:   "token:" + token.Prefix,
-		Role:       token.Role,
-		OperatorID: token.OperatorID,
-		AccountID:  token.AccountID,
-		CreatedAt:  token.CreatedAt,
-		UpdatedAt:  token.UpdatedAt,
+		ID:             token.ID,
+		Username:       "token:" + token.Prefix,
+		Role:           token.Role,
+		OperatorID:     token.OperatorID,
+		AccountID:      token.AccountID,
+		OrganizationID: token.OrganizationID,
+		CreatedAt:      token.CreatedAt,
+		UpdatedAt:      token.UpdatedAt,
 	}
 }

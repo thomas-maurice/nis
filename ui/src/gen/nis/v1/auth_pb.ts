@@ -52,6 +52,20 @@ export class APIUser extends Message<APIUser> {
    */
   accountId?: string;
 
+  /**
+   * organization_id is the owning org; empty for platform admins (role=admin).
+   *
+   * @generated from field: string organization_id = 8;
+   */
+  organizationId = "";
+
+  /**
+   * auth_source is "local" for password users, "oidc" for SSO-provisioned users.
+   *
+   * @generated from field: string auth_source = 9;
+   */
+  authSource = "";
+
   constructor(data?: PartialMessage<APIUser>) {
     super();
     proto3.util.initPartial(data, this);
@@ -67,6 +81,8 @@ export class APIUser extends Message<APIUser> {
     { no: 5, name: "updated_at", kind: "message", T: Timestamp },
     { no: 6, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 7, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 8, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "auth_source", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): APIUser {
@@ -295,6 +311,14 @@ export class CreateAPIUserRequest extends Message<CreateAPIUserRequest> {
    */
   accountId?: string;
 
+  /**
+   * organization_id is optional for admin callers; org-admin callers always
+   * create in their own org (server ignores this field for them).
+   *
+   * @generated from field: string organization_id = 6;
+   */
+  organizationId = "";
+
   constructor(data?: PartialMessage<CreateAPIUserRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -308,6 +332,7 @@ export class CreateAPIUserRequest extends Message<CreateAPIUserRequest> {
     { no: 3, name: "permissions", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 5, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 6, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateAPIUserRequest {
@@ -543,6 +568,13 @@ export class ListAPIUsersRequest extends Message<ListAPIUsersRequest> {
    */
   page?: PageRequest;
 
+  /**
+   * auth_source filters by credential source ("local" | "oidc"); "" returns all.
+   *
+   * @generated from field: string auth_source = 4;
+   */
+  authSource = "";
+
   constructor(data?: PartialMessage<ListAPIUsersRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -554,6 +586,7 @@ export class ListAPIUsersRequest extends Message<ListAPIUsersRequest> {
     { no: 1, name: "role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "username_like", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "page", kind: "message", T: PageRequest },
+    { no: 4, name: "auth_source", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListAPIUsersRequest {

@@ -56,7 +56,7 @@ func (s *SearchServiceTestSuite) SetupSuite() {
 	require.NoError(s.T(), goose.Up(sqlDB, "sqlite"))
 
 	s.factory = persistence.NewSQLRepositoryFactoryFromDB(db)
-	s.perm = NewPermissionService(s.factory.OperatorRepository(), s.factory.AccountRepository(), s.factory.UserRepository())
+	s.perm = NewPermissionService(s.factory.OperatorRepository(), s.factory.AccountRepository(), s.factory.UserRepository(), s.factory.OrganizationRepository())
 	s.svc = NewSearchService(s.factory)
 }
 
@@ -82,11 +82,13 @@ func (s *SearchServiceTestSuite) SetupTest() {
 	require.NoError(s.T(), s.factory.OperatorRepository().Create(s.ctx, &entities.Operator{
 		ID: s.op1, Name: "metrics-co", Description: "shared infrastructure",
 		EncryptedSeed: "x", PublicKey: "O1XXXXXXXXXXXXXXXXXXXXX", JWT: "j",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 		CreatedAt: now, UpdatedAt: now,
 	}))
 	require.NoError(s.T(), s.factory.OperatorRepository().Create(s.ctx, &entities.Operator{
 		ID: s.op2, Name: "metrics-rival", Description: "shared infrastructure",
 		EncryptedSeed: "x", PublicKey: "O2YYYYYYYYYYYYYYYYYYYYY", JWT: "j",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 		CreatedAt: now, UpdatedAt: now,
 	}))
 

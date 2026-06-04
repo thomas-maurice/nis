@@ -196,9 +196,10 @@ func TestSyntheticAPIUser_CarriesRoleAndScope(t *testing.T) {
 func insertOperator2(t *testing.T, ctx context.Context, factory persistence.RepositoryFactory, opID uuid.UUID) {
 	t.Helper()
 	require.NoError(t, factory.OperatorRepository().Create(ctx, &entities.Operator{
-		ID:        opID,
-		Name:      "test-op-" + opID.String()[:8],
-		PublicKey: opID.String(),
+		ID:             opID,
+		Name:           "test-op-" + opID.String()[:8],
+		PublicKey:      opID.String(),
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 	}))
 }
 
@@ -211,6 +212,7 @@ func TestPermission_CanCreateAPIToken_EnforcesRoleCeiling(t *testing.T) {
 		factory.OperatorRepository(),
 		factory.AccountRepository(),
 		factory.UserRepository(),
+		factory.OrganizationRepository(),
 	)
 
 	opID := uuid.New()
@@ -265,6 +267,7 @@ func TestPermission_CanCreateAPIToken_NoCrossTenantEscalation(t *testing.T) {
 		factory.OperatorRepository(),
 		factory.AccountRepository(),
 		factory.UserRepository(),
+		factory.OrganizationRepository(),
 	)
 
 	// Two operators, each with one account. Operator X belongs to the operator-
@@ -371,6 +374,7 @@ func TestPermission_CanReadAPIToken_AdminVsOwner(t *testing.T) {
 		factory.OperatorRepository(),
 		factory.AccountRepository(),
 		factory.UserRepository(),
+		factory.OrganizationRepository(),
 	)
 
 	adminID := uuid.New()

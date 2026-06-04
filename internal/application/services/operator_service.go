@@ -58,8 +58,9 @@ func NewOperatorService(
 
 // CreateOperatorRequest contains the data needed to create an operator
 type CreateOperatorRequest struct {
-	Name        string
-	Description string
+	Name           string
+	Description    string
+	OrganizationID *uuid.UUID // nil → default organization
 }
 
 // CreateOperator creates a new operator with generated keys and JWT.
@@ -99,7 +100,16 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 			return fmt.Errorf("failed to encrypt operator seed: %w", err)
 		}
 
-		// Create operator entity (without system account initially)
+		// Resolve organization ID (default org when not specified).
+		orgID := uuid.MustParse(entities.DefaultOrganizationID)
+		if req.OrganizationID != nil {
+			orgID = *req.OrganizationID
+			if _, err := tx.OrganizationRepository().GetByID(ctx, orgID); err != nil {
+				return fmt.Errorf("organization not found: %w", err)
+			}
+		}
+
+		// Create operator entity (without system account initially).
 		operator := &entities.Operator{
 			ID:                  uuid.New(),
 			Name:                req.Name,
@@ -107,6 +117,7 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 			EncryptedSeed:       encryptedSeed,
 			PublicKey:           pubKey,
 			SystemAccountPubKey: "",
+			OrganizationID:      orgID,
 			CreatedAt:           clock.Now(),
 			UpdatedAt:           clock.Now(),
 		}

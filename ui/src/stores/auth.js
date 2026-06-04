@@ -8,12 +8,14 @@ export const useAuthStore = defineStore('auth', {
     role: '',
     isAdmin: false,
     loggedIn: false,
-    decoded: null
+    decoded: null,
+    organizationId: ''
   }),
 
   getters: {
     isOperatorAdmin: (state) => state.role === 'operator-admin',
-    isAccountAdmin: (state) => state.role === 'account-admin'
+    isAccountAdmin: (state) => state.role === 'account-admin',
+    isOrgAdmin: (state) => state.role === 'org-admin'
   },
 
   actions: {
@@ -38,6 +40,7 @@ export const useAuthStore = defineStore('auth', {
           this.role = ''
           this.isAdmin = false
         }
+        this.organizationId = this.decoded.organization_id || ''
       } catch (error) {
         console.error('Failed to decode JWT:', error)
         // On decode error, clear everything
@@ -56,6 +59,6 @@ export const useAuthStore = defineStore('auth', {
 
   persist: {
     storage: localStorage,
-    paths: ['token', 'username', 'role', 'isAdmin', 'loggedIn', 'decoded']
+    paths: ['token', 'username', 'role', 'isAdmin', 'loggedIn', 'decoded', 'organizationId']
   }
 })

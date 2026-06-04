@@ -1,4 +1,4 @@
-.PHONY: generate build build-ui build-server build-cli build-all test test-e2e lint clean migrate-up migrate-down run run-demo run-stop run-clean run-status run-logs run-logs-nats run-logs-pg serve-local run-dev install-cli install-ui generate-key generate-jwt-secret generate-encryption-key docker-build docker-run docker-stop docker-logs help
+.PHONY: generate build build-ui build-server build-cli build-all test test-e2e test-e2e-oidc lint clean migrate-up migrate-down run run-demo run-stop run-clean run-status run-logs run-logs-nats run-logs-pg serve-local run-dev install-cli install-ui generate-key generate-jwt-secret generate-encryption-key docker-build docker-run docker-stop docker-logs help
 
 # Version from git tags (override with: make build-all VERSION=1.2.3)
 VERSION ?= $(shell git describe --tags --always --dirty)
@@ -45,6 +45,13 @@ test:
 test-e2e: build-server
 	@echo "==> Running e2e suite (requires docker daemon)..."
 	go test -tags=e2e -v -timeout=10m ./tests/e2e/...
+
+# OIDC SSO e2e — boots a real Dex container in addition to NIS + NATS. Gated
+# behind the e2e_oidc build tag so the default suite stays Dex-free. Requires
+# docker daemon + network to pull the pinned Dex image.
+test-e2e-oidc: build-server
+	@echo "==> Running OIDC SSO e2e suite (requires docker daemon + Dex)..."
+	go test -tags=e2e,e2e_oidc -v -timeout=10m -run 'SSO|OIDC' ./tests/e2e/...
 
 # ----------------------------------------------------------------------------
 # Atlas — schema migrations driven by GORM models in

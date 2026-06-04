@@ -1,10 +1,10 @@
 <template>
   <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1>API Users</h1>
+      <h1>Local Users</h1>
       <button class="btn btn-primary" @click="showCreateModal = true">
         <font-awesome-icon :icon="['fas', 'plus']" class="me-2" />
-        Create API User
+        Create Local User
       </button>
     </div>
 
@@ -22,6 +22,7 @@
               <tr>
                 <th>Username</th>
                 <th>Role</th>
+                <th>Organization</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -37,6 +38,7 @@
                     {{ getRoleDisplay(user.permissions[0]) }}
                   </span>
                 </td>
+                <td>{{ orgName(user.organizationId) }}</td>
                 <td>{{ formatDate(user.createdAt) }}</td>
                 <td>
                   <button
@@ -73,7 +75,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Create API User</h5>
+            <h5 class="modal-title">Create Local User</h5>
             <button type="button" class="btn-close" @click="closeCreateModal"></button>
           </div>
           <div class="modal-body">
@@ -101,24 +103,37 @@
               <label for="role" class="form-label">Role</label>
               <select id="role" v-model="createForm.role" class="form-select" @change="handleRoleChange">
                 <option value="admin">Admin (Full Access)</option>
+                <option value="org-admin">Org Admin (Manage Organization)</option>
                 <option value="operator-admin">Operator Admin (Manage Accounts/Users)</option>
                 <option value="account-admin">Account Admin (Manage Users)</option>
               </select>
             </div>
+            <div class="mb-3">
+              <label for="organization" class="form-label">
+                Organization
+                <span v-if="createForm.role !== 'admin'" class="text-danger">*</span>
+              </label>
+              <select id="organization" v-model="createForm.organizationId" class="form-select">
+                <option value="">{{ createForm.role === 'admin' ? 'None' : 'Select an organization...' }}</option>
+                <option v-for="org in organizations" :key="org.id" :value="org.id">
+                  {{ org.name }}
+                </option>
+              </select>
+            </div>
             <div v-if="createForm.role === 'operator-admin'" class="mb-3">
               <label for="operator" class="form-label">Operator <span class="text-danger">*</span></label>
-              <select id="operator" v-model="createForm.operatorId" class="form-select" required>
-                <option value="">Select an operator...</option>
-                <option v-for="operator in operators" :key="operator.id" :value="operator.id">
+              <select id="operator" v-model="createForm.operatorId" class="form-select" required :disabled="!createForm.organizationId">
+                <option value="">{{ createForm.organizationId ? 'Select an operator...' : 'Select an organization first...' }}</option>
+                <option v-for="operator in filteredOperators" :key="operator.id" :value="operator.id">
                   {{ operator.name }}
                 </option>
               </select>
             </div>
             <div v-if="createForm.role === 'account-admin'" class="mb-3">
               <label for="account" class="form-label">Account <span class="text-danger">*</span></label>
-              <select id="account" v-model="createForm.accountId" class="form-select" required>
-                <option value="">Select an account...</option>
-                <option v-for="account in accounts" :key="account.id" :value="account.id">
+              <select id="account" v-model="createForm.accountId" class="form-select" required :disabled="!createForm.organizationId">
+                <option value="">{{ createForm.organizationId ? 'Select an account...' : 'Select an organization first...' }}</option>
+                <option v-for="account in filteredAccounts" :key="account.id" :value="account.id">
                   {{ account.name }} ({{ account.operatorName }})
                 </option>
               </select>
@@ -181,9 +196,15 @@
               <label for="newRole" class="form-label">Role</label>
               <select id="newRole" v-model="roleForm.role" class="form-select" @change="handleRoleModalChange">
                 <option value="admin">Admin (Full Access)</option>
+                <option value="org-admin">Org Admin (Manage Organization)</option>
                 <option value="operator-admin">Operator Admin (Manage Accounts/Users)</option>
                 <option value="account-admin">Account Admin (Manage Users)</option>
               </select>
+            </div>
+            <div v-if="roleForm.role === 'org-admin'" class="mb-3">
+              <div class="alert alert-info mb-0 py-2 small">
+                Organization assignment is set when the user is created and cannot be changed here.
+              </div>
             </div>
             <div v-if="roleForm.role === 'operator-admin'" class="mb-3">
               <label for="modalOperator" class="form-label">Operator <span class="text-danger">*</span></label>
@@ -221,7 +242,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Delete API User</h5>
+            <h5 class="modal-title">Delete Local User</h5>
             <button type="button" class="btn-close" @click="closeDeleteModal"></button>
           </div>
           <div class="modal-body">
@@ -243,8 +264,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import apiClient from '@/utils/api'
+
+// Operators with an empty organization_id belong to the default org.
+const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001'
 
 const users = ref([])
 const loading = ref(false)
@@ -252,9 +276,10 @@ const error = ref('')
 
 const operators = ref([])
 const accounts = ref([])
+const organizations = ref([])
 
 const showCreateModal = ref(false)
-const createForm = ref({ username: '', password: '', role: 'admin', operatorId: '', accountId: '' })
+const createForm = ref({ username: '', password: '', role: 'admin', operatorId: '', accountId: '', organizationId: '' })
 const creating = ref(false)
 const createError = ref('')
 
@@ -264,7 +289,7 @@ const changingPassword = ref(false)
 const passwordError = ref('')
 
 const showRoleModal = ref(false)
-const roleForm = ref({ role: 'admin', operatorId: '', accountId: '' })
+const roleForm = ref({ role: 'admin', operatorId: '', accountId: '', organizationId: '' })
 const changingRole = ref(false)
 const roleError = ref('')
 
@@ -277,12 +302,21 @@ const loadUsers = async () => {
   loading.value = true
   error.value = ''
   try {
-    const response = await apiClient.post('/nis.v1.AuthService/ListAPIUsers', {})
+    const response = await apiClient.post('/nis.v1.AuthService/ListAPIUsers', { authSource: 'local' })
     users.value = response.data.users || []
   } catch (err) {
-    error.value = err.response?.data?.message || 'Failed to load API users'
+    error.value = err.response?.data?.message || 'Failed to load users'
   } finally {
     loading.value = false
+  }
+}
+
+const loadOrganizations = async () => {
+  try {
+    const response = await apiClient.post('/nis.v1.OrganizationService/ListOrganizations', { page: { limit: 200 } })
+    organizations.value = response.data.organizations || []
+  } catch (err) {
+    console.error('Failed to load organizations:', err)
   }
 }
 
@@ -305,7 +339,8 @@ const loadAccounts = async () => {
       })
       const operatorAccounts = (response.data.accounts || []).map(account => ({
         ...account,
-        operatorName: operator.name
+        operatorName: operator.name,
+        operatorOrgId: operator.organizationId || DEFAULT_ORG_ID
       }))
       allAccounts.push(...operatorAccounts)
     }
@@ -315,21 +350,42 @@ const loadAccounts = async () => {
   }
 }
 
+// Operator/account pickers are scoped to the chosen organization so you can't
+// pair an org with an operator from a different org. No org selected => empty.
+const filteredOperators = computed(() => {
+  const orgId = createForm.value.organizationId
+  if (!orgId) return []
+  return operators.value.filter((op) => (op.organizationId || DEFAULT_ORG_ID) === orgId)
+})
+
+const filteredAccounts = computed(() => {
+  const orgId = createForm.value.organizationId
+  if (!orgId) return []
+  return accounts.value.filter((acc) => acc.operatorOrgId === orgId)
+})
+
+// Changing the org invalidates any operator/account picked under the old org.
+watch(() => createForm.value.organizationId, () => {
+  createForm.value.operatorId = ''
+  createForm.value.accountId = ''
+})
+
 const handleRoleChange = () => {
-  // Clear operator/account selections when role changes
+  // Clear operator/account scope when role changes; org is role-independent.
   createForm.value.operatorId = ''
   createForm.value.accountId = ''
 }
 
 const handleRoleModalChange = () => {
-  // Clear operator/account selections when role changes
+  // Clear scope selections when role changes
   roleForm.value.operatorId = ''
   roleForm.value.accountId = ''
+  roleForm.value.organizationId = ''
 }
 
 const closeCreateModal = () => {
   showCreateModal.value = false
-  createForm.value = { username: '', password: '', role: 'admin', operatorId: '', accountId: '' }
+  createForm.value = { username: '', password: '', role: 'admin', operatorId: '', accountId: '', organizationId: '' }
   createError.value = ''
 }
 
@@ -343,8 +399,14 @@ const handleCreate = async () => {
       permissions: [createForm.value.role]
     }
 
-    // Add operator_id or account_id based on role
-    if (createForm.value.role === 'operator-admin') {
+    // Add scope id based on role
+    if (createForm.value.role === 'org-admin') {
+      if (!createForm.value.organizationId) {
+        createError.value = 'Please select an organization'
+        creating.value = false
+        return
+      }
+    } else if (createForm.value.role === 'operator-admin') {
       if (!createForm.value.operatorId) {
         createError.value = 'Please select an operator'
         creating.value = false
@@ -360,11 +422,16 @@ const handleCreate = async () => {
       payload.accountId = createForm.value.accountId
     }
 
+    // Organization is role-independent: send it whenever one is chosen.
+    if (createForm.value.organizationId) {
+      payload.organizationId = createForm.value.organizationId
+    }
+
     await apiClient.post('/nis.v1.AuthService/CreateAPIUser', payload)
     await loadUsers()
     closeCreateModal()
   } catch (err) {
-    createError.value = err.response?.data?.message || 'Failed to create API user'
+    createError.value = err.response?.data?.message || 'Failed to create user'
   } finally {
     creating.value = false
   }
@@ -404,7 +471,8 @@ const showChangeRoleModal = (user) => {
   roleForm.value = {
     role: user.permissions[0] || 'admin',
     operatorId: user.operatorId || '',
-    accountId: user.accountId || ''
+    accountId: user.accountId || '',
+    organizationId: user.organizationId || ''
   }
   showRoleModal.value = true
 }
@@ -412,7 +480,7 @@ const showChangeRoleModal = (user) => {
 const closeRoleModal = () => {
   showRoleModal.value = false
   selectedUser.value = null
-  roleForm.value = { role: 'admin', operatorId: '', accountId: '' }
+  roleForm.value = { role: 'admin', operatorId: '', accountId: '', organizationId: '' }
   roleError.value = ''
 }
 
@@ -473,7 +541,7 @@ const handleDelete = async () => {
     await loadUsers()
     closeDeleteModal()
   } catch (err) {
-    deleteError.value = err.response?.data?.message || 'Failed to delete API user'
+    deleteError.value = err.response?.data?.message || 'Failed to delete user'
   } finally {
     deleting.value = false
   }
@@ -483,6 +551,8 @@ const getRoleBadgeClass = (role) => {
   switch (role) {
     case 'admin':
       return 'badge bg-danger'
+    case 'org-admin':
+      return 'badge bg-primary'
     case 'operator-admin':
       return 'badge bg-warning'
     case 'account-admin':
@@ -496,6 +566,8 @@ const getRoleDisplay = (role) => {
   switch (role) {
     case 'admin':
       return 'Admin'
+    case 'org-admin':
+      return 'Org Admin'
     case 'operator-admin':
       return 'Operator Admin'
     case 'account-admin':
@@ -505,12 +577,19 @@ const getRoleDisplay = (role) => {
   }
 }
 
+const orgName = (orgId) => {
+  if (!orgId) return '—'
+  const org = organizations.value.find((o) => o.id === orgId)
+  return org ? org.name : orgId
+}
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString()
 }
 
 onMounted(async () => {
+  await loadOrganizations()
   await loadOperators()
   await loadAccounts()
   await loadUsers()

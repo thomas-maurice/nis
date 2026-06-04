@@ -17,18 +17,36 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// ErrOIDCManagedUser is returned when a caller attempts to manually update
+// the password or permissions of an OIDC-sourced api_user. OIDC users'
+// roles are governed by SSO group-mappings; a manual edit would be clobbered
+// on the next login. The handler maps this to CodeFailedPrecondition.
+var ErrOIDCManagedUser = errors.New("api_user is OIDC-managed; role and password are governed by SSO mappings")
+
 // AuthService handles authentication and authorization
 type AuthService struct {
-	factory   persistence.RepositoryFactory
-	jwtSecret []byte
-	tokenTTL  time.Duration
+	factory     persistence.RepositoryFactory
+	jwtSecret   []byte
+	tokenTTL    time.Duration
+	permService *PermissionService
+}
+
+// WithPermissionService injects the PermissionService into AuthService after
+// construction. This late-binding approach is required because serve.go
+// constructs authService before permissionService (the token-validation path
+// used by the auth middleware does not need permService, so the ordering is
+// safe; the api_user RPCs only run at request time, well after startup).
+func (s *AuthService) WithPermissionService(ps *PermissionService) *AuthService {
+	s.permService = ps
+	return s
 }
 
 // AuthClaims represents JWT claims for authentication tokens
 type AuthClaims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	UserID         string `json:"user_id"`
+	Username       string `json:"username"`
+	Role           string `json:"role"`
+	OrganizationID string `json:"organization_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -139,19 +157,33 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (*e
 
 // CreateAPIUserRequest contains data for creating an API user
 type CreateAPIUserRequest struct {
-	Username   string
-	Password   string
-	Role       entities.APIUserRole
-	OperatorID *uuid.UUID // Required for operator-admin role
-	AccountID  *uuid.UUID // Required for account-admin role
+	Username       string
+	Password       string
+	Role           entities.APIUserRole
+	OperatorID     *uuid.UUID // Required for operator-admin role
+	AccountID      *uuid.UUID // Required for account-admin role
+	OrganizationID *uuid.UUID // Set by handler from proto field; defaulted server-side for org-admin callers
 }
 
-// CreateAPIUser creates a new API user (admin only)
-// Requires the requesting user to be passed in context for authorization
+// CreateAPIUser creates a new API user.
+// Requires the requesting user to be passed in context for authorization.
+// Replaces the old inline RoleAdmin gate with PermissionService.CanCreateAPIUser.
 func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
-	// Only admins can create API users
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, fmt.Errorf("permission denied: only admins can create API users")
+	// For org-admin callers who didn't specify an org, default to their own org.
+	if requestingUser.Role == entities.RoleOrgAdmin && req.OrganizationID == nil {
+		req.OrganizationID = requestingUser.OrganizationID
+	}
+
+	if s.permService != nil {
+		if err := s.permService.CanCreateAPIUser(requestingUser, req.Role, req.OrganizationID); err != nil {
+			return nil, err
+		}
+	} else {
+		// Fallback for the bootstrap CLI path (nis user create) which constructs
+		// AuthService without a permService and passes a synthetic admin user.
+		if requestingUser.Role != entities.RoleAdmin {
+			return nil, fmt.Errorf("permission denied: only admins can create API users")
+		}
 	}
 
 	if req.Username == "" {
@@ -201,14 +233,16 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 	var result *entities.APIUser
 	err = s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		user := &entities.APIUser{
-			ID:           uuid.New(),
-			Username:     req.Username,
-			PasswordHash: string(passwordHash),
-			Role:         req.Role,
-			OperatorID:   req.OperatorID,
-			AccountID:    req.AccountID,
-			CreatedAt:    clock.Now(),
-			UpdatedAt:    clock.Now(),
+			ID:             uuid.New(),
+			Username:       req.Username,
+			PasswordHash:   string(passwordHash),
+			Role:           req.Role,
+			OperatorID:     req.OperatorID,
+			AccountID:      req.AccountID,
+			OrganizationID: req.OrganizationID,
+			AuthSource:     "local",
+			CreatedAt:      clock.Now(),
+			UpdatedAt:      clock.Now(),
 		}
 		if err := tx.APIUserRepository().Create(ctx, user); err != nil {
 			return fmt.Errorf("failed to create user: %w", err)
@@ -233,22 +267,40 @@ func (s *AuthService) CreateAPIUser(ctx context.Context, req CreateAPIUserReques
 	return result, nil
 }
 
-// GetAPIUser retrieves an API user by ID (admin only)
+// GetAPIUser retrieves an API user by ID (admin or org-admin within their org).
 func (s *AuthService) GetAPIUser(ctx context.Context, id uuid.UUID, requestingUser *entities.APIUser) (*entities.APIUser, error) {
-	// Only admins can get API users
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, fmt.Errorf("permission denied: only admins can view API users")
+	target, err := s.factory.APIUserRepository().GetByID(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	return s.factory.APIUserRepository().GetByID(ctx, id)
+	if s.permService != nil {
+		if err := s.permService.CanReadAPIUser(requestingUser, target); err != nil {
+			return nil, err
+		}
+	} else {
+		if requestingUser.Role != entities.RoleAdmin {
+			return nil, fmt.Errorf("permission denied: only admins can view API users")
+		}
+	}
+	return target, nil
 }
 
-// GetAPIUserByUsername retrieves an API user by username (admin only)
+// GetAPIUserByUsername retrieves an API user by username (admin or org-admin within their org).
 func (s *AuthService) GetAPIUserByUsername(ctx context.Context, username string, requestingUser *entities.APIUser) (*entities.APIUser, error) {
-	// Only admins can get API users
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, fmt.Errorf("permission denied: only admins can view API users")
+	target, err := s.factory.APIUserRepository().GetByUsername(ctx, username)
+	if err != nil {
+		return nil, err
 	}
-	return s.factory.APIUserRepository().GetByUsername(ctx, username)
+	if s.permService != nil {
+		if err := s.permService.CanReadAPIUser(requestingUser, target); err != nil {
+			return nil, err
+		}
+	} else {
+		if requestingUser.Role != entities.RoleAdmin {
+			return nil, fmt.Errorf("permission denied: only admins can view API users")
+		}
+	}
+	return target, nil
 }
 
 // ListAPIUsers lists all API users (admin only)
@@ -260,12 +312,12 @@ func (s *AuthService) ListAPIUsers(ctx context.Context, requestingUser *entities
 	return s.factory.APIUserRepository().List(ctx, repositories.ListOptions{})
 }
 
-// ListAPIUsersPage returns one keyset-paginated page of API users. Admin-only.
-// The repo's scope check returns no rows for any non-admin scope, but we also
-// gate explicitly at the service layer for the clear 403.
+// ListAPIUsersPage returns one keyset-paginated page of API users.
+// Admin sees all; org-admin sees only users in their own org (repo-layer
+// narrowing). Lower roles are denied here before hitting the repo.
 func (s *AuthService) ListAPIUsersPage(ctx context.Context, scope authz.Scope, filter repositories.APIUserListFilter) ([]*entities.APIUser, string, error) {
-	if !scope.IsAdmin() {
-		return nil, "", fmt.Errorf("permission denied: only admins can view API users")
+	if !scope.IsAdmin() && !scope.IsOrgAdmin() {
+		return nil, "", fmt.Errorf("permission denied: only admins or org-admins can view API users")
 	}
 	return s.factory.APIUserRepository().ListPage(ctx, scope, filter)
 }
@@ -275,13 +327,10 @@ type UpdatePasswordRequest struct {
 	Password string
 }
 
-// UpdateAPIUserPassword updates an API user's password (admin only)
+// UpdateAPIUserPassword updates an API user's password.
+// Requires the requesting user to be passed for authorization.
+// Returns ErrOIDCManagedUser if the target user's auth_source is "oidc".
 func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, req UpdatePasswordRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
-	// Only admins can update API user passwords
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, fmt.Errorf("permission denied: only admins can update API user passwords")
-	}
-
 	if req.Password == "" {
 		return nil, fmt.Errorf("password is required")
 	}
@@ -291,6 +340,21 @@ func (s *AuthService) UpdateAPIUserPassword(ctx context.Context, id uuid.UUID, r
 		user, err := tx.APIUserRepository().GetByID(ctx, id)
 		if err != nil {
 			return err
+		}
+
+		// OIDC-row guard: manual password changes are blocked for OIDC users.
+		if user.AuthSource == "oidc" {
+			return fmt.Errorf("%w", ErrOIDCManagedUser)
+		}
+
+		if s.permService != nil {
+			if err := s.permService.CanUpdateAPIUser(requestingUser, user); err != nil {
+				return err
+			}
+		} else {
+			if requestingUser.Role != entities.RoleAdmin {
+				return fmt.Errorf("permission denied: only admins can update API user passwords")
+			}
 		}
 
 		// Hash new password
@@ -334,14 +398,10 @@ type UpdateRoleRequest struct {
 	AccountID  *uuid.UUID // Required for account-admin role
 }
 
-// UpdateAPIUserPermissions updates an API user's role/permissions (admin only).
+// UpdateAPIUserPermissions updates an API user's role/permissions.
 // The method is named to match the RPC procedure path for P1 emit-coverage lint.
+// Returns ErrOIDCManagedUser if the target user's auth_source is "oidc".
 func (s *AuthService) UpdateAPIUserPermissions(ctx context.Context, id uuid.UUID, req UpdateRoleRequest, requestingUser *entities.APIUser) (*entities.APIUser, error) {
-	// Only admins can update API user roles
-	if requestingUser.Role != entities.RoleAdmin {
-		return nil, fmt.Errorf("permission denied: only admins can update API user roles")
-	}
-
 	if !req.Role.IsValid() {
 		return nil, fmt.Errorf("invalid role: %s", req.Role)
 	}
@@ -375,11 +435,36 @@ func (s *AuthService) UpdateAPIUserPermissions(ctx context.Context, id uuid.UUID
 			return err
 		}
 
+		// OIDC-row guard: role changes are blocked for OIDC users.
+		if user.AuthSource == "oidc" {
+			return fmt.Errorf("%w", ErrOIDCManagedUser)
+		}
+
+		// Gate on the current row (org match + rank ceiling on the existing row).
+		if s.permService != nil {
+			if err := s.permService.CanUpdateAPIUser(requestingUser, user); err != nil {
+				return err
+			}
+			// Also enforce rank ceiling on the *new* role the caller is trying to
+			// assign (CanUpdateAPIUser checks the current row's role, not the target).
+			// org-admin cannot escalate a user to their own rank or above.
+			if err := s.permService.CanCreateAPIUser(requestingUser, req.Role, user.OrganizationID); err != nil {
+				return fmt.Errorf("new role rejected: %w", err)
+			}
+		} else {
+			if requestingUser.Role != entities.RoleAdmin {
+				return fmt.Errorf("permission denied: only admins can update API user roles")
+			}
+		}
+
 		beforeRole := user.Role
 
 		user.Role = req.Role
 		user.OperatorID = req.OperatorID
 		user.AccountID = req.AccountID
+		// org-admin cannot move a user to another org — OrganizationID is
+		// intentionally NOT updated here. Only an admin can do that (and there's
+		// no RPC for it; it would require a separate MoveAPIUser endpoint).
 		user.UpdatedAt = clock.Now()
 
 		if err := tx.APIUserRepository().Update(ctx, user); err != nil {
@@ -407,17 +492,24 @@ func (s *AuthService) UpdateAPIUserPermissions(ctx context.Context, id uuid.UUID
 	return result, nil
 }
 
-// DeleteAPIUser deletes an API user (admin only)
+// DeleteAPIUser deletes an API user (admin or org-admin within their org).
 func (s *AuthService) DeleteAPIUser(ctx context.Context, id uuid.UUID, requestingUser *entities.APIUser) error {
-	// Only admins can delete API users
-	if requestingUser.Role != entities.RoleAdmin {
-		return fmt.Errorf("permission denied: only admins can delete API users")
-	}
 	return s.factory.WithTx(ctx, func(tx persistence.RepositoryFactory) error {
 		user, err := tx.APIUserRepository().GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
+
+		if s.permService != nil {
+			if err := s.permService.CanDeleteAPIUser(requestingUser, user); err != nil {
+				return err
+			}
+		} else {
+			if requestingUser.Role != entities.RoleAdmin {
+				return fmt.Errorf("permission denied: only admins can delete API users")
+			}
+		}
+
 		if err := tx.APIUserRepository().Delete(ctx, id); err != nil {
 			return err
 		}
@@ -428,6 +520,13 @@ func (s *AuthService) DeleteAPIUser(ctx context.Context, id uuid.UUID, requestin
 			Payload:      map[string]any{"username": user.Username, "role": string(user.Role)},
 		})
 	})
+}
+
+// IssueSessionForUser mints a NIS session JWT for an already-authenticated
+// user without requiring a password. Used by the OIDC callback to issue a
+// session after successful IdP authentication + JIT provisioning.
+func (s *AuthService) IssueSessionForUser(user *entities.APIUser) (string, error) {
+	return s.generateToken(user)
 }
 
 // generateToken generates a JWT token for a user
@@ -444,6 +543,9 @@ func (s *AuthService) generateToken(user *entities.APIUser) (string, error) {
 			Issuer:    "nis",
 			Subject:   user.ID.String(),
 		},
+	}
+	if user.OrganizationID != nil {
+		claims.OrganizationID = user.OrganizationID.String()
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

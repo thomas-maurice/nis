@@ -75,6 +75,13 @@ export class Operator extends Message<Operator> {
    */
   jwtAutoRenew = false;
 
+  /**
+   * Organization this operator belongs to.
+   *
+   * @generated from field: string organization_id = 13;
+   */
+  organizationId = "";
+
   constructor(data?: PartialMessage<Operator>) {
     super();
     proto3.util.initPartial(data, this);
@@ -95,6 +102,7 @@ export class Operator extends Message<Operator> {
     { no: 10, name: "account_jwt_ttl_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 11, name: "jwt_warn_window_seconds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 12, name: "jwt_auto_renew", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 13, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Operator {
@@ -130,6 +138,13 @@ export class CreateOperatorRequest extends Message<CreateOperatorRequest> {
    */
   description = "";
 
+  /**
+   * organization_id assigns the operator to an org. Empty = default org.
+   *
+   * @generated from field: string organization_id = 3;
+   */
+  organizationId = "";
+
   constructor(data?: PartialMessage<CreateOperatorRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -140,6 +155,7 @@ export class CreateOperatorRequest extends Message<CreateOperatorRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateOperatorRequest {

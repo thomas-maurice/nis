@@ -69,9 +69,10 @@ func TestUserJWTRevocationRepoSuite(t *testing.T) {
 func (s *UserJWTRevocationRepoTestSuite) makeOperatorAndAccount() (opID, accID uuid.UUID) {
 	opID = uuid.New()
 	err := s.operatorRepo.Create(context.Background(), &entities.Operator{
-		ID:        opID,
-		Name:      "test-op-" + opID.String()[:8],
-		PublicKey: "O" + opID.String(),
+		ID:             opID,
+		Name:           "test-op-" + opID.String()[:8],
+		PublicKey:      "O" + opID.String(),
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 	})
 	require.NoError(s.T(), err)
 

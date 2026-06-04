@@ -1,0 +1,188 @@
+syntax = "proto3";
+
+package nis.v1;
+
+option go_package = "github.com/thomas-maurice/nis/gen/nis/v1;nisv1";
+
+import "nis/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Organization is the top-level tenant. Every operator (and transitively every
+// account/user/cluster) belongs to exactly one organization. Platform admins
+// (api_users with role=admin) are org-less.
+message Organization {
+  string id = 1;
+  string name = 2;
+  // slug is [a-z0-9-], unique, immutable after creation. Used for OIDC SSO
+  // routing (/login?org=<slug>).
+  string slug = 3;
+  string description = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// OrganizationSSOConfig is the per-org OIDC configuration. The client secret is
+// NEVER returned on the wire — client_secret_set reports whether one is stored.
+message OrganizationSSOConfig {
+  string id = 1;
+  string organization_id = 2;
+  bool enabled = 3;
+  string issuer_url = 4;
+  string client_id = 5;
+  // True when an encrypted client secret is stored. The secret itself is
+  // write-only (set via SetSSOConfigRequest.client_secret) and never read back.
+  bool client_secret_set = 6;
+  string scopes = 7;       // space-separated; default "openid profile email groups"
+  string group_claim = 8;  // claim carrying the group list; default "groups"
+  // default_role applied when no group mapping matches. Empty = deny login.
+  // Must never be "admin".
+  string default_role = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+// SSORoleMapping maps an IdP group value to a NIS role+scope for one org.
+// Evaluated by ascending priority (lower first); first match wins.
+message SSORoleMapping {
+  string id = 1;
+  string organization_id = 2;
+  string group_value = 3;
+  // role must be org-admin, operator-admin, or account-admin; never admin.
+  string role = 4;
+  string scope_operator_id = 5; // required when role=operator-admin
+  string scope_account_id = 6;  // required when role=account-admin
+  int32 priority = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message CreateOrganizationRequest {
+  string name = 1;
+  string slug = 2;
+  string description = 3;
+}
+
+message CreateOrganizationResponse {
+  Organization organization = 1;
+}
+
+message GetOrganizationRequest {
+  string id = 1;
+}
+
+message GetOrganizationResponse {
+  Organization organization = 1;
+}
+
+message GetOrganizationBySlugRequest {
+  string slug = 1;
+}
+
+message GetOrganizationBySlugResponse {
+  Organization organization = 1;
+}
+
+message ListOrganizationsRequest {
+  ListOptions options = 1;
+  PageRequest page = 2;
+}
+
+message ListOrganizationsResponse {
+  repeated Organization organizations = 1;
+  string next_cursor = 2;
+}
+
+message UpdateOrganizationRequest {
+  string id = 1;
+  // slug is immutable; only name and description may change.
+  string name = 2;
+  string description = 3;
+}
+
+message UpdateOrganizationResponse {
+  Organization organization = 1;
+}
+
+message DeleteOrganizationRequest {
+  string id = 1;
+}
+
+message DeleteOrganizationResponse {}
+
+message GetSSOConfigRequest {
+  string organization_id = 1;
+}
+
+message GetSSOConfigResponse {
+  OrganizationSSOConfig config = 1;
+  // callback_url is the full OIDC redirect_uri this server will use, derived
+  // from server.public_url. Register this exact value with the IdP. Empty if
+  // server.public_url is unconfigured.
+  string callback_url = 2;
+}
+
+message SetSSOConfigRequest {
+  string organization_id = 1;
+  bool enabled = 2;
+  string issuer_url = 3;
+  string client_id = 4;
+  // client_secret is write-only. Empty leaves any existing secret unchanged;
+  // a non-empty value replaces it. Never returned by any read RPC.
+  string client_secret = 5;
+  string scopes = 6;
+  string group_claim = 7;
+  string default_role = 8;
+}
+
+message SetSSOConfigResponse {
+  OrganizationSSOConfig config = 1;
+}
+
+message DeleteSSOConfigRequest {
+  string organization_id = 1;
+}
+
+message DeleteSSOConfigResponse {}
+
+message ListSSORoleMappingsRequest {
+  string organization_id = 1;
+}
+
+message ListSSORoleMappingsResponse {
+  repeated SSORoleMapping mappings = 1;
+}
+
+// SetSSORoleMappings replaces the entire set of role mappings for an org
+// atomically. An empty list clears all mappings.
+message SetSSORoleMappingsRequest {
+  string organization_id = 1;
+  repeated SSORoleMappingInput mappings = 2;
+}
+
+// SSORoleMappingInput is the write shape — no id/created_at (server-assigned).
+message SSORoleMappingInput {
+  string group_value = 1;
+  string role = 2;
+  string scope_operator_id = 3;
+  string scope_account_id = 4;
+  int32 priority = 5;
+}
+
+message SetSSORoleMappingsResponse {
+  repeated SSORoleMapping mappings = 1;
+}
+
+service OrganizationService {
+  rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
+  rpc GetOrganization(GetOrganizationRequest) returns (GetOrganizationResponse);
+  rpc GetOrganizationBySlug(GetOrganizationBySlugRequest) returns (GetOrganizationBySlugResponse);
+  rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse);
+  rpc UpdateOrganization(UpdateOrganizationRequest) returns (UpdateOrganizationResponse);
+  rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
+
+  rpc GetSSOConfig(GetSSOConfigRequest) returns (GetSSOConfigResponse);
+  rpc SetSSOConfig(SetSSOConfigRequest) returns (SetSSOConfigResponse);
+  rpc DeleteSSOConfig(DeleteSSOConfigRequest) returns (DeleteSSOConfigResponse);
+
+  rpc ListSSORoleMappings(ListSSORoleMappingsRequest) returns (ListSSORoleMappingsResponse);
+  rpc SetSSORoleMappings(SetSSORoleMappingsRequest) returns (SetSSORoleMappingsResponse);
+}

@@ -134,8 +134,10 @@ func (s *ExportService) importFromNSCTx(ctx context.Context, tx persistence.Repo
 		EncryptedSeed: encryptedSeed,
 		PublicKey:     operatorPubKey,
 		JWT:           string(operatorJWTData), // Use original JWT from NSC
-		CreatedAt:     clock.Now(),
-		UpdatedAt:     clock.Now(),
+		// OrganizationID defaults to the default org on import; multi-org routing in a later chunk.
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      clock.Now(),
+		UpdatedAt:      clock.Now(),
 	}
 
 	// Save operator via tx-scoped repo

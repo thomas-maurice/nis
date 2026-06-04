@@ -92,21 +92,38 @@ func (r *APIUserRepo) List(ctx context.Context, opts repositories.ListOptions) (
 	return users, nil
 }
 
-// Update updates an existing API user
-// ListPage returns one keyset-paginated page of API users. Admin-only: any
-// non-admin scope returns an empty result immediately.
+// ListPage returns one keyset-paginated page of API users visible under scope.
+// Admin sees all; org-admin sees only users in their own organization.
+// Other roles return empty — api_user management is admin/org-admin only.
 //
 // Order: (created_at DESC, id DESC).
 func (r *APIUserRepo) ListPage(ctx context.Context, scope authz.Scope, filter repositories.APIUserListFilter) ([]*entities.APIUser, string, error) {
-	if !scope.IsAdmin() {
+	if scope.IsZero() {
+		return nil, "", nil
+	}
+
+	query := r.db.WithContext(ctx)
+
+	switch {
+	case scope.IsAdmin():
+		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("organization_id = ?", scope.ScopeOrganizationID.String())
+	default:
+		// operator-admin, account-admin: no api_user listing access.
 		return nil, "", nil
 	}
 
 	limit := clampListLimit(filter.Limit)
-	query := r.db.WithContext(ctx)
 
 	if filter.Role != "" {
 		query = query.Where("role = ?", filter.Role)
+	}
+	if filter.AuthSource != "" {
+		query = query.Where("auth_source = ?", filter.AuthSource)
 	}
 	if filter.UsernameLike != "" {
 		pattern := "%" + escapeLikeParam(strings.TrimSpace(filter.UsernameLike)) + "%"
@@ -146,6 +163,23 @@ func (r *APIUserRepo) ListPage(ctx context.Context, scope authz.Scope, filter re
 		out[i] = m.ToEntity()
 	}
 	return out, nextCursor, nil
+}
+
+// GetByExternalSubject retrieves an OIDC api_user by (organization_id, external_subject).
+// Returns repositories.ErrNotFound if no matching row exists.
+func (r *APIUserRepo) GetByExternalSubject(ctx context.Context, orgID uuid.UUID, subject string) (*entities.APIUser, error) {
+	var model APIUserModel
+	err := r.db.WithContext(ctx).First(&model,
+		"organization_id = ? AND external_subject = ? AND auth_source = 'oidc'",
+		orgID.String(), subject,
+	).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, repositories.ErrNotFound
+		}
+		return nil, fmt.Errorf("failed to get API user by external subject: %w", err)
+	}
+	return model.ToEntity(), nil
 }
 
 func (r *APIUserRepo) Update(ctx context.Context, user *entities.APIUser) error {

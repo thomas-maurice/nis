@@ -13,6 +13,50 @@ import (
 )
 
 // Mock repositories for testing
+type mockOrganizationRepo struct {
+	orgs map[uuid.UUID]*entities.Organization
+}
+
+func (m *mockOrganizationRepo) Create(ctx context.Context, org *entities.Organization) error {
+	m.orgs[org.ID] = org
+	return nil
+}
+
+func (m *mockOrganizationRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Organization, error) {
+	org, ok := m.orgs[id]
+	if !ok {
+		return nil, repositories.ErrNotFound
+	}
+	return org, nil
+}
+
+func (m *mockOrganizationRepo) GetBySlug(ctx context.Context, slug string) (*entities.Organization, error) {
+	for _, org := range m.orgs {
+		if org.Slug == slug {
+			return org, nil
+		}
+	}
+	return nil, repositories.ErrNotFound
+}
+
+func (m *mockOrganizationRepo) List(ctx context.Context, opts repositories.ListOptions) ([]*entities.Organization, error) {
+	result := make([]*entities.Organization, 0, len(m.orgs))
+	for _, org := range m.orgs {
+		result = append(result, org)
+	}
+	return result, nil
+}
+
+func (m *mockOrganizationRepo) Update(ctx context.Context, org *entities.Organization) error {
+	m.orgs[org.ID] = org
+	return nil
+}
+
+func (m *mockOrganizationRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	delete(m.orgs, id)
+	return nil
+}
+
 type mockOperatorRepo struct {
 	operators map[uuid.UUID]*entities.Operator
 }
@@ -235,8 +279,9 @@ func setupPermissionTest() (*PermissionService, *mockOperatorRepo, *mockAccountR
 	operatorRepo := &mockOperatorRepo{operators: make(map[uuid.UUID]*entities.Operator)}
 	accountRepo := &mockAccountRepo{accounts: make(map[uuid.UUID]*entities.Account)}
 	userRepo := &mockUserRepo{users: make(map[uuid.UUID]*entities.User)}
+	organizationRepo := &mockOrganizationRepo{orgs: make(map[uuid.UUID]*entities.Organization)}
 
-	permService := NewPermissionService(operatorRepo, accountRepo, userRepo)
+	permService := NewPermissionService(operatorRepo, accountRepo, userRepo, organizationRepo)
 
 	// Create test data
 	operator1ID := uuid.New()

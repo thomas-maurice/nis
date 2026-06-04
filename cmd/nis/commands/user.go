@@ -6,6 +6,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/thomas-maurice/nis/internal/application/services"
@@ -45,7 +46,8 @@ func init() {
 
 	// Flags for user create
 	userCreateCmd.Flags().String("password", "", "password for the user (required)")
-	userCreateCmd.Flags().String("role", "operator-admin", "role for the user (admin, operator-admin, account-admin)")
+	userCreateCmd.Flags().String("role", "operator-admin", "role for the user (admin, org-admin, operator-admin, account-admin)")
+	userCreateCmd.Flags().String("org", "", "organization ID to place the user in (optional; defaults to default org for non-admin roles if not set)")
 	_ = userCreateCmd.MarkFlagRequired("password")
 
 	// Database flags for user commands. Wired into viper via
@@ -67,11 +69,21 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 	username := args[0]
 	password, _ := cmd.Flags().GetString("password")
 	roleStr, _ := cmd.Flags().GetString("role")
+	orgStr, _ := cmd.Flags().GetString("org")
 
 	// Validate role
 	role := entities.APIUserRole(roleStr)
 	if !role.IsValid() {
-		return fmt.Errorf("invalid role: %s (must be admin, operator-admin, or account-admin)", roleStr)
+		return fmt.Errorf("invalid role: %s (must be admin, org-admin, operator-admin, or account-admin)", roleStr)
+	}
+
+	var orgID *uuid.UUID
+	if orgStr != "" {
+		parsed, err := uuid.Parse(orgStr)
+		if err != nil {
+			return fmt.Errorf("invalid org UUID %q: %w", orgStr, err)
+		}
+		orgID = &parsed
 	}
 
 	// Create repository factory and connect
@@ -100,9 +112,10 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 
 	// Create user
 	user, err := authService.CreateAPIUser(ctx, services.CreateAPIUserRequest{
-		Username: username,
-		Password: password,
-		Role:     role,
+		Username:       username,
+		Password:       password,
+		Role:           role,
+		OrganizationID: orgID,
 	}, systemAdmin)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)

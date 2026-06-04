@@ -92,6 +92,16 @@ func registerConfigDefaults() {
 	// Domain-gauge refresh loop. 60s stays well below Prometheus' typical
 	// scrape cadence so consecutive scrapes don't trigger live COUNT(*).
 	viper.SetDefault("metrics.domain_gauge_refresh_seconds", 60)
+	// OIDC SSO (chunk 4). server.public_url must be set to the externally-
+	// reachable base URL so the redirect_uri matches the IdP's registered
+	// callback. Leave empty to disable the SSO endpoints (they boot, but the
+	// IdP authorization will fail because redirect_uri won't match).
+	// state_ttl_seconds: lifetime of an oidc_login_states row.
+	// state_sweep_interval_seconds: cadence of the oidc.state_sweep job.
+	viper.SetDefault("server.public_url", "")
+	viper.SetDefault("oidc.state_ttl_seconds", 600)
+	viper.SetDefault("oidc.state_sweep_interval_seconds", 900)
+
 	// Backups (P12). Default disabled at the NIS-wide level. When enabled,
 	// an S3-compatible endpoint + bucket must be configured; per-operator
 	// opt-in via OperatorService.EnableBackups governs which operators

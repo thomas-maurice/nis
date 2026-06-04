@@ -18,6 +18,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/logging"
 	"github.com/thomas-maurice/nis/internal/infrastructure/metrics"
+	oidcinfra "github.com/thomas-maurice/nis/internal/infrastructure/oidc"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
 	"github.com/thomas-maurice/nis/internal/infrastructure/s3backup"
 	"github.com/thomas-maurice/nis/internal/infrastructure/tracing"
@@ -335,6 +336,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	webhookService := services.NewWebhookService(repoFactory, encryptor)
+	organizationService := services.NewOrganizationService(repoFactory, encryptor)
+
+	// OIDC SSO service (chunk 4). publicURL is required for the redirect_uri
+	// to match the IdP's registered callback; stateTTL governs how long the
+	// persisted login-state rows live before expiry.
+	publicURL := viper.GetString("server.public_url")
+	stateTTL := time.Duration(viper.GetInt("oidc.state_ttl_seconds")) * time.Second
+	providerCache := oidcinfra.NewProviderCache()
+	ssoService := services.NewSSOService(repoFactory, encryptor, authService, providerCache, publicURL, stateTTL)
 
 	apiTokenService := services.NewAPITokenService(repoFactory)
 
@@ -343,7 +353,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		repoFactory.OperatorRepository(),
 		repoFactory.AccountRepository(),
 		repoFactory.UserRepository(),
+		repoFactory.OrganizationRepository(),
 	)
+
+	// Late-inject permissionService into authService. authService is constructed
+	// before permissionService (the token-validation path used by the auth
+	// middleware does not need permService), so we use the setter to wire it in
+	// once permissionService is available. The api_user RPCs only run at request
+	// time, long after startup, so this is safe.
+	authService.WithPermissionService(permissionService)
 
 	// Global search (P11) — RBAC narrowing happens at the SQL layer via
 	// authz.Scope passed into each repo's Search method, so cross-operator
@@ -408,6 +426,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		jobService,
 		backupService,
 		configService,
+		organizationService,
+		ssoService,
+		publicURL,
 		authMiddleware,
 	)
 	if metricsHandler != nil {
@@ -521,6 +542,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// fan-out for account / SSK / template / revocation / prune mutations
 	// flows through these instead of in-process post-commit calls.
 	services.RegisterClusterAccountPushHandlers(jobRunner, repoFactory, clusterService, services.ClusterAccountSyncConfig{})
+	// OIDC state sweep (chunk 4). Removes expired oidc_login_states rows.
+	oidcStateSweepInterval := time.Duration(viper.GetInt("oidc.state_sweep_interval_seconds")) * time.Second
+	services.RegisterOIDCStateSweepHandler(jobRunner, repoFactory, oidcStateSweepInterval)
+	{
+		priming := clock.Now()
+		if _, err := jobRunner.EnsureScheduled(ctx, services.JobTypeOIDCStateSweep, nil, priming, "recur-"+services.JobTypeOIDCStateSweep); err != nil {
+			logger.Warn("oidc state sweep: initial enqueue failed", "error", err)
+		}
+	}
 	go func() { _ = jobRunner.Run(ctx) }()
 
 	// Catch up any non-terminal webhook_deliveries rows that don't already

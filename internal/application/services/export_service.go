@@ -587,8 +587,10 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			EncryptedSeed:       opSeed,
 			SystemAccountPubKey: exported.Operator.SystemAccountPubKey,
 			JWT:                 exported.Operator.JWT,
-			CreatedAt:           exported.Operator.CreatedAt,
-			UpdatedAt:           clock.Now(),
+			// OrganizationID defaults to the default org on import; multi-org routing in a later chunk.
+			OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+			CreatedAt:      exported.Operator.CreatedAt,
+			UpdatedAt:      clock.Now(),
 		}
 
 		if existsByID {

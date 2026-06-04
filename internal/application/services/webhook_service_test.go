@@ -38,9 +38,10 @@ func insertOperator(t *testing.T, ctx context.Context, factory persistence.Repos
 	t.Helper()
 	opID := uuid.New()
 	require.NoError(t, factory.OperatorRepository().Create(ctx, &entities.Operator{
-		ID:        opID,
-		Name:      "test-op-" + opID.String()[:8],
-		PublicKey: opID.String(),
+		ID:             opID,
+		Name:           "test-op-" + opID.String()[:8],
+		PublicKey:      opID.String(),
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 	}))
 	return opID
 }

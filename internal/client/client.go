@@ -31,6 +31,7 @@ type Client struct {
 	Template          nisv1connect.TemplateServiceClient
 	Job               nisv1connect.JobServiceClient
 	Backup            nisv1connect.BackupServiceClient
+	Organization      nisv1connect.OrganizationServiceClient
 }
 
 // NewClient creates a new NIS client with authentication
@@ -68,6 +69,7 @@ func NewClient(serverURL, token string) (*Client, error) {
 	client.Template = nisv1connect.NewTemplateServiceClient(httpClient, serverURL)
 	client.Job = nisv1connect.NewJobServiceClient(httpClient, serverURL)
 	client.Backup = nisv1connect.NewBackupServiceClient(httpClient, serverURL)
+	client.Organization = nisv1connect.NewOrganizationServiceClient(httpClient, serverURL)
 
 	return client, nil
 }

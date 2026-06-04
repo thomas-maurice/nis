@@ -135,6 +135,24 @@ const router = createRouter({
       name: 'docs',
       component: () => import('@/views/DocsView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/organizations',
+      name: 'organizations',
+      component: () => import('@/views/OrganizationsView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/organizations/:id',
+      name: 'organization-detail',
+      component: () => import('@/views/OrganizationDetailView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/login/callback',
+      name: 'login-callback',
+      component: () => import('@/views/LoginCallbackView.vue'),
+      meta: { requiresAuth: false }
     }
   ]
 })

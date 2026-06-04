@@ -66,10 +66,10 @@ const SystemRole = "system"
 // every row (IsZero returns true and the repo short-circuits to an empty
 // result). Always construct via SystemScope or ScopeFromAPIUser.
 type Scope struct {
-	// Role is one of entities.RoleAdmin / RoleOperatorAdmin / RoleAccountAdmin
-	// or SystemRole. Compared by string equality — SystemRole and the
-	// entities.APIUserRole values share a string space deliberately so the
-	// IsAdmin helper can collapse "real admin OR background system" without
+	// Role is one of entities.RoleAdmin / RoleOrgAdmin / RoleOperatorAdmin /
+	// RoleAccountAdmin or SystemRole. Compared by string equality — SystemRole
+	// and the entities.APIUserRole values share a string space deliberately so
+	// the IsAdmin helper can collapse "real admin OR background system" without
 	// callers branching on the distinction.
 	Role string
 
@@ -78,6 +78,12 @@ type Scope struct {
 	// of role-based scope — most notably APIToken's "I see only my tokens"
 	// rule.
 	CallerUserID uuid.UUID
+
+	// ScopeOrganizationID narrows visibility to a single organization. Set
+	// for org-admin; nil for SystemScope/admin/operator-admin/account-admin.
+	// Repos with an IsOrgAdmin() branch filter by this ID via the operators
+	// table (operator_repo directly; all others via operator_id FK).
+	ScopeOrganizationID *uuid.UUID
 
 	// ScopeOperatorID narrows visibility to a single operator. Required for
 	// operator-admin; nil for SystemScope/admin. For account-admin the
@@ -109,6 +115,11 @@ func (s Scope) IsOperatorAdmin() bool {
 	return s.Role == string(entities.RoleOperatorAdmin)
 }
 
+// IsOrgAdmin reports whether the scope is bound to a single organization.
+func (s Scope) IsOrgAdmin() bool {
+	return s.Role == string(entities.RoleOrgAdmin)
+}
+
 // IsAccountAdmin reports whether the scope is bound to a single account.
 func (s Scope) IsAccountAdmin() bool {
 	return s.Role == string(entities.RoleAccountAdmin)
@@ -137,6 +148,12 @@ func ScopeFromAPIUser(apiUser *entities.APIUser) Scope {
 	switch apiUser.Role {
 	case entities.RoleAdmin:
 		return Scope{Role: string(entities.RoleAdmin), CallerUserID: apiUser.ID}
+	case entities.RoleOrgAdmin:
+		return Scope{
+			Role:                string(entities.RoleOrgAdmin),
+			CallerUserID:        apiUser.ID,
+			ScopeOrganizationID: apiUser.OrganizationID,
+		}
 	case entities.RoleOperatorAdmin:
 		return Scope{
 			Role:            string(entities.RoleOperatorAdmin),

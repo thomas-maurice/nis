@@ -10,6 +10,11 @@
 server:
   address: ":8080"     # listen address, host:port
   enable_ui: true      # serve the embedded Vue UI at /
+  # public_url is the externally-reachable base URL used to build the OIDC
+  # redirect_uri (<public_url>/auth/oidc/callback) and the post-login
+  # redirect to the SPA callback route. Required for OIDC SSO to work.
+  # Example: "https://nis.example.com"
+  public_url: ""
 
 database:
   driver: "sqlite"     # "sqlite" or "postgres"
@@ -95,6 +100,16 @@ api_tokens:
 cluster:
   health_check_interval_seconds: 60         # how often the cluster-health goroutine probes each cluster
   health_check_initial_delay_seconds: 5     # initial delay before the first health check after startup
+
+# --- OIDC SSO (chunk 4) ---
+#
+# OIDC SSO lets users authenticate via an external OpenID Connect provider
+# (e.g. Authentik, Dex, Okta) by typing their organization slug at /login.
+# Each organization configures its own IdP via the org SSO config API.
+# Requires server.public_url to be set.
+oidc:
+  state_ttl_seconds: 600          # how long an OIDC login state row lives before expiry (10 min)
+  state_sweep_interval_seconds: 900 # how often the oidc.state_sweep job removes expired rows (15 min)
 
 # --- Scheduled backups (P12) ---
 #

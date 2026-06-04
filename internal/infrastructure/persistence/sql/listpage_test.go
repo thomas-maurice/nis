@@ -42,13 +42,14 @@ func TestListPageOperator(t *testing.T) {
 
 	newOp := func(name string, at time.Time) *entities.Operator {
 		op := &entities.Operator{
-			ID:            uuid.New(),
-			Name:          name,
-			EncryptedSeed: "seed",
-			PublicKey:     "O" + uuid.New().String(),
-			JWT:           "jwt",
-			CreatedAt:     at.UTC(),
-			UpdatedAt:     at.UTC(),
+			ID:             uuid.New(),
+			Name:           name,
+			EncryptedSeed:  "seed",
+			PublicKey:      "O" + uuid.New().String(),
+			JWT:            "jwt",
+			OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+			CreatedAt:      at.UTC(),
+			UpdatedAt:      at.UTC(),
 		}
 		require.NoError(t, repo.Create(ctx, op))
 		return op
@@ -215,13 +216,14 @@ func TestListPageAccount(t *testing.T) {
 
 	mkOp := func(name string, at time.Time) *entities.Operator {
 		op := &entities.Operator{
-			ID:            uuid.New(),
-			Name:          name,
-			EncryptedSeed: "s",
-			PublicKey:     "O" + uuid.New().String(),
-			JWT:           "j",
-			CreatedAt:     at.UTC(),
-			UpdatedAt:     at.UTC(),
+			ID:             uuid.New(),
+			Name:           name,
+			EncryptedSeed:  "s",
+			PublicKey:      "O" + uuid.New().String(),
+			JWT:            "j",
+			OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+			CreatedAt:      at.UTC(),
+			UpdatedAt:      at.UTC(),
 		}
 		require.NoError(t, opRepo.Create(ctx, op))
 		return op
@@ -316,6 +318,7 @@ func TestListPageAccount(t *testing.T) {
 		repo2 := NewAccountRepo(db2)
 		op := &entities.Operator{ID: uuid.New(), Name: "lp-cr-op-" + uuid.New().String()[:6],
 			EncryptedSeed: "s", PublicKey: "O" + uuid.New().String(), JWT: "j",
+			OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 			CreatedAt: base, UpdatedAt: base}
 		require.NoError(t, opRepo2.Create(ctx, op))
 
@@ -371,7 +374,9 @@ func TestListPageUser(t *testing.T) {
 
 	mkOp := func(name string) *entities.Operator {
 		op := &entities.Operator{ID: uuid.New(), Name: name, EncryptedSeed: "s",
-			PublicKey: "O" + uuid.New().String(), JWT: "j", CreatedAt: base, UpdatedAt: base}
+			PublicKey: "O" + uuid.New().String(), JWT: "j",
+			OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+			CreatedAt: base, UpdatedAt: base}
 		require.NoError(t, opRepo.Create(ctx, op))
 		return op
 	}

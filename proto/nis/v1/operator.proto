@@ -23,12 +23,17 @@ message Operator {
   int64 account_jwt_ttl_seconds = 10;
   int64 jwt_warn_window_seconds = 11;
   bool jwt_auto_renew = 12;
+
+  // Organization this operator belongs to.
+  string organization_id = 13;
 }
 
 // CreateOperatorRequest is the request to create a new operator
 message CreateOperatorRequest {
   string name = 1;
   string description = 2;
+  // organization_id assigns the operator to an org. Empty = default org.
+  string organization_id = 3;
 }
 
 // CreateOperatorResponse is the response from creating an operator

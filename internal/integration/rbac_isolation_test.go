@@ -103,6 +103,7 @@ func (s *RBACIsolationTestSuite) SetupSuite() {
 		repoFactory.OperatorRepository(),
 		repoFactory.AccountRepository(),
 		repoFactory.UserRepository(),
+		repoFactory.OrganizationRepository(),
 	)
 }
 

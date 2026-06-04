@@ -103,12 +103,18 @@ func (h *AuthHandler) CreateAPIUser(
 		accountID = &id
 	}
 
+	organizationID, err := parseOptionalUUID(req.Msg.GetOrganizationId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("organization_id: "+err.Error()))
+	}
+
 	user, err := h.service.CreateAPIUser(ctx, services.CreateAPIUserRequest{
-		Username:   req.Msg.Username,
-		Password:   req.Msg.Password,
-		Role:       role,
-		OperatorID: operatorID,
-		AccountID:  accountID,
+		Username:       req.Msg.Username,
+		Password:       req.Msg.Password,
+		Role:           role,
+		OperatorID:     operatorID,
+		AccountID:      accountID,
+		OrganizationID: organizationID,
 	}, requestingUser)
 	if err != nil {
 		if errors.Is(err, repositories.ErrAlreadyExists) {
@@ -188,6 +194,7 @@ func (h *AuthHandler) ListAPIUsers(
 	filter := repositories.APIUserListFilter{
 		Role:         req.Msg.GetRole(),
 		UsernameLike: req.Msg.GetUsernameLike(),
+		AuthSource:   req.Msg.GetAuthSource(),
 	}
 	if req.Msg.Page != nil {
 		filter.Limit = int(req.Msg.Page.GetLimit())
@@ -231,6 +238,9 @@ func (h *AuthHandler) UpdateAPIUserPassword(
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		if errors.Is(err, services.ErrOIDCManagedUser) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
@@ -285,6 +295,9 @@ func (h *AuthHandler) UpdateAPIUserPermissions(
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		if errors.Is(err, services.ErrOIDCManagedUser) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}

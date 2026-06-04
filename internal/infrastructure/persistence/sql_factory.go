@@ -47,6 +47,12 @@ type sqlRepositoryFactory struct {
 	jobRepo                     repositories.JobRepository
 	operatorBackupRepo          repositories.OperatorBackupRepository
 	operatorAgeRecipientRepo    repositories.OperatorAgeRecipientRepository
+
+	// Organization + SSO (migration 00009)
+	organizationRepo          repositories.OrganizationRepository
+	organizationSSOConfigRepo repositories.OrganizationSSOConfigRepository
+	ssoRoleMappingRepo        repositories.SSORoleMappingRepository
+	oidcLoginStateRepo        repositories.OIDCLoginStateRepository
 }
 
 func newSQLRepositoryFactory(cfg Config) (RepositoryFactory, error) {
@@ -98,6 +104,10 @@ func (f *sqlRepositoryFactory) initRepos() {
 	f.jobRepo = sqlRepo.NewJobRepo(f.gormDB)
 	f.operatorBackupRepo = sqlRepo.NewOperatorBackupRepo(f.gormDB)
 	f.operatorAgeRecipientRepo = sqlRepo.NewOperatorAgeRecipientRepo(f.gormDB)
+	f.organizationRepo = sqlRepo.NewOrganizationRepo(f.gormDB)
+	f.organizationSSOConfigRepo = sqlRepo.NewOrganizationSSOConfigRepo(f.gormDB)
+	f.ssoRoleMappingRepo = sqlRepo.NewSSORoleMappingRepo(f.gormDB)
+	f.oidcLoginStateRepo = sqlRepo.NewOIDCLoginStateRepo(f.gormDB)
 }
 
 func (f *sqlRepositoryFactory) Connect(ctx context.Context) error {
@@ -441,6 +451,34 @@ func (f *sqlRepositoryFactory) OperatorAgeRecipientRepository() repositories.Ope
 		f.operatorAgeRecipientRepo = sqlRepo.NewOperatorAgeRecipientRepo(f.gormDB)
 	}
 	return f.operatorAgeRecipientRepo
+}
+
+func (f *sqlRepositoryFactory) OrganizationRepository() repositories.OrganizationRepository {
+	if f.organizationRepo == nil {
+		f.organizationRepo = sqlRepo.NewOrganizationRepo(f.gormDB)
+	}
+	return f.organizationRepo
+}
+
+func (f *sqlRepositoryFactory) OrganizationSSOConfigRepository() repositories.OrganizationSSOConfigRepository {
+	if f.organizationSSOConfigRepo == nil {
+		f.organizationSSOConfigRepo = sqlRepo.NewOrganizationSSOConfigRepo(f.gormDB)
+	}
+	return f.organizationSSOConfigRepo
+}
+
+func (f *sqlRepositoryFactory) SSORoleMappingRepository() repositories.SSORoleMappingRepository {
+	if f.ssoRoleMappingRepo == nil {
+		f.ssoRoleMappingRepo = sqlRepo.NewSSORoleMappingRepo(f.gormDB)
+	}
+	return f.ssoRoleMappingRepo
+}
+
+func (f *sqlRepositoryFactory) OIDCLoginStateRepository() repositories.OIDCLoginStateRepository {
+	if f.oidcLoginStateRepo == nil {
+		f.oidcLoginStateRepo = sqlRepo.NewOIDCLoginStateRepo(f.gormDB)
+	}
+	return f.oidcLoginStateRepo
 }
 
 // WithTx runs fn inside a GORM transaction. The factory passed to fn hands out

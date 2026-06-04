@@ -73,14 +73,15 @@ func (s *RepositoryTestSuite) TestOperatorCRUD() {
 
 	// Create
 	operator := &entities.Operator{
-		ID:            uuid.New(),
-		Name:          "test-operator",
-		Description:   "Test operator",
-		EncryptedSeed: "encrypted:key-1:abcdef",
-		PublicKey:     "OABC123",
-		JWT:           "jwt.token.here",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:             uuid.New(),
+		Name:           "test-operator",
+		Description:    "Test operator",
+		EncryptedSeed:  "encrypted:key-1:abcdef",
+		PublicKey:      "OABC123",
+		JWT:            "jwt.token.here",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 
 	err := s.operatorRepo.Create(ctx, operator)
@@ -130,13 +131,14 @@ func (s *RepositoryTestSuite) TestAccountCRUD() {
 
 	// Create operator first
 	operator := &entities.Operator{
-		ID:            uuid.New(),
-		Name:          "test-operator",
-		EncryptedSeed: "encrypted:key-1:abcdef",
-		PublicKey:     "OABC123",
-		JWT:           "jwt.token.here",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:             uuid.New(),
+		Name:           "test-operator",
+		EncryptedSeed:  "encrypted:key-1:abcdef",
+		PublicKey:      "OABC123",
+		JWT:            "jwt.token.here",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 	err := s.operatorRepo.Create(ctx, operator)
 	require.NoError(s.T(), err)
@@ -197,13 +199,14 @@ func (s *RepositoryTestSuite) TestUserCRUD() {
 
 	// Setup operator and account
 	operator := &entities.Operator{
-		ID:            uuid.New(),
-		Name:          "test-operator",
-		EncryptedSeed: "encrypted:key-1:abcdef",
-		PublicKey:     "OABC123",
-		JWT:           "jwt.token.here",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:             uuid.New(),
+		Name:           "test-operator",
+		EncryptedSeed:  "encrypted:key-1:abcdef",
+		PublicKey:      "OABC123",
+		JWT:            "jwt.token.here",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 	err := s.operatorRepo.Create(ctx, operator)
 	require.NoError(s.T(), err)
@@ -262,13 +265,14 @@ func (s *RepositoryTestSuite) TestCascadeDelete() {
 
 	// Create operator
 	operator := &entities.Operator{
-		ID:            uuid.New(),
-		Name:          "cascade-operator",
-		EncryptedSeed: "encrypted:key-1:abcdef",
-		PublicKey:     "OABC123",
-		JWT:           "jwt.token.here",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:             uuid.New(),
+		Name:           "cascade-operator",
+		EncryptedSeed:  "encrypted:key-1:abcdef",
+		PublicKey:      "OABC123",
+		JWT:            "jwt.token.here",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 	err := s.operatorRepo.Create(ctx, operator)
 	require.NoError(s.T(), err)
@@ -357,13 +361,14 @@ func (s *RepositoryTestSuite) TestPagination() {
 	// Create multiple operators
 	for i := 0; i < 5; i++ {
 		operator := &entities.Operator{
-			ID:            uuid.New(),
-			Name:          "operator-" + string(rune('a'+i)),
-			EncryptedSeed: "encrypted:key-1:abcdef",
-			PublicKey:     "O" + string(rune('A'+i)) + "123",
-			JWT:           "jwt.token.here",
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
+			ID:             uuid.New(),
+			Name:           "operator-" + string(rune('a'+i)),
+			EncryptedSeed:  "encrypted:key-1:abcdef",
+			PublicKey:      "O" + string(rune('A'+i)) + "123",
+			JWT:            "jwt.token.here",
+			OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
 		}
 		err := s.operatorRepo.Create(ctx, operator)
 		require.NoError(s.T(), err)

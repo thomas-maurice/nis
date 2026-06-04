@@ -17,6 +17,7 @@ type APIUserListFilter struct {
 	Cursor       string
 	Role         string // exact-match on role; "" disables
 	UsernameLike string // case-insensitive substring on username
+	AuthSource   string // exact-match on auth_source ("local" | "oidc"); "" disables
 	CreatedSince *time.Time
 	CreatedUntil *time.Time
 }
@@ -41,6 +42,10 @@ type APIUserRepository interface {
 
 	// Update updates an existing API user
 	Update(ctx context.Context, user *entities.APIUser) error
+
+	// GetByExternalSubject retrieves an OIDC-sourced api_user by
+	// (organization_id, external_subject). Returns ErrNotFound if no row exists.
+	GetByExternalSubject(ctx context.Context, orgID uuid.UUID, subject string) (*entities.APIUser, error)
 
 	// Delete deletes an API user by ID
 	Delete(ctx context.Context, id uuid.UUID) error

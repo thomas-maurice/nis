@@ -48,13 +48,31 @@
             {{ loading ? 'Signing in...' : 'Sign In' }}
           </button>
         </form>
+
+        <hr class="my-4" />
+
+        <div>
+          <p class="text-muted text-center small mb-3">Or sign in with your organization</p>
+          <div class="input-group">
+            <input
+              v-model="orgSlug"
+              type="text"
+              class="form-control"
+              placeholder="Organization slug"
+              @keydown.enter.prevent="startSSO"
+            />
+            <button class="btn btn-outline-secondary" type="button" :disabled="!orgSlug" @click="startSSO">
+              Continue with SSO
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/utils/api'
@@ -67,6 +85,24 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
+const orgSlug = ref('')
+
+const startSSO = () => {
+  const slug = orgSlug.value.trim()
+  if (!slug) return
+  let url = '/auth/oidc/start?org=' + encodeURIComponent(slug)
+  if (route.query.redirect) {
+    url += '&redirect=' + encodeURIComponent(route.query.redirect)
+  }
+  window.location.href = url
+}
+
+onMounted(() => {
+  if (route.query.org) {
+    orgSlug.value = route.query.org
+    startSSO()
+  }
+})
 
 const handleLogin = async () => {
   error.value = ''

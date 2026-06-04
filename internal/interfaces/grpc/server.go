@@ -70,6 +70,9 @@ func NewServer(
 	jobService *services.JobService,
 	backupService *services.BackupService,
 	configService *services.ConfigService,
+	organizationService *services.OrganizationService,
+	ssoService *services.SSOService,
+	publicURL string,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
 	mux := http.NewServeMux()
@@ -140,6 +143,15 @@ func NewServer(
 	configHandler := handlers.NewConfigHandler(configService)
 	mux.Handle(nisv1connect.NewConfigServiceHandler(configHandler, interceptorOption))
 
+	orgHandler := handlers.NewOrganizationHandler(organizationService, permService, publicURL)
+	mux.Handle(nisv1connect.NewOrganizationServiceHandler(orgHandler, interceptorOption))
+
+	// OIDC SSO HTTP handlers (plain HTTP, not Connect-RPC). Registered
+	// unconditionally so they work with --enable-ui=false.
+	oidcHandler := httpInterface.NewOIDCHandler(ssoService, publicURL)
+	mux.HandleFunc("/auth/oidc/start", oidcHandler.ServeStart)
+	mux.HandleFunc("/auth/oidc/callback", oidcHandler.ServeCallback)
+
 	// /livez — process is alive. Always 200. Use this for k8s liveness probes.
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -183,6 +195,7 @@ func NewServer(
 				// falls through to the SPA so client-side routes resolve.
 				p := r.URL.Path
 				if strings.HasPrefix(p, "/nis.v1") ||
+					strings.HasPrefix(p, "/auth/oidc/") ||
 					p == "/livez" || p == "/healthz" || p == "/readyz" || p == "/metrics" {
 					mux.ServeHTTP(w, r)
 					return
@@ -243,6 +256,7 @@ func NewServer(
 		nisv1connect.JobServiceName,
 		nisv1connect.BackupServiceName,
 		nisv1connect.ConfigServiceName,
+		nisv1connect.OrganizationServiceName,
 	)
 	reflectV1Path, reflectV1Handler := grpcreflect.NewHandlerV1(reflector)
 	reflectV1AlphaPath, reflectV1AlphaHandler := grpcreflect.NewHandlerV1Alpha(reflector)

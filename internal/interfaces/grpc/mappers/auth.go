@@ -12,8 +12,7 @@ func APIUserToProto(user *entities.APIUser) *pb.APIUser {
 		return nil
 	}
 	// Convert Role to permissions list
-	// For now, permissions list contains just the role name
-	// The actual permission enforcement is done via Casbin
+	// The permissions list contains just the role name.
 	permissions := []string{string(user.Role)}
 
 	pbUser := &pb.APIUser{
@@ -22,6 +21,7 @@ func APIUserToProto(user *entities.APIUser) *pb.APIUser {
 		Permissions: permissions,
 		CreatedAt:   timestamppb.New(user.CreatedAt),
 		UpdatedAt:   timestamppb.New(user.UpdatedAt),
+		AuthSource:  user.AuthSource,
 	}
 
 	// Add optional operator_id and account_id
@@ -32,6 +32,9 @@ func APIUserToProto(user *entities.APIUser) *pb.APIUser {
 	if user.AccountID != nil {
 		accountID := UUIDToString(*user.AccountID)
 		pbUser.AccountId = &accountID
+	}
+	if user.OrganizationID != nil {
+		pbUser.OrganizationId = UUIDToString(*user.OrganizationID)
 	}
 
 	return pbUser

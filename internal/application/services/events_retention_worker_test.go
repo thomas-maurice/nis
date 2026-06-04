@@ -48,7 +48,7 @@ func retentionTestEncryptor(t *testing.T) encryption.Encryptor {
 func insertRetentionOperatorAndSub(t *testing.T, ctx context.Context, factory persistence.RepositoryFactory, enc encryption.Encryptor) (*entities.Operator, *entities.WebhookSubscription) {
 	t.Helper()
 	opID := uuid.New()
-	op := &entities.Operator{ID: opID, Name: "ret-op-" + opID.String()[:8]}
+	op := &entities.Operator{ID: opID, Name: "ret-op-" + opID.String()[:8], OrganizationID: uuid.MustParse(entities.DefaultOrganizationID)}
 	require.NoError(t, factory.OperatorRepository().Create(ctx, op))
 
 	encRef, err := enc.Encrypt(ctx, []byte("secret"))
@@ -171,6 +171,7 @@ func insertRevocationAccount(t *testing.T, ctx context.Context, factory persiste
 	opID := uuid.New()
 	require.NoError(t, factory.OperatorRepository().Create(ctx, &entities.Operator{
 		ID: opID, Name: "ret-op-" + opID.String()[:8], PublicKey: "O" + opID.String(),
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 	}))
 	accID := uuid.New()
 	require.NoError(t, factory.AccountRepository().Create(ctx, &entities.Account{

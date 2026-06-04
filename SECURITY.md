@@ -145,51 +145,74 @@ to eliminate silent drift between the routing tables.)
 
 | Role | Scope | Description |
 |------|-------|-------------|
-| `admin` | Global | Full access to all resources and operations. Can manage API users, operators, accounts, users, clusters, signing keys, and exports. |
+| `admin` | Global | Full access to all resources and operations across every organization. Org-less (no `organization_id`). Can create/delete organizations and manage API users anywhere. |
+| `org-admin` | Single organization | Manages exactly one organization and everything beneath it (operators are read-only; accounts, users, clusters, signing keys, templates, webhooks, backups, and org-scoped API users/tokens are full CRUD). Configures the org's OIDC SSO. Cannot create or delete organizations, and cannot mint a role at or above `org-admin`. |
 | `operator-admin` | Single operator | Can read operators, manage accounts, users, and scoped signing keys within their assigned operator. Can read clusters and trigger syncs. Cannot create or delete operators or clusters. |
 | `account-admin` | Single account | Can read operators and accounts, create and manage users within their assigned account. Can read clusters. Cannot manage signing keys, clusters, or operators. |
 
+Role rank (for privilege-escalation ceilings): `admin` (4) > `org-admin` (3) > `operator-admin` (2) > `account-admin` (1). A caller can never create an API user or token at or above their own rank, nor scope one outside their own organization/operator/account (`PermissionService.roleRank` + `Can{Create,Update}APIUser` / `CanCreateAPIToken`).
+
 ### Permission Matrix
 
-| Resource | Action | admin | operator-admin | account-admin |
-|----------|--------|-------|----------------|---------------|
-| operator | create | Y | | |
-| operator | read | Y | Y | Y |
-| operator | update | Y | | |
-| operator | delete | Y | | |
-| account | create | Y | Y | |
-| account | read | Y | Y | Y |
-| account | update | Y | Y | |
-| account | delete | Y | | |
-| user | create | Y | Y | Y |
-| user | read | Y | Y | Y |
-| user | update | Y | Y | Y |
-| user | delete | Y | Y | |
-| scoped_key | create | Y | Y | |
-| scoped_key | read | Y | Y | |
-| scoped_key | update | Y | Y | |
-| scoped_key | delete | Y | | |
-| cluster | create | Y | | |
-| cluster | read | Y | Y | Y |
-| cluster | update | Y | | |
-| cluster | delete | Y | | |
-| export | create | Y | | |
-| export | read | Y | Y | |
-| api_user | create | Y | | |
-| api_user | read | Y | | |
-| api_user | update | Y | | |
-| api_user | delete | Y | | |
-| apitoken | create | Y | Y | Y |
-| apitoken | read | Y | Y | Y |
-| apitoken | delete | Y | Y | Y |
+| Resource | Action | admin | org-admin | operator-admin | account-admin |
+|----------|--------|-------|-----------|----------------|---------------|
+| organization | create | Y | | | |
+| organization | read | Y | Y | | |
+| organization | update | Y | Y | | |
+| organization | delete | Y | | | |
+| sso | create | Y | Y | | |
+| sso | read | Y | Y | | |
+| sso | update | Y | Y | | |
+| sso | delete | Y | Y | | |
+| operator | create | Y | | | |
+| operator | read | Y | Y | Y | Y |
+| operator | update | Y | | | |
+| operator | delete | Y | | | |
+| account | create | Y | Y | Y | |
+| account | read | Y | Y | Y | Y |
+| account | update | Y | Y | Y | |
+| account | delete | Y | Y | | |
+| user | create | Y | Y | Y | Y |
+| user | read | Y | Y | Y | Y |
+| user | update | Y | Y | Y | Y |
+| user | delete | Y | Y | Y | |
+| scoped_key | create | Y | Y | Y | |
+| scoped_key | read | Y | Y | Y | |
+| scoped_key | update | Y | Y | Y | |
+| scoped_key | delete | Y | Y | | |
+| cluster | create | Y | Y | | |
+| cluster | read | Y | Y | Y | Y |
+| cluster | update | Y | Y | | |
+| cluster | delete | Y | Y | | |
+| export | create | Y | | | |
+| export | read | Y | Y | Y | |
+| api_user | create | Y | Y | | |
+| api_user | read | Y | Y | | |
+| api_user | update | Y | Y | | |
+| api_user | delete | Y | Y | | |
+| apitoken | create | Y | Y | Y | Y |
+| apitoken | read | Y | Y | Y | Y |
+| apitoken | delete | Y | Y | Y | Y |
 
-Note: for `apitoken`, the registry "Y" only allows the verb; per-token scope ("I see only MY tokens, not others'") is enforced in `PermissionService.CanReadAPIToken` / `CanDeleteAPIToken`. Admins see all tokens; non-admins see only tokens they created. The privilege escalation guard at create-time means a non-admin cannot mint a higher-role or out-of-scope token even though the registry grants the verb.
+Note: for `apitoken`, the registry "Y" only allows the verb; per-token scope ("I see only MY tokens, not others'") is enforced in `PermissionService.CanReadAPIToken` / `CanDeleteAPIToken`. Admins see all tokens; non-admins see only tokens they created. The privilege escalation guard at create-time means a non-admin cannot mint a higher-role or out-of-scope token even though the registry grants the verb. For `organization`/`sso`/`api_user`, the registry "Y" for `org-admin` only grants the verb; `PermissionService` additionally narrows every call to the caller's **own** organization — an org-admin cannot read or mutate another org's config, users, or SSO.
 
 ### Scope Enforcement
 
-In addition to the role-level policy check, `operator-admin` and `account-admin` roles have scope enforcement. An `operator-admin` can only access resources belonging to their assigned operator. An `account-admin` can only access resources belonging to their assigned account.
+In addition to the role-level policy check, `org-admin`, `operator-admin`, and `account-admin` roles have scope enforcement. An `org-admin` can only access resources belonging to their assigned organization (operators, accounts, users, clusters, signing keys, SSO config, and org-scoped API users/tokens whose `organization_id` matches). An `operator-admin` can only access resources belonging to their assigned operator. An `account-admin` can only access resources belonging to their assigned account.
 
-Per-row scope is enforced by `PermissionService.Can*` methods (`internal/application/services/permission_service.go`), invoked from each RPC handler before the service call. List endpoints additionally enforce scope at the SQL layer via `authz.ScopeFromAPIUser` passed to repo `ListPage` methods (see SKILL.md §15).
+Per-row scope is enforced by `PermissionService.Can*` methods (`internal/application/services/permission_service.go`), invoked from each RPC handler before the service call. List endpoints additionally enforce scope at the SQL layer via `authz.ScopeFromAPIUser` passed to repo `ListPage` methods (see SKILL.md §15). `authz.Scope.IsOrgAdmin()` narrows list queries to a single `organization_id`.
+
+### SSO / OIDC threat model
+
+Each organization may configure one OIDC provider (`OrganizationService.SetSSOConfig`). Login is `/auth/oidc/start?org=<slug>` → IdP → `/auth/oidc/callback`. Properties enforced:
+
+- **Authorization code + PKCE (S256) + `state` + `nonce`.** `state` is a server-persisted single-use CSRF token (consumed via `GetAndDelete`, TTL-bounded, swept by the `oidc.state_sweep` job); `nonce` defeats ID-token replay; PKCE defeats code interception. See `internal/infrastructure/oidc/` and `sso_service.go`.
+- **SSO can never grant `admin`.** `mapGroupsToRole` rejects `admin` on both the matched-mapping and `default_role` paths, and the role-mapping editor / default-role selector in the UI omit `admin` entirely. The highest role assignable via SSO is `org-admin`, scoped to the configuring org. Operator-/account-admin mappings are rejected unless they carry the matching scope id.
+- **Client secret is write-only.** Stored encrypted at rest (same envelope as NKey seeds); never returned by any read RPC (`GetSSOConfig` reports only `client_secret_set: bool`). A decrypt failure auto-disables the subscription rather than failing open.
+- **JIT-provisioned users are OIDC-managed.** Rows created by SSO carry `auth_source = "oidc"`; manual password or role edits are rejected with `ErrOIDCManagedUser` (`CodeFailedPrecondition`) because the next login would clobber them — role is governed solely by group mappings.
+- **Session token in URL fragment.** The callback hands the NIS session JWT to the SPA in the URL `#fragment` (never a query param, so it is not sent in `Referer` or logged server-side); the SPA reads it and immediately calls `history.replaceState` to strip it.
+- **Org-slug enumeration is blunted.** Both `/auth/oidc/start` failure modes (unknown slug vs. discovery failure) return a generic jittered 400 (150–450 ms) so timing does not leak which org slugs exist.
+- **Break-glass local admin always works.** Username+password `Login` is unaffected by SSO config; a misconfigured or unreachable IdP can never lock the platform admin out.
 
 **Mandatory handler pattern.** Every RPC handler classified as `KindPerRow` (the default for mutations and per-tenant reads) MUST invoke `permService.Can*` before the service call — without it, the coarse role gate alone permits cross-tenant writes for roles that have the action on the resource type. The `TestHandlerAuthzLint` AST guardrail in `internal/interfaces/grpc/handlers/` fails the build for any new handler that skips the classification. The historical AccountHandler leak class (operator-admin A mutating operator-admin B's account by guessing a UUID) was fixed and pinned 2026-05-23; full details in SKILL.md §16 "Handler authz pattern".
 

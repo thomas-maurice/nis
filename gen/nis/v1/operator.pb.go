@@ -38,8 +38,10 @@ type Operator struct {
 	AccountJwtTtlSeconds int64 `protobuf:"varint,10,opt,name=account_jwt_ttl_seconds,json=accountJwtTtlSeconds,proto3" json:"account_jwt_ttl_seconds,omitempty"`
 	JwtWarnWindowSeconds int64 `protobuf:"varint,11,opt,name=jwt_warn_window_seconds,json=jwtWarnWindowSeconds,proto3" json:"jwt_warn_window_seconds,omitempty"`
 	JwtAutoRenew         bool  `protobuf:"varint,12,opt,name=jwt_auto_renew,json=jwtAutoRenew,proto3" json:"jwt_auto_renew,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Organization this operator belongs to.
+	OrganizationId string `protobuf:"bytes,13,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Operator) Reset() {
@@ -156,13 +158,22 @@ func (x *Operator) GetJwtAutoRenew() bool {
 	return false
 }
 
+func (x *Operator) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
 // CreateOperatorRequest is the request to create a new operator
 type CreateOperatorRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// organization_id assigns the operator to an org. Empty = default org.
+	OrganizationId string `protobuf:"bytes,3,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateOperatorRequest) Reset() {
@@ -205,6 +216,13 @@ func (x *CreateOperatorRequest) GetName() string {
 func (x *CreateOperatorRequest) GetDescription() string {
 	if x != nil {
 		return x.Description
+	}
+	return ""
+}
+
+func (x *CreateOperatorRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
 	}
 	return ""
 }
@@ -1165,7 +1183,7 @@ var File_nis_v1_operator_proto protoreflect.FileDescriptor
 
 const file_nis_v1_operator_proto_rawDesc = "" +
 	"\n" +
-	"\x15nis/v1/operator.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf1\x03\n" +
+	"\x15nis/v1/operator.proto\x12\x06nis.v1\x1a\x13nis/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9a\x04\n" +
 	"\bOperator\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -1182,10 +1200,12 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\x17account_jwt_ttl_seconds\x18\n" +
 	" \x01(\x03R\x14accountJwtTtlSeconds\x125\n" +
 	"\x17jwt_warn_window_seconds\x18\v \x01(\x03R\x14jwtWarnWindowSeconds\x12$\n" +
-	"\x0ejwt_auto_renew\x18\f \x01(\bR\fjwtAutoRenew\"M\n" +
+	"\x0ejwt_auto_renew\x18\f \x01(\bR\fjwtAutoRenew\x12'\n" +
+	"\x0forganization_id\x18\r \x01(\tR\x0eorganizationId\"v\n" +
 	"\x15CreateOperatorRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\"F\n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12'\n" +
+	"\x0forganization_id\x18\x03 \x01(\tR\x0eorganizationId\"F\n" +
 	"\x16CreateOperatorResponse\x12,\n" +
 	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"$\n" +
 	"\x12GetOperatorRequest\x12\x0e\n" +

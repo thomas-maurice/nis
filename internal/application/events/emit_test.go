@@ -35,14 +35,15 @@ func newTestFactory(t *testing.T) persistence.RepositoryFactory {
 func makeOperator(t *testing.T, factory persistence.RepositoryFactory, name string) *entities.Operator {
 	t.Helper()
 	op := &entities.Operator{
-		ID:            uuid.New(),
-		Name:          name,
-		Description:   "test",
-		EncryptedSeed: "not-real-but-non-empty",
-		PublicKey:     "OAA" + uuid.New().String(),
-		JWT:           "fake-jwt",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:             uuid.New(),
+		Name:           name,
+		Description:    "test",
+		EncryptedSeed:  "not-real-but-non-empty",
+		PublicKey:      "OAA" + uuid.New().String(),
+		JWT:            "fake-jwt",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 	require.NoError(t, factory.OperatorRepository().Create(context.Background(), op))
 	return op

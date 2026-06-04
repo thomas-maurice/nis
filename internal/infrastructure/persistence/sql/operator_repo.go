@@ -122,6 +122,11 @@ func (r *OperatorRepo) ListPage(ctx context.Context, scope authz.Scope, filter r
 	switch {
 	case scope.IsAdmin():
 		// No narrowing — admin sees all.
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("organization_id = ?", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return nil, "", nil
@@ -220,6 +225,11 @@ func (r *OperatorRepo) Search(ctx context.Context, scope authz.Scope, q string, 
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return []*entities.Operator{}, nil
+		}
+		query = query.Where("organization_id = ?", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return []*entities.Operator{}, nil

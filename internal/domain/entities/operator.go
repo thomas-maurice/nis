@@ -16,6 +16,11 @@ type Operator struct {
 	JWT                 string // Operator JWT (self-signed)
 	SystemAccountPubKey string // Optional: public key of the designated system account
 
+	// OrganizationID is the owning organization. App-layer invariant: always set
+	// for any operator created after the 00009_add_organizations migration; the
+	// migration backfills existing operators to the default org.
+	OrganizationID uuid.UUID
+
 	// JWT lifecycle policy (P2). All zero values mean "no expiry / never renew" —
 	// the back-compat default. Set per operator via SetJWTPolicy.
 	//

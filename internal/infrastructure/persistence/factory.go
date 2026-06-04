@@ -28,6 +28,12 @@ type RepositoryFactory interface {
 	OperatorBackupRepository() repositories.OperatorBackupRepository
 	OperatorAgeRecipientRepository() repositories.OperatorAgeRecipientRepository
 
+	// Organization + SSO repositories (added in migration 00009).
+	OrganizationRepository() repositories.OrganizationRepository
+	OrganizationSSOConfigRepository() repositories.OrganizationSSOConfigRepository
+	SSORoleMappingRepository() repositories.SSORoleMappingRepository
+	OIDCLoginStateRepository() repositories.OIDCLoginStateRepository
+
 	// Database lifecycle methods
 	Connect(ctx context.Context) error
 	Close() error

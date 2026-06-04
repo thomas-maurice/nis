@@ -1,4 +1,4 @@
-h1:5wul5JMnP2eWPMXrilCMD0AshA38i863PtZVoABBWlY=
+h1:D5XsgoeI3QSEVwWrfSa1dlngtgmlDyzWly6I3P7lu0g=
 00001_initial.sql h1:oEowdNrNkVUMujktQSNl4ypzqwDcWI5+z30lWinsnlg=
 00002_add_templates.sql h1:olNg66ld7cpJ+C9MVL+doUu8BEiCez0cBp24fCqTMeo=
 00003_ssk_track_latest.sql h1:a9/86c5oy9bLHG5HxyteNw3McPzclS5Rcsjo304/pbk=
@@ -7,3 +7,4 @@ h1:5wul5JMnP2eWPMXrilCMD0AshA38i863PtZVoABBWlY=
 00006_add_backups.sql h1:FniKPzHLzIxrBwoWdIf9p9I83xtP4QGw66Rh0cYYpxw=
 00007_p15_age_backup_encryption.sql h1:bm5WO1hkgT3EJWabFRqs3T1Tl/6x/dczDlzNFxwkWn0=
 00008_event_diff.sql h1:IJHsT2yC/LCW3AlTdrYPDzmzSeMoVxXa3SpwnjIgokg=
+00009_add_organizations.sql h1:I6ojGZxHsfC2spBs3Ht1ggn4GN/yEclaZt4Dpz0KfKU=

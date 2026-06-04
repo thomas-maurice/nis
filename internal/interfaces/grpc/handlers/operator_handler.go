@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -39,9 +40,14 @@ func (h *OperatorHandler) CreateOperator(
 	if err := requireAdmin(ctx); err != nil {
 		return nil, err
 	}
+	orgID, err := parseOptionalUUID(req.Msg.GetOrganizationId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("organization_id: %w", err))
+	}
 	operator, err := h.service.CreateOperator(ctx, services.CreateOperatorRequest{
-		Name:        req.Msg.Name,
-		Description: req.Msg.Description,
+		Name:           req.Msg.Name,
+		Description:    req.Msg.Description,
+		OrganizationID: orgID,
 	})
 	if err != nil {
 		return nil, err

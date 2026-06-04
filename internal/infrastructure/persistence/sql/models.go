@@ -19,6 +19,214 @@ import (
 // not serialized (we go through ToEntity/FromEntity). They only exist so
 // GORM can derive the foreign-key + ON DELETE clause for the migration.
 
+// OrganizationModel — organizations table. Top-level tenant; every operator
+// belongs to exactly one organization. Slug is [a-z0-9-], unique, used for
+// OIDC SSO routing (no discovery endpoint — callers must type the slug).
+type OrganizationModel struct {
+	ID          string    `gorm:"primaryKey;type:text;not null"`
+	Name        string    `gorm:"type:text;not null;uniqueIndex:idx_organizations_name"`
+	Slug        string    `gorm:"type:text;not null;uniqueIndex:idx_organizations_slug"`
+	Description string    `gorm:"type:text"`
+	CreatedAt   time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt   time.Time `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (OrganizationModel) TableName() string { return "organizations" }
+
+func (m *OrganizationModel) ToEntity() *entities.Organization {
+	return &entities.Organization{
+		ID:          uuid.MustParse(m.ID),
+		Name:        m.Name,
+		Slug:        m.Slug,
+		Description: m.Description,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}
+}
+
+func OrganizationModelFromEntity(e *entities.Organization) *OrganizationModel {
+	return &OrganizationModel{
+		ID:          e.ID.String(),
+		Name:        e.Name,
+		Slug:        e.Slug,
+		Description: e.Description,
+		CreatedAt:   e.CreatedAt,
+		UpdatedAt:   e.UpdatedAt,
+	}
+}
+
+// OrganizationSSOConfigModel — organization_sso_configs table.
+// 1:1 with organizations (unique on organization_id). The encrypted_client_secret
+// uses the same storage-ref format as operator seeds.
+//
+// Scopes and group_claim are NOT NULL without a GORM default — the app layer
+// always supplies them. Putting default:'openid...' here would trigger the GORM
+// footgun: GORM substitutes the DB default for the Go zero value on INSERT,
+// silently clobbering an explicit empty-string write. The entity layer sets the
+// defaults ("openid profile email groups" and "groups" respectively).
+type OrganizationSSOConfigModel struct {
+	ID                    string              `gorm:"primaryKey;type:text;not null"`
+	OrganizationID        string              `gorm:"type:text;not null;uniqueIndex:idx_org_sso_configs_org_id;index:idx_org_sso_configs_org_id_fk"`
+	Organization          *OrganizationModel  `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Enabled               bool               `gorm:"type:boolean;not null;default:false"`
+	IssuerURL             string             `gorm:"type:text;not null;default:''"`
+	ClientID              string             `gorm:"type:text;not null;default:''"`
+	EncryptedClientSecret string             `gorm:"type:text;not null;default:''"`
+	Scopes                string             `gorm:"type:text;not null"`
+	GroupClaim            string             `gorm:"type:text;not null"`
+	// DefaultRole is nullable: NULL means deny login when no group mapping matches.
+	DefaultRole           *string            `gorm:"type:text"`
+	CreatedAt             time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt             time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (OrganizationSSOConfigModel) TableName() string { return "organization_sso_configs" }
+
+func (m *OrganizationSSOConfigModel) ToEntity() *entities.OrganizationSSOConfig {
+	e := &entities.OrganizationSSOConfig{
+		ID:                    uuid.MustParse(m.ID),
+		OrganizationID:        uuid.MustParse(m.OrganizationID),
+		Enabled:               m.Enabled,
+		IssuerURL:             m.IssuerURL,
+		ClientID:              m.ClientID,
+		EncryptedClientSecret: m.EncryptedClientSecret,
+		Scopes:                m.Scopes,
+		GroupClaim:            m.GroupClaim,
+		CreatedAt:             m.CreatedAt,
+		UpdatedAt:             m.UpdatedAt,
+	}
+	if m.DefaultRole != nil {
+		r := entities.APIUserRole(*m.DefaultRole)
+		e.DefaultRole = &r
+	}
+	return e
+}
+
+func OrganizationSSOConfigModelFromEntity(e *entities.OrganizationSSOConfig) *OrganizationSSOConfigModel {
+	m := &OrganizationSSOConfigModel{
+		ID:                    e.ID.String(),
+		OrganizationID:        e.OrganizationID.String(),
+		Enabled:               e.Enabled,
+		IssuerURL:             e.IssuerURL,
+		ClientID:              e.ClientID,
+		EncryptedClientSecret: e.EncryptedClientSecret,
+		Scopes:                e.Scopes,
+		GroupClaim:            e.GroupClaim,
+		CreatedAt:             e.CreatedAt,
+		UpdatedAt:             e.UpdatedAt,
+	}
+	if e.DefaultRole != nil {
+		s := string(*e.DefaultRole)
+		m.DefaultRole = &s
+	}
+	return m
+}
+
+// OrganizationSSORoleMappingModel — organization_sso_role_mappings table.
+// Maps an IdP group value → NIS role+scope for one organization. Priority
+// ascending (lower = checked first); first match wins during login.
+// Unique on (organization_id, group_value).
+type OrganizationSSORoleMappingModel struct {
+	ID              string             `gorm:"primaryKey;type:text;not null"`
+	OrganizationID  string             `gorm:"type:text;not null;index:idx_sso_role_mappings_org_id;uniqueIndex:idx_sso_role_mappings_org_group,priority:1"`
+	Organization    *OrganizationModel `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	GroupValue      string             `gorm:"type:text;not null;uniqueIndex:idx_sso_role_mappings_org_group,priority:2"`
+	Role            string             `gorm:"type:text;not null"`
+	// ScopeOperatorID is required when Role == operator-admin. SET NULL on
+	// operator delete so a deleted operator doesn't invalidate the whole mapping
+	// row; the service layer validates the FK at mapping-create time.
+	ScopeOperatorID *string            `gorm:"type:text;index:idx_sso_role_mappings_scope_op_id"`
+	ScopeOperator   *OperatorModel     `gorm:"foreignKey:ScopeOperatorID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	// ScopeAccountID is required when Role == account-admin. Same SET NULL logic.
+	ScopeAccountID  *string            `gorm:"type:text;index:idx_sso_role_mappings_scope_acc_id"`
+	ScopeAccount    *AccountModel      `gorm:"foreignKey:ScopeAccountID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	Priority        int                `gorm:"type:integer;not null;default:0"`
+	CreatedAt       time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (OrganizationSSORoleMappingModel) TableName() string { return "organization_sso_role_mappings" }
+
+func (m *OrganizationSSORoleMappingModel) ToEntity() *entities.SSORoleMapping {
+	e := &entities.SSORoleMapping{
+		ID:             uuid.MustParse(m.ID),
+		OrganizationID: uuid.MustParse(m.OrganizationID),
+		GroupValue:     m.GroupValue,
+		Role:           entities.APIUserRole(m.Role),
+		Priority:       m.Priority,
+		CreatedAt:      m.CreatedAt,
+	}
+	if m.ScopeOperatorID != nil {
+		id := uuid.MustParse(*m.ScopeOperatorID)
+		e.ScopeOperatorID = &id
+	}
+	if m.ScopeAccountID != nil {
+		id := uuid.MustParse(*m.ScopeAccountID)
+		e.ScopeAccountID = &id
+	}
+	return e
+}
+
+func OrganizationSSORoleMappingModelFromEntity(e *entities.SSORoleMapping) *OrganizationSSORoleMappingModel {
+	m := &OrganizationSSORoleMappingModel{
+		ID:             e.ID.String(),
+		OrganizationID: e.OrganizationID.String(),
+		GroupValue:     e.GroupValue,
+		Role:           string(e.Role),
+		Priority:       e.Priority,
+		CreatedAt:      e.CreatedAt,
+	}
+	if e.ScopeOperatorID != nil {
+		s := e.ScopeOperatorID.String()
+		m.ScopeOperatorID = &s
+	}
+	if e.ScopeAccountID != nil {
+		s := e.ScopeAccountID.String()
+		m.ScopeAccountID = &s
+	}
+	return m
+}
+
+// OIDCLoginStateModel — oidc_login_states table.
+// Durable PKCE+state records for in-flight OIDC login flows. Swept by a
+// recurring job. state is the PK (high-entropy random string).
+type OIDCLoginStateModel struct {
+	State          string             `gorm:"primaryKey;type:text;not null"`
+	OrganizationID string             `gorm:"type:text;not null;index:idx_oidc_login_states_org_id"`
+	Organization   *OrganizationModel `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	Nonce          string             `gorm:"type:text;not null"`
+	PKCEVerifier   string             `gorm:"column:pkce_verifier;type:text;not null"`
+	RedirectAfter  *string            `gorm:"type:text"`
+	CreatedAt      time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	ExpiresAt      time.Time          `gorm:"type:timestamp;not null;index:idx_oidc_login_states_expires_at"`
+}
+
+func (OIDCLoginStateModel) TableName() string { return "oidc_login_states" }
+
+func (m *OIDCLoginStateModel) ToEntity() *entities.OIDCLoginState {
+	e := &entities.OIDCLoginState{
+		State:          m.State,
+		OrganizationID: uuid.MustParse(m.OrganizationID),
+		Nonce:          m.Nonce,
+		PKCEVerifier:   m.PKCEVerifier,
+		RedirectAfter:  m.RedirectAfter,
+		CreatedAt:      m.CreatedAt.UTC(),
+		ExpiresAt:      m.ExpiresAt.UTC(),
+	}
+	return e
+}
+
+func OIDCLoginStateModelFromEntity(e *entities.OIDCLoginState) *OIDCLoginStateModel {
+	return &OIDCLoginStateModel{
+		State:          e.State,
+		OrganizationID: e.OrganizationID.String(),
+		Nonce:          e.Nonce,
+		PKCEVerifier:   e.PKCEVerifier,
+		RedirectAfter:  e.RedirectAfter,
+		CreatedAt:      e.CreatedAt.UTC(),
+		ExpiresAt:      e.ExpiresAt.UTC(),
+	}
+}
+
 // OperatorModel — operators table.
 type OperatorModel struct {
 	ID                   string    `gorm:"primaryKey;type:text;not null"`
@@ -44,8 +252,16 @@ type OperatorModel struct {
 	BackupIntervalSeconds *int64     `gorm:"column:backup_interval_seconds;type:bigint;check:backup_interval_seconds IS NULL OR backup_interval_seconds >= 3600"`
 	BackupRetentionCount  *int       `gorm:"column:backup_retention_count;type:int"`
 	LastBackupAt          *time.Time `gorm:"column:last_backup_at;type:timestamp"`
-	CreatedAt             time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt             time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	// OrganizationID links the operator to its owning organization. Added in
+	// migration 00009_add_organizations. Stored as a nullable column at the DB
+	// level because the backfill runs in the migration before the NOT NULL
+	// constraint is applied (see §5.1 of ORGS_SSO.md and migration comments).
+	// App-layer invariant: CreateOperator always sets this; rows in the DB
+	// after migration are guaranteed non-NULL.
+	OrganizationID   string             `gorm:"column:organization_id;type:text;not null;index:idx_operators_org_id"`
+	Organization     *OrganizationModel `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	CreatedAt        time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt        time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (OperatorModel) TableName() string { return "operators" }
@@ -73,6 +289,9 @@ func (m *OperatorModel) ToEntity() *entities.Operator {
 		d := time.Duration(*m.BackupIntervalSeconds) * time.Second
 		op.BackupInterval = &d
 	}
+	if m.OrganizationID != "" {
+		op.OrganizationID = uuid.MustParse(m.OrganizationID)
+	}
 	return op
 }
 
@@ -92,6 +311,7 @@ func OperatorModelFromEntity(e *entities.Operator) *OperatorModel {
 		BackupEnabled:        e.BackupEnabled,
 		BackupRetentionCount: e.BackupRetention,
 		LastBackupAt:         e.LastBackupAt,
+		OrganizationID:       e.OrganizationID.String(),
 		CreatedAt:            e.CreatedAt,
 		UpdatedAt:            e.UpdatedAt,
 	}
@@ -577,17 +797,31 @@ func ClusterModelFromEntity(e *entities.Cluster) *ClusterModel {
 }
 
 // APIUserModel — api_users table.
+//
+// OrganizationID is nullable: platform admins (role='admin') are org-less.
+// AuthSource is NOT NULL with a default of 'local'; OIDC-sourced users have
+// 'oidc'. The CHECK constraint enforces that OIDC rows always carry an
+// external_subject and an organization_id. The partial unique index
+// (organization_id, external_subject) WHERE auth_source='oidc' is added by
+// hand to the migration (atlas-provider-gorm can't emit partial indexes from
+// struct tags) and registered in tools/atlas/loader.go manualExtras.
 type APIUserModel struct {
-	ID           string         `gorm:"primaryKey;type:text;not null"`
-	Username     string         `gorm:"type:text;not null;uniqueIndex:idx_api_users_username"`
-	PasswordHash string         `gorm:"type:text;not null"`
-	Role         string         `gorm:"type:text;not null"`
-	OperatorID   *string        `gorm:"type:text;index:idx_api_users_operator_id"`
-	Operator     *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
-	AccountID    *string        `gorm:"type:text;index:idx_api_users_account_id"`
-	Account      *AccountModel  `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
-	CreatedAt    time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt    time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	ID           string             `gorm:"primaryKey;type:text;not null"`
+	Username     string             `gorm:"type:text;not null;uniqueIndex:idx_api_users_username"`
+	PasswordHash string             `gorm:"type:text;not null"`
+	Role         string             `gorm:"type:text;not null"`
+	OperatorID   *string            `gorm:"type:text;index:idx_api_users_operator_id"`
+	Operator     *OperatorModel     `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	AccountID    *string            `gorm:"type:text;index:idx_api_users_account_id"`
+	Account      *AccountModel      `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	// Org tenancy + OIDC columns added in 00009_add_organizations.
+	OrganizationID  *string            `gorm:"column:organization_id;type:text;index:idx_api_users_org_id;check:chk_api_users_oidc_invariant,auth_source <> 'oidc' OR (external_subject IS NOT NULL AND organization_id IS NOT NULL)"`
+	Organization    *OrganizationModel `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	AuthSource      string             `gorm:"column:auth_source;type:text;not null;default:'local'"`
+	ExternalSubject *string            `gorm:"column:external_subject;type:text"`
+	Email           *string            `gorm:"column:email;type:text"`
+	CreatedAt       time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt       time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (APIUserModel) TableName() string { return "api_users" }
@@ -605,15 +839,30 @@ func (m *APIUserModel) ToEntity() *entities.APIUser {
 		accountID = &id
 	}
 
+	var organizationID *uuid.UUID
+	if m.OrganizationID != nil {
+		id := uuid.MustParse(*m.OrganizationID)
+		organizationID = &id
+	}
+
+	authSource := m.AuthSource
+	if authSource == "" {
+		authSource = "local"
+	}
+
 	return &entities.APIUser{
-		ID:           uuid.MustParse(m.ID),
-		Username:     m.Username,
-		PasswordHash: m.PasswordHash,
-		Role:         entities.APIUserRole(m.Role),
-		OperatorID:   operatorID,
-		AccountID:    accountID,
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
+		ID:              uuid.MustParse(m.ID),
+		Username:        m.Username,
+		PasswordHash:    m.PasswordHash,
+		Role:            entities.APIUserRole(m.Role),
+		OperatorID:      operatorID,
+		AccountID:       accountID,
+		OrganizationID:  organizationID,
+		AuthSource:      authSource,
+		ExternalSubject: m.ExternalSubject,
+		Email:           m.Email,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
 	}
 }
 
@@ -630,38 +879,57 @@ func APIUserModelFromEntity(e *entities.APIUser) *APIUserModel {
 		accountID = &id
 	}
 
+	var organizationID *string
+	if e.OrganizationID != nil {
+		id := e.OrganizationID.String()
+		organizationID = &id
+	}
+
+	authSource := e.AuthSource
+	if authSource == "" {
+		authSource = "local"
+	}
+
 	return &APIUserModel{
-		ID:           e.ID.String(),
-		Username:     e.Username,
-		PasswordHash: e.PasswordHash,
-		Role:         string(e.Role),
-		OperatorID:   operatorID,
-		AccountID:    accountID,
-		CreatedAt:    e.CreatedAt,
-		UpdatedAt:    e.UpdatedAt,
+		ID:              e.ID.String(),
+		Username:        e.Username,
+		PasswordHash:    e.PasswordHash,
+		Role:            string(e.Role),
+		OperatorID:      operatorID,
+		AccountID:       accountID,
+		OrganizationID:  organizationID,
+		AuthSource:      authSource,
+		ExternalSubject: e.ExternalSubject,
+		Email:           e.Email,
+		CreatedAt:       e.CreatedAt,
+		UpdatedAt:       e.UpdatedAt,
 	}
 }
 
 // APITokenModel — api_tokens table. created_by_user_id is ON DELETE SET NULL
 // so offboarding a human api_user does not silently disable their CI tokens.
+// OrganizationID is nullable: platform-admin tokens are org-less; org-scoped
+// service-account tokens carry the org they were minted for.
 type APITokenModel struct {
-	ID              string         `gorm:"primaryKey;type:text;not null"`
-	Name            string         `gorm:"type:text;not null;uniqueIndex:idx_api_tokens_name_per_creator,priority:2"`
-	TokenHash       string         `gorm:"type:text;not null;uniqueIndex:idx_api_tokens_token_hash"`
-	Prefix          string         `gorm:"type:text;not null"`
-	Description     string         `gorm:"type:text;not null;default:''"`
-	CreatedByUserID *string        `gorm:"type:text;index:idx_api_tokens_created_by_user_id;uniqueIndex:idx_api_tokens_name_per_creator,priority:1"`
-	CreatedByUser   *APIUserModel  `gorm:"foreignKey:CreatedByUserID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
-	Role            string         `gorm:"type:text;not null"`
-	OperatorID      *string        `gorm:"type:text;index:idx_api_tokens_operator_id"`
-	Operator        *OperatorModel `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
-	AccountID       *string        `gorm:"type:text;index:idx_api_tokens_account_id"`
-	Account         *AccountModel  `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
-	ExpiresAt       *time.Time     `gorm:"type:timestamp"`
-	LastUsedAt      *time.Time     `gorm:"type:timestamp"`
-	RevokedAt       *time.Time     `gorm:"type:timestamp;index:idx_api_tokens_revoked_at"`
-	CreatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt       time.Time      `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	ID              string             `gorm:"primaryKey;type:text;not null"`
+	Name            string             `gorm:"type:text;not null;uniqueIndex:idx_api_tokens_name_per_creator,priority:2"`
+	TokenHash       string             `gorm:"type:text;not null;uniqueIndex:idx_api_tokens_token_hash"`
+	Prefix          string             `gorm:"type:text;not null"`
+	Description     string             `gorm:"type:text;not null;default:''"`
+	CreatedByUserID *string            `gorm:"type:text;index:idx_api_tokens_created_by_user_id;uniqueIndex:idx_api_tokens_name_per_creator,priority:1"`
+	CreatedByUser   *APIUserModel      `gorm:"foreignKey:CreatedByUserID;references:ID;constraint:OnDelete:SET NULL,OnUpdate:NO ACTION"`
+	Role            string             `gorm:"type:text;not null"`
+	OperatorID      *string            `gorm:"type:text;index:idx_api_tokens_operator_id"`
+	Operator        *OperatorModel     `gorm:"foreignKey:OperatorID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	AccountID       *string            `gorm:"type:text;index:idx_api_tokens_account_id"`
+	Account         *AccountModel      `gorm:"foreignKey:AccountID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	OrganizationID  *string            `gorm:"column:organization_id;type:text;index:idx_api_tokens_org_id"`
+	Organization    *OrganizationModel `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
+	ExpiresAt       *time.Time         `gorm:"type:timestamp"`
+	LastUsedAt      *time.Time         `gorm:"type:timestamp"`
+	RevokedAt       *time.Time         `gorm:"type:timestamp;index:idx_api_tokens_revoked_at"`
+	CreatedAt       time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt       time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (APITokenModel) TableName() string { return "api_tokens" }
@@ -692,6 +960,10 @@ func (m *APITokenModel) ToEntity() *entities.APIToken {
 		id := uuid.MustParse(*m.AccountID)
 		t.AccountID = &id
 	}
+	if m.OrganizationID != nil {
+		id := uuid.MustParse(*m.OrganizationID)
+		t.OrganizationID = &id
+	}
 	return t
 }
 
@@ -720,6 +992,10 @@ func APITokenModelFromEntity(e *entities.APIToken) *APITokenModel {
 	if e.AccountID != nil {
 		id := e.AccountID.String()
 		m.AccountID = &id
+	}
+	if e.OrganizationID != nil {
+		id := e.OrganizationID.String()
+		m.OrganizationID = &id
 	}
 	return m
 }

@@ -24,6 +24,7 @@ func OperatorToProto(op *entities.Operator) *pb.Operator {
 		AccountJwtTtlSeconds: int64(op.AccountJWTTTL.Seconds()),
 		JwtWarnWindowSeconds: int64(op.JWTWarnWindow.Seconds()),
 		JwtAutoRenew:         op.JWTAutoRenew,
+		OrganizationId:       UUIDToString(op.OrganizationID),
 	}
 }
 

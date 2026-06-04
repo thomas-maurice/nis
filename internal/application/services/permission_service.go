@@ -26,21 +26,26 @@ import (
 // If you find yourself writing a 3-arm role switch in a new Can* method, stop
 // and add a helper instead — every duplicated switch invites a subtle scope leak.
 type PermissionService struct {
-	operatorRepo repositories.OperatorRepository
-	accountRepo  repositories.AccountRepository
-	userRepo     repositories.UserRepository
+	operatorRepo     repositories.OperatorRepository
+	accountRepo      repositories.AccountRepository
+	userRepo         repositories.UserRepository
+	organizationRepo repositories.OrganizationRepository
 }
 
-// NewPermissionService creates a new PermissionService
+// NewPermissionService creates a new PermissionService.
+// organizationRepo is used to resolve org ownership for ownsOrganization and
+// the org-admin cases in ownsOperator / ownsAccount.
 func NewPermissionService(
 	operatorRepo repositories.OperatorRepository,
 	accountRepo repositories.AccountRepository,
 	userRepo repositories.UserRepository,
+	organizationRepo repositories.OrganizationRepository,
 ) *PermissionService {
 	return &PermissionService{
-		operatorRepo: operatorRepo,
-		accountRepo:  accountRepo,
-		userRepo:     userRepo,
+		operatorRepo:     operatorRepo,
+		accountRepo:      accountRepo,
+		userRepo:         userRepo,
+		organizationRepo: organizationRepo,
 	}
 }
 
@@ -68,9 +73,51 @@ func (s *PermissionService) requireRole(apiUser *entities.APIUser, allowed ...en
 	return fmt.Errorf("%w: requires role in %v, have %q", ErrPermissionDenied, allowed, apiUser.Role)
 }
 
+// ownsOrganization answers "can this api-user act on this organization?"
+//
+//	admin           always yes
+//	org-admin       yes iff apiUser.OrganizationID == orgID
+//	operator-admin  yes iff the operator's OrganizationID == orgID
+//	account-admin   yes iff account's operator's OrganizationID == orgID
+func (s *PermissionService) ownsOrganization(ctx context.Context, apiUser *entities.APIUser, orgID uuid.UUID) (bool, error) {
+	if apiUser == nil {
+		return false, nil
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return true, nil
+	case entities.RoleOrgAdmin:
+		return apiUser.OrganizationID != nil && *apiUser.OrganizationID == orgID, nil
+	case entities.RoleOperatorAdmin:
+		if apiUser.OperatorID == nil {
+			return false, nil
+		}
+		op, err := s.operatorRepo.GetByID(ctx, *apiUser.OperatorID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get operator: %w", err)
+		}
+		return op.OrganizationID == orgID, nil
+	case entities.RoleAccountAdmin:
+		if apiUser.AccountID == nil {
+			return false, nil
+		}
+		account, err := s.accountRepo.GetByID(ctx, *apiUser.AccountID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get account: %w", err)
+		}
+		op, err := s.operatorRepo.GetByID(ctx, account.OperatorID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get operator for account: %w", err)
+		}
+		return op.OrganizationID == orgID, nil
+	}
+	return false, nil
+}
+
 // ownsOperator answers "can this api-user act on this operator?"
 //
 //	admin           always yes (subject to requireRole on the caller side)
+//	org-admin       yes iff the operator's OrganizationID == apiUser.OrganizationID
 //	operator-admin  yes iff apiUser.OperatorID == operatorID
 //	account-admin   yes iff apiUser.AccountID's account.OperatorID == operatorID
 func (s *PermissionService) ownsOperator(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) (bool, error) {
@@ -80,6 +127,15 @@ func (s *PermissionService) ownsOperator(ctx context.Context, apiUser *entities.
 	switch apiUser.Role {
 	case entities.RoleAdmin:
 		return true, nil
+	case entities.RoleOrgAdmin:
+		if apiUser.OrganizationID == nil {
+			return false, nil
+		}
+		op, err := s.operatorRepo.GetByID(ctx, operatorID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get operator: %w", err)
+		}
+		return op.OrganizationID == *apiUser.OrganizationID, nil
 	case entities.RoleOperatorAdmin:
 		return apiUser.OperatorID != nil && *apiUser.OperatorID == operatorID, nil
 	case entities.RoleAccountAdmin:
@@ -98,6 +154,7 @@ func (s *PermissionService) ownsOperator(ctx context.Context, apiUser *entities.
 // ownsAccount answers "can this api-user act on this account?"
 //
 //	admin           always yes
+//	org-admin       yes iff account's operator's OrganizationID == apiUser.OrganizationID
 //	operator-admin  yes iff the account's operator is the user's operator
 //	account-admin   yes iff apiUser.AccountID == accountID
 func (s *PermissionService) ownsAccount(ctx context.Context, apiUser *entities.APIUser, accountID uuid.UUID) (bool, error) {
@@ -107,6 +164,19 @@ func (s *PermissionService) ownsAccount(ctx context.Context, apiUser *entities.A
 	switch apiUser.Role {
 	case entities.RoleAdmin:
 		return true, nil
+	case entities.RoleOrgAdmin:
+		if apiUser.OrganizationID == nil {
+			return false, nil
+		}
+		account, err := s.accountRepo.GetByID(ctx, accountID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get account: %w", err)
+		}
+		op, err := s.operatorRepo.GetByID(ctx, account.OperatorID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get operator for account: %w", err)
+		}
+		return op.OrganizationID == *apiUser.OrganizationID, nil
 	case entities.RoleOperatorAdmin:
 		account, err := s.accountRepo.GetByID(ctx, accountID)
 		if err != nil {
@@ -582,19 +652,11 @@ func (s *PermissionService) CanDeleteWebhookSubscription(ctx context.Context, ap
 // API tokens (service-account tokens)
 // ---------------------------------------------------------------------------
 
-// roleRank assigns a numeric ceiling to each role so CanCreateAPIToken can refuse
-// to mint a token with a role higher than the caller's. admin > operator-admin >
-// account-admin. Unknown roles get 0 (cannot mint anything).
+// roleRank returns the privilege rank of a role for ceiling checks. Delegates
+// to entities.APIUserRole.Rank() — single source of truth.
+// Total order: admin (4) > org-admin (3) > operator-admin (2) > account-admin (1) > unknown (0).
 func roleRank(r entities.APIUserRole) int {
-	switch r {
-	case entities.RoleAdmin:
-		return 3
-	case entities.RoleOperatorAdmin:
-		return 2
-	case entities.RoleAccountAdmin:
-		return 1
-	}
-	return 0
+	return r.Rank()
 }
 
 // CanCreateAPIToken enforces the privilege escalation guard: the caller may not
@@ -602,6 +664,9 @@ func roleRank(r entities.APIUserRole) int {
 // the token must lie within the caller's scope.
 //
 // admin           — may mint any role / any scope.
+// org-admin       — may mint org-admin or below, scoped within their own org.
+//                   The minted token's scope must satisfy ownsOperator/ownsAccount
+//                   when operatorID/accountID are set.
 // operator-admin  — may mint operator-admin (own operator) or account-admin (account in own operator).
 // account-admin   — may mint account-admin only, scoped to own account.
 func (s *PermissionService) CanCreateAPIToken(ctx context.Context, apiUser *entities.APIUser, role entities.APIUserRole, operatorID, accountID *uuid.UUID) error {
@@ -615,6 +680,21 @@ func (s *PermissionService) CanCreateAPIToken(ctx context.Context, apiUser *enti
 		return denyf("cannot mint token with role %q (caller is %q)", role, apiUser.Role)
 	}
 	switch role {
+	case entities.RoleOrgAdmin:
+		// org-admin tokens must be scoped to the caller's own org. No
+		// operatorID/accountID narrowing is required — the org-level scope
+		// is sufficient and carried by ScopeOrganizationID on the token.
+		if apiUser.Role != entities.RoleAdmin {
+			// Spec: org-admin callers may not mint tokens with rank >= their own.
+			// The blanket check above handles rank >, so we additionally block
+			// the equal-rank case (org-admin cannot mint org-admin tokens).
+			if roleRank(role) >= roleRank(apiUser.Role) {
+				return denyf("cannot mint token with role %q: org-admin may only mint tokens with strictly lower rank", role)
+			}
+			if apiUser.OrganizationID == nil {
+				return denyf("cannot mint org-admin token: caller has no organization")
+			}
+		}
 	case entities.RoleOperatorAdmin:
 		if operatorID == nil {
 			return fmt.Errorf("operator_id is required for operator-admin tokens")
@@ -667,4 +747,209 @@ func (s *PermissionService) CanListAPITokens(apiUser *entities.APIUser) error {
 		return ErrPermissionDenied
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Organizations
+// ---------------------------------------------------------------------------
+
+// CanCreateOrganization: admin only. Orgs are platform-level objects.
+func (s *PermissionService) CanCreateOrganization(apiUser *entities.APIUser) error {
+	return s.requireRole(apiUser, entities.RoleAdmin)
+}
+
+// CanReadOrganization: admin or any role whose org == orgID.
+func (s *PermissionService) CanReadOrganization(ctx context.Context, apiUser *entities.APIUser, orgID uuid.UUID) error {
+	ok, err := s.ownsOrganization(ctx, apiUser, orgID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return denyf("cannot read organization %s", orgID)
+	}
+	return nil
+}
+
+// CanUpdateOrganization: admin or org-admin that owns the org.
+func (s *PermissionService) CanUpdateOrganization(ctx context.Context, apiUser *entities.APIUser, orgID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		ok, err := s.ownsOrganization(ctx, apiUser, orgID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return denyf("cannot update organization %s", orgID)
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can update organizations")
+}
+
+// CanDeleteOrganization: admin only (data-loss guard).
+func (s *PermissionService) CanDeleteOrganization(apiUser *entities.APIUser) error {
+	return s.requireRole(apiUser, entities.RoleAdmin)
+}
+
+// CanListOrganizations: any authenticated user — SQL scope narrows to own org
+// for org-admin; lower roles see nothing unless admin.
+func (s *PermissionService) CanListOrganizations(apiUser *entities.APIUser) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// SSO configuration
+// ---------------------------------------------------------------------------
+
+// CanManageSSO: admin or org-admin that owns the org.
+func (s *PermissionService) CanManageSSO(ctx context.Context, apiUser *entities.APIUser, orgID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		ok, err := s.ownsOrganization(ctx, apiUser, orgID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return denyf("cannot manage SSO for organization %s", orgID)
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can manage SSO configuration")
+}
+
+// CanReadSSO: admin or org-admin that owns the org.
+func (s *PermissionService) CanReadSSO(ctx context.Context, apiUser *entities.APIUser, orgID uuid.UUID) error {
+	return s.CanManageSSO(ctx, apiUser, orgID)
+}
+
+// ---------------------------------------------------------------------------
+// API user management (gate methods — wired into AuthService in chunk 5)
+// ---------------------------------------------------------------------------
+
+// CanCreateAPIUser gates creation of a new api_user row. The caller may not
+// create a user whose role rank >= their own, and org-admin may only create
+// users in their own organization.
+//
+//	admin       — may create any role in any org.
+//	org-admin   — may create roles with rank < caller's rank (not admin/org-admin),
+//	              in their own org only.
+//	others      — denied.
+func (s *PermissionService) CanCreateAPIUser(apiUser *entities.APIUser, targetRole entities.APIUserRole, targetOrgID *uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	if !targetRole.IsValid() {
+		return fmt.Errorf("%w: invalid role %q", ErrPermissionDenied, targetRole)
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if roleRank(targetRole) >= roleRank(apiUser.Role) {
+			return denyf("cannot create api_user with role %q (caller is org-admin)", targetRole)
+		}
+		// Target must be scoped to the caller's org.
+		if apiUser.OrganizationID == nil {
+			return denyf("org-admin caller has no organization")
+		}
+		if targetOrgID == nil || *targetOrgID != *apiUser.OrganizationID {
+			return denyf("org-admin can only create api_users in their own organization")
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can create api_users")
+}
+
+// CanReadAPIUser gates reading an existing api_user.
+//
+//	admin     — may read any user.
+//	org-admin — may read users in their own org whose role rank < their own.
+//	others    — denied.
+func (s *PermissionService) CanReadAPIUser(apiUser *entities.APIUser, target *entities.APIUser) error {
+	if apiUser == nil || target == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if roleRank(target.Role) >= roleRank(apiUser.Role) {
+			return denyf("cannot read api_user with role %q (caller is org-admin)", target.Role)
+		}
+		if apiUser.OrganizationID == nil {
+			return denyf("org-admin caller has no organization")
+		}
+		if target.OrganizationID == nil || *target.OrganizationID != *apiUser.OrganizationID {
+			return denyf("cannot read api_user in a different organization")
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can read api_users")
+}
+
+// CanUpdateAPIUser gates updating an existing api_user (password or permissions).
+//
+//	admin     — may update any user.
+//	org-admin — may update users in their own org whose role rank < their own.
+//	others    — denied.
+func (s *PermissionService) CanUpdateAPIUser(apiUser *entities.APIUser, target *entities.APIUser) error {
+	if apiUser == nil || target == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if roleRank(target.Role) >= roleRank(apiUser.Role) {
+			return denyf("cannot update api_user with role %q (caller is org-admin)", target.Role)
+		}
+		if apiUser.OrganizationID == nil {
+			return denyf("org-admin caller has no organization")
+		}
+		if target.OrganizationID == nil || *target.OrganizationID != *apiUser.OrganizationID {
+			return denyf("cannot update api_user in a different organization")
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can update api_users")
+}
+
+// CanDeleteAPIUser gates deletion of an api_user.
+//
+//	admin     — may delete any user.
+//	org-admin — may delete users in their own org whose role rank < their own.
+//	others    — denied.
+func (s *PermissionService) CanDeleteAPIUser(apiUser *entities.APIUser, target *entities.APIUser) error {
+	if apiUser == nil || target == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if roleRank(target.Role) >= roleRank(apiUser.Role) {
+			return denyf("cannot delete api_user with role %q (caller is org-admin)", target.Role)
+		}
+		if apiUser.OrganizationID == nil {
+			return denyf("org-admin caller has no organization")
+		}
+		if target.OrganizationID == nil || *target.OrganizationID != *apiUser.OrganizationID {
+			return denyf("cannot delete api_user in a different organization")
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can delete api_users")
 }

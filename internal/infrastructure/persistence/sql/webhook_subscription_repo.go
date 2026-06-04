@@ -148,6 +148,11 @@ func (r *WebhookSubscriptionRepo) ListPage(ctx context.Context, scope authz.Scop
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("operator_id IN (SELECT id FROM operators WHERE organization_id = ?)", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return nil, "", nil

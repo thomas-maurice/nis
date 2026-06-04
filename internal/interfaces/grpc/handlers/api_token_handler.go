@@ -80,6 +80,23 @@ func (h *APITokenHandler) CreateAPIToken(ctx context.Context, req *connect.Reque
 		createReq.ExpiresAt = &t
 	}
 
+	// Resolve the OrganizationID for the new token.
+	// org-admin: always mint in their own org (ignore the request field).
+	// admin:     use req.organization_id if provided, else let CreateToken derive it.
+	// lower:     let CreateToken derive from operator/account.
+	switch apiUser.Role {
+	case entities.RoleOrgAdmin:
+		// Force org-admin's own org; no override allowed.
+		createReq.OrganizationID = apiUser.OrganizationID
+	case entities.RoleAdmin:
+		reqOrgID, err := parseOptionalUUID(req.Msg.GetOrganizationId())
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("organization_id: %w", err))
+		}
+		createReq.OrganizationID = reqOrgID
+		// For admin with no explicit org, CreateToken will derive from scope.
+	}
+
 	token, plaintext, err := h.svc.CreateToken(ctx, createReq)
 	if err != nil {
 		return nil, repoErrToConnect(err)

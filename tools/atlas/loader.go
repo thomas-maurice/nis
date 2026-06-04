@@ -29,6 +29,11 @@ func main() {
 	dialect := os.Args[1]
 
 	stmts, err := gormschema.New(dialect).Load(
+		// Organizations must come first so FKs from operators/api_users/etc. resolve.
+		&sqlmodels.OrganizationModel{},
+		&sqlmodels.OrganizationSSOConfigModel{},
+		&sqlmodels.OrganizationSSORoleMappingModel{},
+		&sqlmodels.OIDCLoginStateModel{},
 		&sqlmodels.OperatorModel{},
 		&sqlmodels.AccountModel{},
 		&sqlmodels.ScopedSigningKeyModel{},
@@ -77,11 +82,19 @@ func manualExtras(dialect string) string {
 			// terminal-state rows can share keys (next recurring tick).
 			// atlas-provider-gorm has no GORM tag for `WHERE` on indexes.
 			"CREATE UNIQUE INDEX `idx_jobs_dedup_active` ON `jobs` (`type`, `dedup_key`) WHERE `status` IN ('pending', 'running');",
+			// OIDC SSO (00009) — partial unique index on api_users to prevent
+			// duplicate OIDC user rows for the same (org, subject) pair.
+			// Cannot be expressed via a GORM struct tag (no partial-index support).
+			// NULLs on plain NULL != NULL (no dedup) so a plain composite unique
+			// would not work; the WHERE clause limits it to oidc rows only.
+			"CREATE UNIQUE INDEX `idx_api_users_oidc_subject` ON `api_users` (`organization_id`, `external_subject`) WHERE `auth_source` = 'oidc';",
 			"",
 		}, "\n")
 	case "postgres":
 		return strings.Join([]string{
 			`CREATE UNIQUE INDEX "idx_jobs_dedup_active" ON "jobs" ("type", "dedup_key") WHERE "status" IN ('pending', 'running');`,
+			// OIDC SSO (00009) — same intent as the SQLite entry above.
+			`CREATE UNIQUE INDEX "idx_api_users_oidc_subject" ON "api_users" ("organization_id", "external_subject") WHERE "auth_source" = 'oidc';`,
 			"",
 		}, "\n")
 	default:

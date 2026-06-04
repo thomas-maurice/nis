@@ -51,14 +51,15 @@ var tokenDeleteCmd = &cobra.Command{
 }
 
 var (
-	tokenName            string
-	tokenDescription     string
-	tokenRole            string
-	tokenOperator        string
-	tokenAccount         string
-	tokenExpiresIn       time.Duration
-	tokenIncludeRevoked  bool
-	tokenForce           bool
+	tokenName           string
+	tokenDescription    string
+	tokenRole           string
+	tokenOperator       string
+	tokenAccount        string
+	tokenOrg            string
+	tokenExpiresIn      time.Duration
+	tokenIncludeRevoked bool
+	tokenForce          bool
 
 	tokenListLimit  int32
 	tokenListCursor string
@@ -75,10 +76,11 @@ func init() {
 	tokenCreateCmd.Flags().StringVar(&tokenName, "name", "", "token name (required, unique per creator)")
 	_ = tokenCreateCmd.MarkFlagRequired("name")
 	tokenCreateCmd.Flags().StringVar(&tokenDescription, "description", "", "free-form description")
-	tokenCreateCmd.Flags().StringVar(&tokenRole, "role", "", "admin | operator-admin | account-admin (required)")
+	tokenCreateCmd.Flags().StringVar(&tokenRole, "role", "", "admin | org-admin | operator-admin | account-admin (required)")
 	_ = tokenCreateCmd.MarkFlagRequired("role")
 	tokenCreateCmd.Flags().StringVar(&tokenOperator, "operator", "", "operator ID or name (required for operator-admin)")
 	tokenCreateCmd.Flags().StringVar(&tokenAccount, "account", "", "account ID (required for account-admin)")
+	tokenCreateCmd.Flags().StringVar(&tokenOrg, "org", "", "organization ID (admin only; org-admin callers always mint in their own org)")
 	tokenCreateCmd.Flags().DurationVar(&tokenExpiresIn, "expires-in", 0, "expiry duration (e.g. 720h, 90d unsupported — use h); zero = never expires")
 
 	tokenListCmd.Flags().BoolVar(&tokenIncludeRevoked, "include-revoked", false, "include revoked tokens in the listing")
@@ -105,6 +107,9 @@ func runTokenCreate(cmd *cobra.Command, args []string) error {
 	}
 	if tokenAccount != "" {
 		req.AccountId = tokenAccount
+	}
+	if tokenOrg != "" {
+		req.OrganizationId = tokenOrg
 	}
 	if tokenExpiresIn > 0 {
 		req.ExpiresAt = timestamppb.New(time.Now().Add(tokenExpiresIn))

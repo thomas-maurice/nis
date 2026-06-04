@@ -39,5 +39,8 @@ func APITokenToProto(t *entities.APIToken) *nisv1.APIToken {
 	if t.RevokedAt != nil {
 		out.RevokedAt = timestamppb.New(*t.RevokedAt)
 	}
+	if t.OrganizationID != nil {
+		out.OrganizationId = t.OrganizationID.String()
+	}
 	return out
 }

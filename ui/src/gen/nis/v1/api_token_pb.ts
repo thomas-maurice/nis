@@ -90,6 +90,13 @@ export class APIToken extends Message<APIToken> {
    */
   updatedAt?: Timestamp;
 
+  /**
+   * organization_id is the owning org; empty for platform-admin tokens (role=admin, null org).
+   *
+   * @generated from field: string organization_id = 14;
+   */
+  organizationId = "";
+
   constructor(data?: PartialMessage<APIToken>) {
     super();
     proto3.util.initPartial(data, this);
@@ -111,6 +118,7 @@ export class APIToken extends Message<APIToken> {
     { no: 11, name: "revoked_at", kind: "message", T: Timestamp },
     { no: 12, name: "created_at", kind: "message", T: Timestamp },
     { no: 13, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 14, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): APIToken {
@@ -164,6 +172,14 @@ export class CreateAPITokenRequest extends Message<CreateAPITokenRequest> {
    */
   expiresAt?: Timestamp;
 
+  /**
+   * organization_id is used by platform admins to place a token in a specific
+   * org. Org-admin callers always mint in their own org (server enforces this).
+   *
+   * @generated from field: string organization_id = 7;
+   */
+  organizationId = "";
+
   constructor(data?: PartialMessage<CreateAPITokenRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -178,6 +194,7 @@ export class CreateAPITokenRequest extends Message<CreateAPITokenRequest> {
     { no: 4, name: "operator_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "account_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "expires_at", kind: "message", T: Timestamp },
+    { no: 7, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateAPITokenRequest {

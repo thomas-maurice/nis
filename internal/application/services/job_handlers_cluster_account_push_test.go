@@ -82,8 +82,9 @@ func seedHandlerFixture(t *testing.T, factory persistence.RepositoryFactory, wit
 
 	op := &entities.Operator{
 		ID: uuid.New(), Name: "h-op",
-		PublicKey: "OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		CreatedAt: now, UpdatedAt: now,
+		PublicKey:      "OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      now, UpdatedAt: now,
 	}
 	require.NoError(t, factory.OperatorRepository().Create(ctx, op))
 

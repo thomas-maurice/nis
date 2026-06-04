@@ -187,6 +187,12 @@ func (r *UserRepo) ListPage(ctx context.Context, scope authz.Scope, filter repos
 	switch {
 	case scope.IsAdmin():
 		// No narrowing.
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		// Org-admin sees users whose account belongs to any operator in their org.
+		query = query.Where("account_id IN (SELECT id FROM accounts WHERE operator_id IN (SELECT id FROM operators WHERE organization_id = ?))", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return nil, "", nil
@@ -354,6 +360,11 @@ func (r *UserRepo) Search(ctx context.Context, scope authz.Scope, q string, limi
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return []*entities.User{}, nil
+		}
+		query = query.Where("account_id IN (SELECT id FROM accounts WHERE operator_id IN (SELECT id FROM operators WHERE organization_id = ?))", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return []*entities.User{}, nil

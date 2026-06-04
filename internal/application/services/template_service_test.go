@@ -65,6 +65,7 @@ func (s *TemplateServiceTestSuite) SetupSuite() {
 		s.factory.OperatorRepository(),
 		s.factory.AccountRepository(),
 		s.factory.UserRepository(),
+		s.factory.OrganizationRepository(),
 	)
 	s.templateService = NewTemplateService(s.factory, s.permService)
 }

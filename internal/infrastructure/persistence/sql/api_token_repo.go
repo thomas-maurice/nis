@@ -108,11 +108,22 @@ func (r *APITokenRepo) ListPage(ctx context.Context, scope authz.Scope, filter r
 	query := r.db.WithContext(ctx)
 
 	// Self-scope: anyone who isn't admin/system sees only their own tokens.
+	// Org-admin: AND the self-scope with an org-level filter so they only see
+	// tokens within their own organization.
 	if !scope.IsAdmin() {
 		if scope.CallerUserID == uuid.Nil {
 			return nil, "", nil
 		}
 		query = query.Where("created_by_user_id = ?", scope.CallerUserID.String())
+	}
+	if scope.IsOrgAdmin() {
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		// AND with org-level filter: only tokens whose creator is in this org.
+		// The organization_id column on api_tokens is set at create time from the
+		// caller's org so we filter directly rather than joining through api_users.
+		query = query.Where("organization_id = ?", scope.ScopeOrganizationID.String())
 	}
 
 	if !filter.IncludeRevoked {

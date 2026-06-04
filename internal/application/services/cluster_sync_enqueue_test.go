@@ -54,11 +54,12 @@ func seedEnqueueFixture(t *testing.T, factory persistence.RepositoryFactory, wit
 	now := time.Now().UTC()
 
 	op := &entities.Operator{
-		ID:        uuid.New(),
-		Name:      "fixture-op",
-		PublicKey: "OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             uuid.New(),
+		Name:           "fixture-op",
+		PublicKey:      "OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	require.NoError(t, factory.OperatorRepository().Create(ctx, op))
 

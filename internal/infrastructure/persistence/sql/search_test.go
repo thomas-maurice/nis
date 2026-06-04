@@ -80,11 +80,13 @@ func (s *SearchTestSuite) SetupTest() {
 	require.NoError(s.T(), s.operatorRepo.Create(ctx, &entities.Operator{
 		ID: s.op1, Name: "acme-prod", Description: "ACME production operator",
 		EncryptedSeed: "x", PublicKey: "OACME1XXXXXXXXXXXXXXXXX", JWT: "j",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 		CreatedAt: now, UpdatedAt: now,
 	}))
 	require.NoError(s.T(), s.operatorRepo.Create(ctx, &entities.Operator{
 		ID: s.op2, Name: "globex-dev", Description: "Globex development operator",
 		EncryptedSeed: "x", PublicKey: "OGLOBEXYYYYYYYYYYYYYYYY", JWT: "j",
+		OrganizationID: uuid.MustParse(entities.DefaultOrganizationID),
 		CreatedAt: now, UpdatedAt: now,
 	}))
 

@@ -151,6 +151,11 @@ func (r *ScopedSigningKeyRepo) ListPage(ctx context.Context, scope authz.Scope, 
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("account_id IN (SELECT id FROM accounts WHERE operator_id IN (SELECT id FROM operators WHERE organization_id = ?))", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return nil, "", nil
@@ -258,6 +263,11 @@ func (r *ScopedSigningKeyRepo) Search(ctx context.Context, scope authz.Scope, q 
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return []*entities.ScopedSigningKey{}, nil
+		}
+		query = query.Where("account_id IN (SELECT id FROM accounts WHERE operator_id IN (SELECT id FROM operators WHERE organization_id = ?))", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return []*entities.ScopedSigningKey{}, nil

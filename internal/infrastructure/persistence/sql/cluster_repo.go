@@ -152,6 +152,11 @@ func (r *ClusterRepo) ListPage(ctx context.Context, scope authz.Scope, filter re
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return nil, "", nil
+		}
+		query = query.Where("operator_id IN (SELECT id FROM operators WHERE organization_id = ?)", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return nil, "", nil
@@ -253,6 +258,11 @@ func (r *ClusterRepo) Search(ctx context.Context, scope authz.Scope, q string, l
 	switch {
 	case scope.IsAdmin():
 		// no narrowing
+	case scope.IsOrgAdmin():
+		if scope.ScopeOrganizationID == nil {
+			return []*entities.Cluster{}, nil
+		}
+		query = query.Where("operator_id IN (SELECT id FROM operators WHERE organization_id = ?)", scope.ScopeOrganizationID.String())
 	case scope.IsOperatorAdmin():
 		if scope.ScopeOperatorID == nil {
 			return []*entities.Cluster{}, nil

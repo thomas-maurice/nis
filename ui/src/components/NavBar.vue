@@ -75,6 +75,22 @@
             </ul>
           </li>
 
+          <!-- Organizations: platform-admin only -->
+          <li v-if="authStore.isAdmin" class="nav-item">
+            <router-link class="nav-link" to="/organizations">
+              <font-awesome-icon :icon="['fas', 'building']" class="me-1" />
+              Organizations
+            </router-link>
+          </li>
+
+          <!-- My Organization: org-admin link to own org -->
+          <li v-if="authStore.isOrgAdmin && authStore.organizationId" class="nav-item">
+            <router-link class="nav-link" :to="'/organizations/' + authStore.organizationId">
+              <font-awesome-icon :icon="['fas', 'building']" class="me-1" />
+              My Organization
+            </router-link>
+          </li>
+
           <!-- Operations: cluster + observability surfaces. Hidden entirely for
                account-admin, since none of these items are visible to that role. -->
           <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item dropdown">
@@ -153,7 +169,7 @@
               <li v-if="authStore.isAdmin">
                 <router-link class="dropdown-item" to="/api-users">
                   <font-awesome-icon :icon="['fas', 'user-shield']" class="me-2" />
-                  API Users
+                  Local Users
                 </router-link>
               </li>
               <li><hr class="dropdown-divider" /></li>

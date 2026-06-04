@@ -16,6 +16,10 @@ message APIUser {
   google.protobuf.Timestamp updated_at = 5;
   optional string operator_id = 6; // Required for operator-admin role
   optional string account_id = 7;  // Required for account-admin role
+  // organization_id is the owning org; empty for platform admins (role=admin).
+  string organization_id = 8;
+  // auth_source is "local" for password users, "oidc" for SSO-provisioned users.
+  string auth_source = 9;
 }
 
 // LoginRequest is the request to authenticate and obtain a token
@@ -48,6 +52,9 @@ message CreateAPIUserRequest {
   repeated string permissions = 3;
   optional string operator_id = 4; // Required for operator-admin role
   optional string account_id = 5;  // Required for account-admin role
+  // organization_id is optional for admin callers; org-admin callers always
+  // create in their own org (server ignores this field for them).
+  string organization_id = 6;
 }
 
 // CreateAPIUserResponse is the response from creating an API user
@@ -80,6 +87,8 @@ message ListAPIUsersRequest {
   string role = 1;
   string username_like = 2;
   PageRequest page = 3;
+  // auth_source filters by credential source ("local" | "oidc"); "" returns all.
+  string auth_source = 4;
 }
 
 // ListAPIUsersResponse is the response from listing API users.
