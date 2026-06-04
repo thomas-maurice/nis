@@ -47,7 +47,6 @@ var (
 	apiUserPassword string
 	apiUserRole     string
 	apiUserForce    bool
-	apiUserOrg      string
 )
 
 func init() {
@@ -60,7 +59,6 @@ func init() {
 
 	apiUserCreateCmd.Flags().StringVarP(&apiUserPassword, "password", "p", "", "password (will prompt if not provided)")
 	apiUserCreateCmd.Flags().StringVarP(&apiUserRole, "role", "r", "admin", "role (admin, org-admin, operator-admin, account-admin)")
-	apiUserCreateCmd.Flags().StringVar(&apiUserOrg, "org", "", "organization ID (admin only; org-admin callers always create in their own org)")
 
 	apiUserDeleteCmd.Flags().BoolVarP(&apiUserForce, "force", "f", false, "skip confirmation prompt")
 }
@@ -91,7 +89,7 @@ func runAPIUserCreate(cmd *cobra.Command, args []string) error {
 		Username:       username,
 		Password:       password,
 		Permissions:    []string{apiUserRole},
-		OrganizationId: apiUserOrg,
+		OrganizationId: GetOrgID(),
 	})
 
 	resp, err := GetClient().Auth.CreateAPIUser(context.Background(), req)

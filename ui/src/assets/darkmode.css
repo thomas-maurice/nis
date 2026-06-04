@@ -279,6 +279,29 @@
     color: #e4e6eb !important;
   }
 
+  /* Global search dropdown (scoped styles need !important to override) */
+  .search-dropdown {
+    background: #242831 !important;
+    border-color: #3a3f47 !important;
+  }
+
+  .search-section {
+    border-bottom-color: #3a3f47 !important;
+  }
+
+  .search-row {
+    color: #e4e6eb !important;
+  }
+
+  .search-row:hover {
+    background: #2e333d !important;
+  }
+
+  .operator-badge {
+    background: #3a3f47 !important;
+    color: #e4e6eb !important;
+  }
+
   /* Links */
   a {
     color: #4a8fe7;

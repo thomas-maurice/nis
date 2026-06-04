@@ -1,12 +1,14 @@
 <template>
   <div class="container-fluid py-4">
-    <div class="row mb-3">
-      <div class="col-md-4">
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-auto">
+        <label for="operatorNameFilter" class="form-label small mb-1">Name contains</label>
         <input
+          id="operatorNameFilter"
           v-model="nameLikeInput"
           type="search"
-          class="form-control"
-          placeholder="Filter by name..."
+          class="form-control form-control-sm"
+          placeholder="substring..."
           @input="onNameLikeInput"
         />
       </div>

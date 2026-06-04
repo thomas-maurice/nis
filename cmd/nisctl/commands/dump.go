@@ -71,7 +71,8 @@ func runDumpOperator(cmd *cobra.Command, args []string) error {
 
 	// Resolve operator by name.
 	opResp, err := nisClient.Operator.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-		Name: name,
+		Name:           name,
+		OrganizationId: GetOrgID(),
 	}))
 	if err != nil {
 		return fmt.Errorf("operator %q not found: %w", name, err)

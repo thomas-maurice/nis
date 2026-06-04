@@ -28,7 +28,6 @@ The command always prints what will be deleted and asks for confirmation
 var (
 	deleteManifestFiles []string
 	deleteManifestYes   bool
-	deleteManifestOrg   string
 )
 
 func init() {
@@ -37,7 +36,6 @@ func init() {
 	deleteManifestCmd.Flags().StringArrayVarP(&deleteManifestFiles, "filename", "f", nil, "file, directory, or - for stdin (repeatable)")
 	_ = deleteManifestCmd.MarkFlagRequired("filename")
 	deleteManifestCmd.Flags().BoolVarP(&deleteManifestYes, "yes", "y", false, "skip confirmation prompt")
-	deleteManifestCmd.Flags().StringVar(&deleteManifestOrg, "org", "", "target organization UUID (required for platform admins; ignored for org-scoped tokens)")
 }
 
 func runDeleteManifest(cmd *cobra.Command, args []string) error {
@@ -91,7 +89,7 @@ func runDeleteManifest(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := cmd.Context()
-	adapter := manifest.NewClientAdapter(nisClient, deleteManifestOrg)
+	adapter := manifest.NewClientAdapter(nisClient, GetOrgID())
 
 	result, deleteErr := manifest.DeleteAll(ctx, adapter, objs)
 

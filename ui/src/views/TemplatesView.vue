@@ -15,16 +15,16 @@
 
     <div class="card">
       <div class="card-body">
-        <div class="row align-items-end mb-3 g-2">
-          <div class="col-md-5">
-            <label class="form-label mb-1">Operator</label>
+        <div class="row g-2 mb-3 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small mb-1">Operator</label>
             <select v-model="selectedOperator" class="form-select form-select-sm" @change="loadFirstPage">
               <option value="">Select operator...</option>
               <option v-for="op in operators" :key="op.id" :value="op.id">{{ op.name }}</option>
             </select>
           </div>
-          <div class="col-md-4">
-            <label class="form-label mb-1">Name contains</label>
+          <div class="col-auto">
+            <label class="form-label small mb-1">Name contains</label>
             <input v-model="nameLikeInput" type="text" class="form-control form-control-sm" placeholder="substring..." @input="onNameLikeInput" />
           </div>
         </div>

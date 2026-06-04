@@ -35,11 +35,6 @@ type OperatorRepository interface {
 	// Operator names are unique per (organization_id, name), not globally.
 	GetByName(ctx context.Context, orgID uuid.UUID, name string) (*entities.Operator, error)
 
-	// FindByName returns every operator carrying name, across all orgs.
-	// Used by admin name-lookups that aren't scoped to a single org: 0 rows →
-	// not found, 1 → unambiguous, >1 → caller must disambiguate by org.
-	FindByName(ctx context.Context, name string) ([]*entities.Operator, error)
-
 	// GetByPublicKey retrieves an operator by its NATS public key
 	GetByPublicKey(ctx context.Context, publicKey string) (*entities.Operator, error)
 

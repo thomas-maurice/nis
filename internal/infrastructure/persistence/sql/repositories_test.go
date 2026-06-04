@@ -127,8 +127,8 @@ func (s *RepositoryTestSuite) TestOperatorCRUD() {
 }
 
 // TestOperatorNamePerOrg proves operator names are unique per (organization_id,
-// name), not globally: the same name in two different orgs coexists, GetByName
-// disambiguates by org, and FindByName returns both.
+// name), not globally: the same name in two different orgs coexists and
+// GetByName disambiguates by org.
 func (s *RepositoryTestSuite) TestOperatorNamePerOrg() {
 	ctx := context.Background()
 
@@ -185,11 +185,6 @@ func (s *RepositoryTestSuite) TestOperatorNamePerOrg() {
 	gotB, err := s.operatorRepo.GetByName(ctx, orgB, "shared-name")
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), opB.ID, gotB.ID)
-
-	// FindByName returns both regardless of org.
-	all, err := s.operatorRepo.FindByName(ctx, "shared-name")
-	require.NoError(s.T(), err)
-	assert.Len(s.T(), all, 2)
 }
 
 func (s *RepositoryTestSuite) TestAccountCRUD() {

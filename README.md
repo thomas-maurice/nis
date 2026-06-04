@@ -669,7 +669,9 @@ nisctl org get <id>            # or: nisctl org get --slug acme
 nisctl org update <id> --name "Acme Inc"   # slug is immutable
 nisctl org delete <id>
 
-# Assign a new operator to an org (omit --org for the default org).
+# Assign a new operator to an org. Platform admins MUST pass --org (use the
+# default org UUID 00000000-0000-0000-0000-000000000001 for the default org);
+# org-scoped tokens omit it and land in their own org.
 nisctl operator create acme-operator --org <org-id>
 ```
 
@@ -1088,20 +1090,30 @@ nisctl dump operator OPERATOR_NAME --kinds=Account,User
 
 ### Organization targeting (`--org`)
 
-Manifests never carry an `organization_id` — the target org is resolved
-server-side from your credential, so the same file applies cleanly into any org:
+`--org <org-uuid>` is a **single global flag** on `nisctl` (a persistent root
+flag), not a per-command one. It governs every command that creates an operator
+or references one by name — `operator create`, `operator get/delete/backup/dump/
+generate-include`, `account create --operator …`, `api-user create`,
+`token create`, and `apply`/`diff`/`delete -f`. Manifests themselves never carry
+an `organization_id`; the target org is resolved server-side from your
+credential plus `--org`, so the same file applies cleanly into any org.
+
+Operator names are unique **per org**, not globally — so a name alone is
+ambiguous and the server never guesses:
 
 - **Org-scoped credentials** (an org-admin login, or an API token minted with a
-  non-admin role) are pinned to their own organization. Any operator the
-  manifest creates lands in that org automatically; you do **not** pass `--org`,
-  and it is ignored if you do — a token cannot reach into another org.
-- **Platform admins** (`role=admin`) have no org binding, so they **must**
-  specify the target org explicitly when a manifest creates operators:
+  non-admin role) are pinned to their own organization. Operators they create or
+  look up by name resolve within that org automatically; you do **not** pass
+  `--org`, and it is ignored if you do — a token cannot reach into another org.
+- **Platform admins** (`role=admin`) have no org binding, so they **must** pass
+  `--org` for any operator create OR by-name lookup:
 
   ```bash
-  nisctl apply  -f manifest.yaml --org <org-uuid>
-  nisctl diff   -f manifest.yaml --org <org-uuid>
-  nisctl delete -f manifest.yaml --org <org-uuid>
+  nisctl operator create acme-op   --org <org-uuid>
+  nisctl operator get    acme-op   --org <org-uuid>
+  nisctl apply  -f manifest.yaml   --org <org-uuid>
+  nisctl diff   -f manifest.yaml   --org <org-uuid>
+  nisctl delete -f manifest.yaml   --org <org-uuid>
   ```
 
   Omitting `--org` as a platform admin fails with

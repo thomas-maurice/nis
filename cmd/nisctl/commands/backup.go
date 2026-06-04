@@ -102,7 +102,8 @@ func runBackupOperator(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Try by name
 		nameReq := connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-			Name: operatorIDOrName,
+			Name:           operatorIDOrName,
+			OrganizationId: GetOrgID(),
 		})
 
 		nameResp, nameErr := GetClient().Operator.GetOperatorByName(context.Background(), nameReq)

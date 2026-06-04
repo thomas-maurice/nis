@@ -1,21 +1,12 @@
 <template>
   <div class="container-fluid py-4">
-    <div class="row mb-3">
-      <div class="col-md-4">
-        <input
-          v-model="nameLikeInput"
-          type="search"
-          class="form-control"
-          placeholder="Filter by name..."
-          @input="onNameLikeInput"
-        />
-      </div>
-      <div class="col-md-4">
-        <label for="operatorFilter" class="form-label">Filter by Operator</label>
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-auto">
+        <label for="operatorFilter" class="form-label small mb-1">Operator</label>
         <select
           id="operatorFilter"
           v-model="selectedOperatorFilter"
-          class="form-select"
+          class="form-select form-select-sm"
           @change="loadFirstPage"
         >
           <option value="">All Operators</option>
@@ -23,6 +14,17 @@
             {{ op.name }}
           </option>
         </select>
+      </div>
+      <div class="col-auto">
+        <label for="accountNameFilter" class="form-label small mb-1">Name contains</label>
+        <input
+          id="accountNameFilter"
+          v-model="nameLikeInput"
+          type="search"
+          class="form-control form-control-sm"
+          placeholder="substring..."
+          @input="onNameLikeInput"
+        />
       </div>
     </div>
 

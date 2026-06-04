@@ -42,7 +42,8 @@ func TestE2E_ImportNSC_MinimalArchive(t *testing.T) {
 	}
 
 	byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-		Name: importedName,
+		Name:           importedName,
+		OrganizationId: defaultOrgID,
 	}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName after NSC import: %v", err)

@@ -68,19 +68,6 @@ func (r *OperatorRepo) GetByName(ctx context.Context, orgID uuid.UUID, name stri
 	return model.ToEntity(), nil
 }
 
-// FindByName returns every operator with the given name across all orgs.
-func (r *OperatorRepo) FindByName(ctx context.Context, name string) ([]*entities.Operator, error) {
-	var models []OperatorModel
-	if err := r.db.WithContext(ctx).Where("name = ?", name).Find(&models).Error; err != nil {
-		return nil, fmt.Errorf("failed to find operators by name: %w", err)
-	}
-	out := make([]*entities.Operator, len(models))
-	for i, m := range models {
-		out[i] = m.ToEntity()
-	}
-	return out, nil
-}
-
 // GetByPublicKey retrieves an operator by its NATS public key
 func (r *OperatorRepo) GetByPublicKey(ctx context.Context, publicKey string) (*entities.Operator, error) {
 	var model OperatorModel

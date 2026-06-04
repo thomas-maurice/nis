@@ -23,32 +23,18 @@
       <div class="spinner-border text-primary" role="status"></div>
     </div>
 
-    <div v-else-if="yaml" class="card">
-      <div class="card-body">
-        <div class="d-flex justify-content-end mb-2">
-          <button
-            class="btn btn-sm"
-            :class="copied ? 'btn-success' : 'btn-outline-secondary'"
-            @click="copyToClipboard"
-          >
-            <font-awesome-icon :icon="['fas', 'copy']" class="me-1" />
-            {{ copied ? 'Copied!' : 'Copy YAML' }}
-          </button>
-        </div>
-        <pre class="config-yaml mb-0"><code>{{ yaml }}</code></pre>
-      </div>
-    </div>
+    <CodeBlock v-else-if="yaml" :content="yaml" label="config.yaml" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { configClient } from '@/utils/clients'
+import CodeBlock from '@/components/CodeBlock.vue'
 
 const yaml = ref('')
 const loading = ref(false)
 const error = ref('')
-const copied = ref(false)
 
 const loadConfig = async () => {
   loading.value = true
@@ -63,35 +49,5 @@ const loadConfig = async () => {
   }
 }
 
-const copyToClipboard = async () => {
-  try {
-    await navigator.clipboard.writeText(yaml.value)
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  } catch (err) {
-    console.error('Failed to copy:', err)
-  }
-}
-
 onMounted(loadConfig)
 </script>
-
-<style scoped>
-.config-yaml {
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 0.25rem;
-  padding: 1rem;
-  font-size: 0.875rem;
-  max-height: 70vh;
-  overflow: auto;
-}
-.config-yaml code {
-  background-color: transparent;
-  padding: 0;
-  color: #212529;
-  white-space: pre;
-}
-</style>

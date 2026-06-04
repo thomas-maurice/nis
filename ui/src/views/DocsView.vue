@@ -137,12 +137,15 @@ nisctl apply --help    # flag reference for any command" />
         <div class="alert alert-info small mt-3 mb-3" role="alert">
           <strong>Target organization:</strong>
           manifests carry no <code>organization_id</code> — it is resolved from
-          your credential. An org-scoped login or API token applies into its own
-          org automatically. A <strong>platform admin</strong> has no org binding
-          and must pass <code>--org &lt;org-uuid&gt;</code> on
-          <code>apply</code>/<code>diff</code>/<code>delete</code> when a manifest
-          creates operators (use <code>00000000-0000-0000-0000-000000000001</code>
-          for the default org). <code>--org</code> takes a UUID, not a slug.
+          your credential plus the global <code>--org</code> flag. Operator names
+          are unique per org, so a name alone is ambiguous. An org-scoped login or
+          API token applies into its own org automatically. A
+          <strong>platform admin</strong> has no org binding and must pass
+          <code>--org &lt;org-uuid&gt;</code> for any operator create or by-name
+          lookup — including <code>apply</code>/<code>diff</code>/<code>delete</code>
+          when a manifest creates operators (use
+          <code>00000000-0000-0000-0000-000000000001</code> for the default org).
+          <code>--org</code> takes a UUID, not a slug.
         </div>
 
         <div class="alert alert-warning small mt-3 mb-3" role="alert">

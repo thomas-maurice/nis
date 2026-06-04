@@ -31,7 +31,7 @@ func TestE2E_Lifecycle_CreateAndReadFullTree(t *testing.T) {
 	if _, err := h.operatorCli.GetOperator(ctx, connect.NewRequest(&nisv1.GetOperatorRequest{Id: operatorID})); err != nil {
 		t.Fatalf("GetOperator: %v", err)
 	}
-	byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "lifecycle-operator"}))
+	byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "lifecycle-operator", OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName: %v", err)
 	}

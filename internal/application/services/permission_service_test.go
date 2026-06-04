@@ -83,16 +83,6 @@ func (m *mockOperatorRepo) GetByName(ctx context.Context, orgID uuid.UUID, name 
 	return nil, repositories.ErrNotFound
 }
 
-func (m *mockOperatorRepo) FindByName(ctx context.Context, name string) ([]*entities.Operator, error) {
-	var out []*entities.Operator
-	for _, op := range m.operators {
-		if op.Name == name {
-			out = append(out, op)
-		}
-	}
-	return out, nil
-}
-
 func (m *mockOperatorRepo) List(ctx context.Context, opts repositories.ListOptions) ([]*entities.Operator, error) {
 	result := make([]*entities.Operator, 0, len(m.operators))
 	for _, op := range m.operators {

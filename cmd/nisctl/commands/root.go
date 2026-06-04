@@ -21,6 +21,7 @@ var (
 	outputFmt string
 	noColor   bool
 	quietMode bool
+	orgID     string
 
 	// Global client instance
 	nisClient *client.Client
@@ -114,6 +115,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputFmt, "output", "o", "table", "output format (table, json, yaml, quiet)")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable colored output")
 	rootCmd.PersistentFlags().BoolVarP(&quietMode, "quiet", "q", false, "quiet mode (minimal output)")
+	rootCmd.PersistentFlags().StringVar(&orgID, "org", "", "target organization UUID (required for platform admins when referencing operators by name or creating operators; ignored for org-scoped tokens)")
+}
+
+// GetOrgID returns the target organization UUID from the persistent --org flag.
+// Empty when unset; org-scoped callers may leave it empty (the server pins them
+// to their own org), while platform admins must supply it for per-org operations.
+func GetOrgID() string {
+	return orgID
 }
 
 // GetClient returns the global client instance

@@ -239,30 +239,6 @@ func (s *OperatorService) GetOperatorByName(ctx context.Context, orgID uuid.UUID
 	return s.factory.OperatorRepository().GetByName(ctx, orgID, name)
 }
 
-// ErrOperatorNameAmbiguous is returned when an org-less (admin) name lookup
-// matches operators in more than one organization. The caller must repeat the
-// request with an explicit organization_id.
-var ErrOperatorNameAmbiguous = errors.New("operator name is ambiguous across organizations; specify organization_id")
-
-// GetOperatorByNameAnyOrg resolves a name without an org constraint. Used for
-// platform-admin lookups where the org is not (yet) known: returns ErrNotFound
-// if no operator carries the name, the single match if exactly one does, and
-// ErrOperatorNameAmbiguous if multiple orgs share the name.
-func (s *OperatorService) GetOperatorByNameAnyOrg(ctx context.Context, name string) (*entities.Operator, error) {
-	matches, err := s.factory.OperatorRepository().FindByName(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	switch len(matches) {
-	case 0:
-		return nil, repositories.ErrNotFound
-	case 1:
-		return matches[0], nil
-	default:
-		return nil, ErrOperatorNameAmbiguous
-	}
-}
-
 // GetOperatorByPublicKey retrieves an operator by public key
 func (s *OperatorService) GetOperatorByPublicKey(ctx context.Context, publicKey string) (*entities.Operator, error) {
 	return s.factory.OperatorRepository().GetByPublicKey(ctx, publicKey)

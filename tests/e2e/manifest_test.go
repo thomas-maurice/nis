@@ -116,7 +116,7 @@ func TestManifest_Apply_FromEmpty(t *testing.T) {
 	}
 
 	// Verify operator exists.
-	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "mfe-op"}))
+	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "mfe-op", OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestManifest_Apply_DefaultScopedKeyRoundTrip(t *testing.T) {
 	applyBatch(t, pc, batch)
 
 	// Verify the default key has the deny we set.
-	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: opName}))
+	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: opName, OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestManifest_Apply_UpdatesAccountDescription(t *testing.T) {
 	}
 
 	// Verify description updated on server.
-	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "mua-op"}))
+	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "mua-op", OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestManifest_Apply_UpdatesJetStreamLimits(t *testing.T) {
 	}
 
 	// Verify limits on server.
-	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "muj-op"}))
+	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "muj-op", OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestManifest_Delete_FromFile(t *testing.T) {
 	applyBatch(t, pc, batch)
 
 	// Fetch IDs before deleting so we can check 404 afterwards.
-	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: opName}))
+	opResp, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: opName, OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName pre-delete: %v", err)
 	}

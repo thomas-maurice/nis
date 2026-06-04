@@ -8,9 +8,9 @@
 //     field is InvalidArgument, not a silent fall-through to the default org.
 //   - The SAME operator name may exist in two different orgs; a duplicate name
 //     WITHIN one org is rejected.
-//   - GetOperatorByName for an admin is lenient (resolves a unique name across
-//     orgs) but returns FailedPrecondition when the name is ambiguous; passing
-//     organization_id disambiguates.
+//   - GetOperatorByName for a platform admin REQUIRES organization_id — names
+//     are per-org so a name alone is meaningless; an empty org is
+//     InvalidArgument, never a lenient unique-name guess.
 //   - A manifest apply by a platform admin with no target org fails when it must
 //     create an operator; an org-scoped token is pinned to its own org and the
 //     adapter's org field is ignored entirely.
@@ -92,14 +92,15 @@ func TestE2E_Operator_SameNameAcrossOrgs(t *testing.T) {
 	}
 }
 
-// TestE2E_Operator_GetByNameAmbiguousForAdmin proves the lenient admin lookup:
-// a unique name resolves with no org, a name colliding across orgs is
-// FailedPrecondition, and passing organization_id disambiguates.
-func TestE2E_Operator_GetByNameAmbiguousForAdmin(t *testing.T) {
+// TestE2E_Operator_GetByNameRequiresOrgForAdmin proves a platform admin MUST
+// supply organization_id on a by-name lookup — names are per-org, so a name
+// alone is ambiguous and is rejected with InvalidArgument rather than guessed.
+// Passing organization_id resolves to that org's operator.
+func TestE2E_Operator_GetByNameRequiresOrgForAdmin(t *testing.T) {
 	h, orgAID, orgBID, _, _ := setupOrgIsolationHarness(t)
 	ctx := context.Background()
 
-	const dupName = "ambiguous-op"
+	const dupName = "per-org-op"
 
 	opA, err := h.operatorCli.CreateOperator(ctx, connect.NewRequest(&nisv1.CreateOperatorRequest{
 		Name:           dupName,
@@ -115,15 +116,18 @@ func TestE2E_Operator_GetByNameAmbiguousForAdmin(t *testing.T) {
 		t.Fatalf("CreateOperator(org B): %v", err)
 	}
 
-	// No org + ambiguous name → FailedPrecondition.
+	// No org as platform admin → InvalidArgument, regardless of uniqueness.
 	_, err = h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
 		Name: dupName,
 	}))
 	if err == nil {
-		t.Fatal("GetOperatorByName with no org on an ambiguous name should fail")
+		t.Fatal("admin GetOperatorByName with no org should fail")
 	}
-	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
-		t.Fatalf("code = %v, want FailedPrecondition; err = %v", got, err)
+	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument; err = %v", got, err)
+	}
+	if !strings.Contains(err.Error(), "organization_id is required") {
+		t.Fatalf("err = %q, want it to mention 'organization_id is required'", err.Error())
 	}
 
 	// Org A supplied → resolves to org A's operator.
@@ -153,13 +157,16 @@ func TestE2E_Manifest_AdminApplyRequiresOrg(t *testing.T) {
 	pc := manifest.NewClientAdapter(c, "")
 
 	batch := baseObjects("noorg-op", "noorg-acc", "writer", "noorg-user")
+
+	// The org guard trips as soon as the planner resolves current state via
+	// GetOperatorByName; if Plan somehow succeeds, Apply must still fail. Either
+	// way the error must name the missing org.
 	plan, err := manifest.Plan(ctx, pc, batch)
-	if err != nil {
-		t.Fatalf("manifest.Plan: %v", err)
-	}
-	_, err = manifest.Apply(ctx, pc, plan)
 	if err == nil {
-		t.Fatal("admin apply that creates an operator with no target org should fail")
+		_, err = manifest.Apply(ctx, pc, plan)
+	}
+	if err == nil {
+		t.Fatal("admin plan/apply that creates an operator with no target org should fail")
 	}
 	if !strings.Contains(err.Error(), "organization_id is required") {
 		t.Fatalf("err = %q, want it to mention 'organization_id is required'", err.Error())

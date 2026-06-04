@@ -220,7 +220,7 @@ func TestE2E_ImportBackup_FullRoundTrip(t *testing.T) {
 	if _, err := h.operatorCli.DeleteOperator(ctx, connect.NewRequest(&nisv1.DeleteOperatorRequest{Id: operatorID})); err != nil {
 		t.Fatalf("DeleteOperator: %v", err)
 	}
-	if _, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "roundtrip-operator"})); err == nil {
+	if _, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "roundtrip-operator", OrganizationId: defaultOrgID})); err == nil {
 		t.Fatal("operator should be gone after DeleteOperator")
 	}
 
@@ -234,7 +234,7 @@ func TestE2E_ImportBackup_FullRoundTrip(t *testing.T) {
 	}
 
 	// (5) Tree is back.
-	byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "roundtrip-operator"}))
+	byName, err := h.operatorCli.GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{Name: "roundtrip-operator", OrganizationId: defaultOrgID}))
 	if err != nil {
 		t.Fatalf("GetOperatorByName after restore: %v", err)
 	}

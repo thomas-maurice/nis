@@ -81,7 +81,6 @@ var (
 	operatorSystemAccountPubKey string
 	operatorDescription         string
 	operatorForce               bool
-	operatorOrganizationID      string
 
 	// list flags
 	operatorListNameLike string
@@ -109,7 +108,6 @@ func init() {
 
 	// Create flags
 	operatorCreateCmd.Flags().StringVar(&operatorDescription, "description", "", "operator description")
-	operatorCreateCmd.Flags().StringVar(&operatorOrganizationID, "org", "", "organization ID to assign the operator to (empty = default org)")
 
 	// Set system account flags
 	operatorSetSystemAccountCmd.Flags().StringVar(&operatorSystemAccountPubKey, "system-account-pubkey", "", "system account public key (required)")
@@ -137,7 +135,7 @@ func runOperatorCreate(cmd *cobra.Command, args []string) error {
 	req := connect.NewRequest(&nisv1.CreateOperatorRequest{
 		Name:           name,
 		Description:    operatorDescription,
-		OrganizationId: operatorOrganizationID,
+		OrganizationId: GetOrgID(),
 	})
 
 	resp, err := GetClient().Operator.CreateOperator(context.Background(), req)
@@ -252,7 +250,8 @@ func runOperatorGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Try by name if ID lookup failed
 		nameReq := connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-			Name: idOrName,
+			Name:           idOrName,
+			OrganizationId: GetOrgID(),
 		})
 
 		nameResp, nameErr := GetClient().Operator.GetOperatorByName(context.Background(), nameReq)
@@ -291,7 +290,8 @@ func runOperatorDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Try by name if ID lookup failed
 		nameReq := connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-			Name: idOrName,
+			Name:           idOrName,
+			OrganizationId: GetOrgID(),
 		})
 
 		nameResp, nameErr := GetClient().Operator.GetOperatorByName(context.Background(), nameReq)
@@ -346,7 +346,8 @@ func runOperatorSetSystemAccount(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Try by name if ID lookup failed
 		nameReq := connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-			Name: idOrName,
+			Name:           idOrName,
+			OrganizationId: GetOrgID(),
 		})
 
 		nameResp, nameErr := GetClient().Operator.GetOperatorByName(context.Background(), nameReq)
@@ -393,7 +394,8 @@ func runOperatorGenerateInclude(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Try by name if ID lookup failed
 		nameReq := connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-			Name: idOrName,
+			Name:           idOrName,
+			OrganizationId: GetOrgID(),
 		})
 
 		nameResp, nameErr := GetClient().Operator.GetOperatorByName(context.Background(), nameReq)

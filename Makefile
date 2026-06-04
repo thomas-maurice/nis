@@ -180,6 +180,8 @@ RUN_NATS_RESOLVER   := $(RUN_DIR)/nats-resolver
 RUN_NATS_JETSTREAM  := $(RUN_DIR)/nats-jetstream
 RUN_DEMO_CREDS      := $(RUN_DIR)/app-user.creds
 RUN_ENVRC           := .envrc
+# Seeded default organization; platform-admin operator-by-name calls must pass it.
+RUN_DEFAULT_ORG     := 00000000-0000-0000-0000-000000000001
 
 # Spin up the full dev stack: Postgres + NATS (open mode) + NIS on host + admin user.
 # NATS runs WITHOUT JWT auth here — run `make run-demo` to bootstrap JWT + a demo identity tree.
@@ -266,7 +268,7 @@ run: build-all
 	@OP_NAME=$$(./bin/nisctl operator list -o json 2>/dev/null | grep '"name"' | head -1 | sed -E 's/.*"name": *"([^"]+)".*/\1/'); \
 	if [ -n "$$OP_NAME" ]; then \
 		echo "    found operator '$$OP_NAME' — restarting NATS in JWT mode"; \
-		./bin/nisctl operator generate-include "$$OP_NAME" > $(RUN_NATS_CONF); \
+		./bin/nisctl operator generate-include "$$OP_NAME" --org $(RUN_DEFAULT_ORG) > $(RUN_NATS_CONF); \
 		docker rm -f $(RUN_NATS_CONTAINER) >/dev/null 2>&1 || true; \
 		mkdir -p $(RUN_NATS_RESOLVER) $(RUN_NATS_JETSTREAM); \
 		docker run -d --name $(RUN_NATS_CONTAINER) \
@@ -303,8 +305,8 @@ run-demo: run
 	@echo "==> nisctl login..."
 	@./bin/nisctl login http://localhost:8080 -u admin -p admin123 >/dev/null
 	@echo "==> Creating demo-operator (idempotent)..."
-	@./bin/nisctl operator create demo-operator >/dev/null 2>&1 || echo "    (operator already exists)"
-	@./bin/nisctl operator generate-include demo-operator > $(RUN_NATS_CONF)
+	@./bin/nisctl operator create demo-operator --org $(RUN_DEFAULT_ORG) >/dev/null 2>&1 || echo "    (operator already exists)"
+	@./bin/nisctl operator generate-include demo-operator --org $(RUN_DEFAULT_ORG) > $(RUN_NATS_CONF)
 	@echo "==> Restarting NATS with JWT config..."
 	@docker rm -f $(RUN_NATS_CONTAINER) >/dev/null 2>&1 || true
 	@mkdir -p $(RUN_NATS_RESOLVER) $(RUN_NATS_JETSTREAM)
@@ -316,11 +318,11 @@ run-demo: run
 		nats:2.10-alpine -c /nats-server.conf -m 8222 >/dev/null
 	@until curl -sf http://localhost:8222/healthz >/dev/null 2>&1; do sleep 1; done
 	@echo "==> Registering demo-cluster, app-account, app-user (idempotent)..."
-	@./bin/nisctl cluster create demo-cluster --operator demo-operator --urls nats://localhost:4222 >/dev/null 2>&1 || echo "    (cluster already exists)"
-	@./bin/nisctl account create app-account --operator demo-operator >/dev/null 2>&1 || echo "    (account already exists)"
-	@./bin/nisctl user create app-user --operator demo-operator --account app-account --scoped-key default >/dev/null 2>&1 || echo "    (user already exists)"
+	@./bin/nisctl cluster create demo-cluster --operator demo-operator --org $(RUN_DEFAULT_ORG) --urls nats://localhost:4222 >/dev/null 2>&1 || echo "    (cluster already exists)"
+	@./bin/nisctl account create app-account --operator demo-operator --org $(RUN_DEFAULT_ORG) >/dev/null 2>&1 || echo "    (account already exists)"
+	@./bin/nisctl user create app-user --operator demo-operator --account app-account --scoped-key default --org $(RUN_DEFAULT_ORG) >/dev/null 2>&1 || echo "    (user already exists)"
 	@./bin/nisctl cluster sync demo-cluster
-	@./bin/nisctl user creds app-user --operator demo-operator --account app-account > $(RUN_DEMO_CREDS)
+	@./bin/nisctl user creds app-user --operator demo-operator --account app-account --org $(RUN_DEFAULT_ORG) > $(RUN_DEMO_CREDS)
 	@echo ""
 	@echo "✓ Demo identity tree provisioned"
 	@echo "  Operator:  demo-operator"

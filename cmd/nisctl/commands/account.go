@@ -457,7 +457,8 @@ func resolveOperatorID(idOrName string) (string, error) {
 
 	// Try by name
 	nameReq := connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-		Name: idOrName,
+		Name:           idOrName,
+		OrganizationId: GetOrgID(),
 	})
 
 	nameResp, err := GetClient().Operator.GetOperatorByName(context.Background(), nameReq)

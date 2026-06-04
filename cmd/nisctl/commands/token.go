@@ -56,7 +56,6 @@ var (
 	tokenRole           string
 	tokenOperator       string
 	tokenAccount        string
-	tokenOrg            string
 	tokenExpiresIn      time.Duration
 	tokenIncludeRevoked bool
 	tokenForce          bool
@@ -80,7 +79,6 @@ func init() {
 	_ = tokenCreateCmd.MarkFlagRequired("role")
 	tokenCreateCmd.Flags().StringVar(&tokenOperator, "operator", "", "operator ID or name (required for operator-admin)")
 	tokenCreateCmd.Flags().StringVar(&tokenAccount, "account", "", "account ID (required for account-admin)")
-	tokenCreateCmd.Flags().StringVar(&tokenOrg, "org", "", "organization ID (admin only; org-admin callers always mint in their own org)")
 	tokenCreateCmd.Flags().DurationVar(&tokenExpiresIn, "expires-in", 0, "expiry duration (e.g. 720h, 90d unsupported — use h); zero = never expires")
 
 	tokenListCmd.Flags().BoolVar(&tokenIncludeRevoked, "include-revoked", false, "include revoked tokens in the listing")
@@ -108,8 +106,8 @@ func runTokenCreate(cmd *cobra.Command, args []string) error {
 	if tokenAccount != "" {
 		req.AccountId = tokenAccount
 	}
-	if tokenOrg != "" {
-		req.OrganizationId = tokenOrg
+	if org := GetOrgID(); org != "" {
+		req.OrganizationId = org
 	}
 	if tokenExpiresIn > 0 {
 		req.ExpiresAt = timestamppb.New(time.Now().Add(tokenExpiresIn))
