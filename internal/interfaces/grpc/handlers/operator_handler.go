@@ -2,15 +2,17 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	pb "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
 	"github.com/thomas-maurice/nis/internal/application/authz"
 	"github.com/thomas-maurice/nis/internal/application/services"
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/interfaces/grpc/mappers"
 )
@@ -37,17 +39,23 @@ func (h *OperatorHandler) CreateOperator(
 	ctx context.Context,
 	req *connect.Request[pb.CreateOperatorRequest],
 ) (*connect.Response[pb.CreateOperatorResponse], error) {
-	if err := requireAdmin(ctx); err != nil {
+	requestingUser, err := authedUser(ctx)
+	if err != nil {
 		return nil, err
 	}
-	orgID, err := parseOptionalUUID(req.Msg.GetOrganizationId())
+	if err := h.permService.CanCreateOperator(requestingUser); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	// Operator names are unique per-org. Org-scoped callers land in their own
+	// org; platform admins must name the target org explicitly.
+	orgID, err := resolveEffectiveOrg(requestingUser, req.Msg.GetOrganizationId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("organization_id: %w", err))
+		return nil, err
 	}
 	operator, err := h.service.CreateOperator(ctx, services.CreateOperatorRequest{
 		Name:           req.Msg.Name,
 		Description:    req.Msg.Description,
-		OrganizationID: orgID,
+		OrganizationID: &orgID,
 	})
 	if err != nil {
 		return nil, err
@@ -100,8 +108,32 @@ func (h *OperatorHandler) GetOperatorByName(
 		return nil, err
 	}
 
-	operator, err := h.service.GetOperatorByName(ctx, req.Msg.Name)
+	// Names are unique per-org, not globally. Org-scoped callers (org-admin and
+	// below carry an OrganizationID) are pinned to their own org; the request's
+	// organization_id is ignored. Platform admins (no org binding) look up by
+	// the org they name, or — when they name none — fall back to a global
+	// lookup that errors only on genuine cross-org name collisions. This keeps
+	// the common `nisctl operator get NAME` / `--operator NAME` admin flows
+	// working without forcing --org everywhere, while CreateOperator still
+	// requires an explicit org for admins.
+	var operator *entities.Operator
+	switch {
+	case requestingUser.OrganizationID != nil:
+		operator, err = h.service.GetOperatorByName(ctx, *requestingUser.OrganizationID, req.Msg.Name)
+	case req.Msg.GetOrganizationId() != "":
+		var orgID uuid.UUID
+		orgID, err = mappers.ParseUUID(req.Msg.GetOrganizationId())
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("organization_id: "+err.Error()))
+		}
+		operator, err = h.service.GetOperatorByName(ctx, orgID, req.Msg.Name)
+	default:
+		operator, err = h.service.GetOperatorByNameAnyOrg(ctx, req.Msg.Name)
+	}
 	if err != nil {
+		if errors.Is(err, services.ErrOperatorNameAmbiguous) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 		return nil, repoErrToConnect(err)
 	}
 

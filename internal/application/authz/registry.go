@@ -233,11 +233,13 @@ var Procedures = map[string]Procedure{
 	nisv1connect.JobServiceRetryJobProcedure:  {Resource: ResourceJob, Action: ActionUpdate, Kind: KindRoleOnly},
 	nisv1connect.JobServiceCancelJobProcedure: {Resource: ResourceJob, Action: ActionDelete, Kind: KindRoleOnly},
 
-	// OperatorService. CreateOperator is KindRoleOnly (admin-only via Casbin
-	// pre-A17, requireAdmin defense-in-depth added by A19). GenerateInclude,
-	// SetSystemAccount, SetJWTPolicy, RunJWTExpirySweep all routed to
-	// (operator, ...) per pre-A17 verb-prefix rules; preserved.
-	nisv1connect.OperatorServiceCreateOperatorProcedure:    {Resource: ResourceOperator, Action: ActionCreate, Kind: KindRoleOnly},
+	// OperatorService. CreateOperator is KindPerRow: admin and org-admin may
+	// both create operators, and org-admins are pinned to their own org (the
+	// handler resolves the target org via resolveEffectiveOrg and the service
+	// enforces per-(org,name) uniqueness). GenerateInclude, SetSystemAccount,
+	// SetJWTPolicy, RunJWTExpirySweep all routed to (operator, ...) per pre-A17
+	// verb-prefix rules; preserved.
+	nisv1connect.OperatorServiceCreateOperatorProcedure:    {Resource: ResourceOperator, Action: ActionCreate, Kind: KindPerRow},
 	nisv1connect.OperatorServiceGetOperatorProcedure:       {Resource: ResourceOperator, Action: ActionRead, Kind: KindPerRow},
 	nisv1connect.OperatorServiceGetOperatorByNameProcedure: {Resource: ResourceOperator, Action: ActionRead, Kind: KindPerRow},
 	nisv1connect.OperatorServiceListOperatorsProcedure:     {Resource: ResourceOperator, Action: ActionRead, Kind: KindScopedList},
@@ -362,7 +364,7 @@ var RolePolicy = []RoleGrant{
 	{Role: entities.RoleOrgAdmin, Resource: ResourceOrganization, Actions: []string{ActionRead, ActionUpdate}},
 	{Role: entities.RoleOrgAdmin, Resource: ResourceSSO, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
 	{Role: entities.RoleOrgAdmin, Resource: ResourceAPIUser, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
-	{Role: entities.RoleOrgAdmin, Resource: ResourceOperator, Actions: []string{ActionRead}},
+	{Role: entities.RoleOrgAdmin, Resource: ResourceOperator, Actions: []string{ActionCreate, ActionRead}},
 	{Role: entities.RoleOrgAdmin, Resource: ResourceAccount, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
 	{Role: entities.RoleOrgAdmin, Resource: ResourceUser, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},
 	{Role: entities.RoleOrgAdmin, Resource: ResourceCluster, Actions: []string{ActionCreate, ActionRead, ActionUpdate, ActionDelete}},

@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
@@ -185,9 +187,43 @@ func (s *OperatorServiceTestSuite) TestGetOperatorByName() {
 	require.NoError(s.T(), err)
 
 	// Get by name
-	operator, err := s.operatorService.GetOperatorByName(s.ctx, "Test Operator")
+	operator, err := s.operatorService.GetOperatorByName(s.ctx, uuid.MustParse(entities.DefaultOrganizationID), "Test Operator")
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), created.ID, operator.ID)
+}
+
+// TestGetOperatorByNameAnyOrg covers the admin name-lookup that isn't scoped to
+// a single org: 0 matches → NotFound, 1 → returned, >1 → ambiguous.
+func (s *OperatorServiceTestSuite) TestGetOperatorByNameAnyOrg() {
+	// 0 matches.
+	_, err := s.operatorService.GetOperatorByNameAnyOrg(s.ctx, "no-such-operator")
+	assert.ErrorIs(s.T(), err, repositories.ErrNotFound)
+
+	// 1 match.
+	mk := func(org uuid.UUID, pub string) {
+		// Operators FK to organizations; seed the org first.
+		require.NoError(s.T(), s.db.Create(&sql.OrganizationModel{ID: org.String(), Name: "org-" + pub, Slug: "org-" + pub}).Error)
+		require.NoError(s.T(), s.operatorRepo.Create(s.ctx, &entities.Operator{
+			ID:             uuid.New(),
+			Name:           "dup-name",
+			EncryptedSeed:  "encrypted:test-key:" + pub,
+			PublicKey:      pub,
+			JWT:            "jwt." + pub,
+			OrganizationID: org,
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}))
+	}
+	orgA := uuid.New()
+	mk(orgA, "OAAA")
+	got, err := s.operatorService.GetOperatorByNameAnyOrg(s.ctx, "dup-name")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "OAAA", got.PublicKey)
+
+	// >1 match → ambiguous.
+	mk(uuid.New(), "OBBB")
+	_, err = s.operatorService.GetOperatorByNameAnyOrg(s.ctx, "dup-name")
+	assert.ErrorIs(s.T(), err, ErrOperatorNameAmbiguous)
 }
 
 // TestListOperators tests listing operators with pagination

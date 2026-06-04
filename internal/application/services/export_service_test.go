@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v3"
 
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"github.com/thomas-maurice/nis/internal/infrastructure/encryption"
 	"github.com/thomas-maurice/nis/internal/infrastructure/persistence"
@@ -267,7 +268,7 @@ func (s *ExportServiceTestSuite) TestExportAndImport() {
 	require.NoError(s.T(), err)
 
 	// Verify the imported operator exists
-	importedOperator, err := s.operatorService.GetOperatorByName(s.ctx, "Import Test Operator")
+	importedOperator, err := s.operatorService.GetOperatorByName(s.ctx, uuid.MustParse(entities.DefaultOrganizationID), "Import Test Operator")
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), "Import Test Operator", importedOperator.Name)
 	assert.Equal(s.T(), "Operator for import testing", importedOperator.Description)
@@ -431,7 +432,7 @@ func (s *ExportServiceTestSuite) TestExportYAMLAndImport() {
 	// Re-import the YAML bytes via the auto-detecting path.
 	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, data, false))
 
-	imported, err := s.operatorService.GetOperatorByName(s.ctx, "YAML Roundtrip Operator")
+	imported, err := s.operatorService.GetOperatorByName(s.ctx, uuid.MustParse(entities.DefaultOrganizationID), "YAML Roundtrip Operator")
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), "Description with quote ' and dash - chars", imported.Description)
 
@@ -470,7 +471,7 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
 	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, jsonData, false))
-	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
+	_, err = s.operatorService.GetOperatorByName(s.ctx, uuid.MustParse(entities.DefaultOrganizationID), "Format Detect Operator")
 	require.NoError(s.T(), err, "JSON auto-detect import failed")
 
 	// Wipe and import the YAML bytes.
@@ -480,7 +481,7 @@ func (s *ExportServiceTestSuite) TestImportOperatorBytes_AutoDetect() {
 	s.db.Exec("DELETE FROM clusters")
 	s.db.Exec("DELETE FROM operators")
 	require.NoError(s.T(), s.exportService.ImportOperatorBytes(s.ctx, yamlData, false))
-	_, err = s.operatorService.GetOperatorByName(s.ctx, "Format Detect Operator")
+	_, err = s.operatorService.GetOperatorByName(s.ctx, uuid.MustParse(entities.DefaultOrganizationID), "Format Detect Operator")
 	require.NoError(s.T(), err, "YAML auto-detect import failed")
 }
 

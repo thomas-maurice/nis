@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 
 	"github.com/thomas-maurice/nis/internal/application/services"
 	"github.com/thomas-maurice/nis/internal/domain/entities"
@@ -71,6 +72,31 @@ func authedUser(ctx context.Context) (*entities.APIUser, error) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
 	}
 	return user, nil
+}
+
+// resolveEffectiveOrg computes the organization a per-org operation targets,
+// for handlers where operator names (and thus name lookups / creates) are
+// scoped per-org rather than globally.
+//
+//   - Org-scoped callers (any non-admin role — OrganizationID is set) are
+//     pinned to their own org. The request's organization_id field is ignored
+//     entirely: a token cannot reach across orgs by lying about the field.
+//   - Platform admins (RoleAdmin, OrganizationID nil) carry no org binding, so
+//     they MUST supply organization_id; an empty field is an InvalidArgument
+//     rather than a silent fall-through to the default org.
+func resolveEffectiveOrg(user *entities.APIUser, requestedOrgID string) (uuid.UUID, error) {
+	if user.OrganizationID != nil {
+		return *user.OrganizationID, nil
+	}
+	if requestedOrgID == "" {
+		return uuid.Nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("organization_id is required: platform admins must specify the target organization"))
+	}
+	id, err := uuid.Parse(requestedOrgID)
+	if err != nil {
+		return uuid.Nil, connect.NewError(connect.CodeInvalidArgument, errors.New("organization_id: "+err.Error()))
+	}
+	return id, nil
 }
 
 // requireAdmin is the defense-in-depth admin gate for KindRoleOnly handlers

@@ -654,6 +654,13 @@ Every existing deployment is migrated into a single **default organization**
 (`00000000-0000-0000-0000-000000000001`); pre-existing operators and non-admin
 api_users are assigned to it automatically. The default org cannot be deleted.
 
+**Operator names are unique per organization, not globally.** Two different
+organizations may each have an operator named `prod` without conflict; the
+uniqueness constraint is on `(organization_id, name)`. Name-based lookups by a
+platform admin that aren't org-scoped (e.g. `nisctl operator get <name>`) return
+the single match if there's exactly one, and fail asking you to disambiguate by
+org if the same name exists in more than one organization.
+
 ```bash
 # Org CRUD (create/delete is admin-only; org-admins can read+update their own).
 nisctl org create "Acme Corp" --slug acme --description "Acme tenant"
@@ -1078,6 +1085,33 @@ nisctl dump operator OPERATOR_NAME -o acme-prod.yaml
 # Restrict to specific kinds (comma-separated):
 nisctl dump operator OPERATOR_NAME --kinds=Account,User
 ```
+
+### Organization targeting (`--org`)
+
+Manifests never carry an `organization_id` — the target org is resolved
+server-side from your credential, so the same file applies cleanly into any org:
+
+- **Org-scoped credentials** (an org-admin login, or an API token minted with a
+  non-admin role) are pinned to their own organization. Any operator the
+  manifest creates lands in that org automatically; you do **not** pass `--org`,
+  and it is ignored if you do — a token cannot reach into another org.
+- **Platform admins** (`role=admin`) have no org binding, so they **must**
+  specify the target org explicitly when a manifest creates operators:
+
+  ```bash
+  nisctl apply  -f manifest.yaml --org <org-uuid>
+  nisctl diff   -f manifest.yaml --org <org-uuid>
+  nisctl delete -f manifest.yaml --org <org-uuid>
+  ```
+
+  Omitting `--org` as a platform admin fails with
+  `organization_id is required: platform admins must specify the target
+  organization`. (For the default org, pass
+  `--org 00000000-0000-0000-0000-000000000001`.) `--org` takes a UUID; the org
+  slug is not accepted here in v1.
+
+Because operator names are unique per org (not globally), the same manifest can
+be applied into several organizations to stamp out identical operator trees.
 
 ### Reserved names
 

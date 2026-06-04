@@ -230,7 +230,7 @@ func OIDCLoginStateModelFromEntity(e *entities.OIDCLoginState) *OIDCLoginStateMo
 // OperatorModel — operators table.
 type OperatorModel struct {
 	ID                   string    `gorm:"primaryKey;type:text;not null"`
-	Name                 string    `gorm:"type:text;not null;uniqueIndex:idx_operators_name"`
+	Name                 string    `gorm:"type:text;not null;uniqueIndex:idx_operators_org_name,priority:2"`
 	Description          string    `gorm:"type:text"`
 	EncryptedSeed        string    `gorm:"type:text;not null"`
 	PublicKey            string    `gorm:"type:text;not null;uniqueIndex:idx_operators_public_key"`
@@ -258,7 +258,7 @@ type OperatorModel struct {
 	// constraint is applied (see §5.1 of ORGS_SSO.md and migration comments).
 	// App-layer invariant: CreateOperator always sets this; rows in the DB
 	// after migration are guaranteed non-NULL.
-	OrganizationID   string             `gorm:"column:organization_id;type:text;not null;index:idx_operators_org_id"`
+	OrganizationID   string             `gorm:"column:organization_id;type:text;not null;index:idx_operators_org_id;uniqueIndex:idx_operators_org_name,priority:1"`
 	Organization     *OrganizationModel `gorm:"foreignKey:OrganizationID;references:ID;constraint:OnDelete:CASCADE,OnUpdate:NO ACTION"`
 	CreatedAt        time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`
 	UpdatedAt        time.Time          `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP"`

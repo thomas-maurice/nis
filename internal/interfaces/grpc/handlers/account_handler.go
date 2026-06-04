@@ -44,7 +44,7 @@ func (h *AccountHandler) CreateAccount(
 	}
 
 	// Check permission to create account in this operator
-	if err := h.permService.CanCreateAccount(requestingUser, operatorID); err != nil {
+	if err := h.permService.CanCreateAccount(ctx, requestingUser, operatorID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 

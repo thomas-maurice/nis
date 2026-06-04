@@ -20,6 +20,14 @@ type fakePlannerClient struct {
 
 	// callLog records each RPC name dispatched, for assertion in tests.
 	callLog []string
+
+	// orgID is returned by TargetOrgID; "" in most tests (org derivation is a
+	// server-side concern the fake doesn't model).
+	orgID string
+
+	// lastCreateOperatorOrgID records the organization_id field of the most
+	// recent CreateOperator request, so tests can assert TargetOrgID threading.
+	lastCreateOperatorOrgID string
 }
 
 func (f *fakePlannerClient) recordCall(name string) {
@@ -90,12 +98,15 @@ func (f *fakePlannerClient) TemplateClient() nisv1connect.TemplateServiceClient 
 	return &fakeTemplateClient{f}
 }
 
+func (f *fakePlannerClient) TargetOrgID() string { return f.orgID }
+
 // ---- operator client ----
 
 type fakeOperatorClient struct{ f *fakePlannerClient }
 
 func (c *fakeOperatorClient) CreateOperator(_ context.Context, req *connect.Request[nisv1.CreateOperatorRequest]) (*connect.Response[nisv1.CreateOperatorResponse], error) {
 	c.f.recordCall("CreateOperator")
+	c.f.lastCreateOperatorOrgID = req.Msg.GetOrganizationId()
 	op := &nisv1.Operator{
 		Id:          nextID(),
 		Name:        req.Msg.GetName(),

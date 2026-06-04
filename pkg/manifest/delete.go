@@ -145,7 +145,8 @@ func deleteTemplate(ctx context.Context, c PlannerClient, obj Object, cache *app
 
 func deleteOperator(ctx context.Context, c PlannerClient, obj Object, cache *applyCache) (DeleteItem, error) {
 	lookupResp, err := c.OperatorClient().GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-		Name: obj.Metadata.Name,
+		Name:           obj.Metadata.Name,
+		OrganizationId: c.TargetOrgID(),
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeNotFound {
@@ -321,7 +322,8 @@ func resolveDeleteOperatorID(ctx context.Context, c PlannerClient, opName string
 		return id, nil
 	}
 	resp, err := c.OperatorClient().GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-		Name: opName,
+		Name:           opName,
+		OrganizationId: c.TargetOrgID(),
 	}))
 	if err != nil {
 		return "", err

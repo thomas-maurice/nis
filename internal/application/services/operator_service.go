@@ -79,8 +79,18 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 		operatorRepo := tx.OperatorRepository()
 		userRepo := tx.UserRepository()
 
-		// Check if operator with this name already exists
-		existing, err := operatorRepo.GetByName(ctx, req.Name)
+		// Resolve organization ID (default org when not specified).
+		orgID := uuid.MustParse(entities.DefaultOrganizationID)
+		if req.OrganizationID != nil {
+			orgID = *req.OrganizationID
+			if _, err := tx.OrganizationRepository().GetByID(ctx, orgID); err != nil {
+				return fmt.Errorf("organization not found: %w", err)
+			}
+		}
+
+		// Check if operator with this name already exists within the org.
+		// Names are unique per (organization_id, name), not globally.
+		existing, err := operatorRepo.GetByName(ctx, orgID, req.Name)
 		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return fmt.Errorf("failed to check existing operator: %w", err)
 		}
@@ -98,15 +108,6 @@ func (s *OperatorService) CreateOperator(ctx context.Context, req CreateOperator
 		encryptedSeed, err := s.encryptor.Encrypt(ctx, seed)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt operator seed: %w", err)
-		}
-
-		// Resolve organization ID (default org when not specified).
-		orgID := uuid.MustParse(entities.DefaultOrganizationID)
-		if req.OrganizationID != nil {
-			orgID = *req.OrganizationID
-			if _, err := tx.OrganizationRepository().GetByID(ctx, orgID); err != nil {
-				return fmt.Errorf("organization not found: %w", err)
-			}
 		}
 
 		// Create operator entity (without system account initially).
@@ -233,9 +234,33 @@ func (s *OperatorService) GetOperator(ctx context.Context, id uuid.UUID) (*entit
 	return s.factory.OperatorRepository().GetByID(ctx, id)
 }
 
-// GetOperatorByName retrieves an operator by name
-func (s *OperatorService) GetOperatorByName(ctx context.Context, name string) (*entities.Operator, error) {
-	return s.factory.OperatorRepository().GetByName(ctx, name)
+// GetOperatorByName retrieves an operator by name within an organization.
+func (s *OperatorService) GetOperatorByName(ctx context.Context, orgID uuid.UUID, name string) (*entities.Operator, error) {
+	return s.factory.OperatorRepository().GetByName(ctx, orgID, name)
+}
+
+// ErrOperatorNameAmbiguous is returned when an org-less (admin) name lookup
+// matches operators in more than one organization. The caller must repeat the
+// request with an explicit organization_id.
+var ErrOperatorNameAmbiguous = errors.New("operator name is ambiguous across organizations; specify organization_id")
+
+// GetOperatorByNameAnyOrg resolves a name without an org constraint. Used for
+// platform-admin lookups where the org is not (yet) known: returns ErrNotFound
+// if no operator carries the name, the single match if exactly one does, and
+// ErrOperatorNameAmbiguous if multiple orgs share the name.
+func (s *OperatorService) GetOperatorByNameAnyOrg(ctx context.Context, name string) (*entities.Operator, error) {
+	matches, err := s.factory.OperatorRepository().FindByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	switch len(matches) {
+	case 0:
+		return nil, repositories.ErrNotFound
+	case 1:
+		return matches[0], nil
+	default:
+		return nil, ErrOperatorNameAmbiguous
+	}
 }
 
 // GetOperatorByPublicKey retrieves an operator by public key
@@ -278,8 +303,8 @@ func (s *OperatorService) UpdateOperator(ctx context.Context, id uuid.UUID, req 
 		// Update fields if provided
 		updated := false
 		if req.Name != nil && *req.Name != operator.Name {
-			// Check if new name is already taken
-			existing, err := repo.GetByName(ctx, *req.Name)
+			// Check if new name is already taken within the same org.
+			existing, err := repo.GetByName(ctx, operator.OrganizationID, *req.Name)
 			if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 				return fmt.Errorf("failed to check existing operator: %w", err)
 			}

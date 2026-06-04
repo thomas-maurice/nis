@@ -116,7 +116,7 @@ nisctl apply --help    # flag reference for any command" />
 
         <h6 class="mt-3">The five kinds</h6>
         <ul class="small mb-3">
-          <li><code>Operator</code> — top of the trust hierarchy. Globally-unique name.</li>
+          <li><code>Operator</code> — top of the trust hierarchy. Name is unique per organization, not globally.</li>
           <li><code>Cluster</code> — a NATS cluster bound to one operator.</li>
           <li><code>Account</code> — tenant within an operator. Unique within its operator.</li>
           <li><code>ScopedSigningKey</code> — a permission template under an account. Unique within its account.</li>
@@ -133,6 +133,17 @@ nisctl apply --help    # flag reference for any command" />
 
         <h6 class="mt-3">Commands</h6>
         <CodeBlock :content="manifestCommands" />
+
+        <div class="alert alert-info small mt-3 mb-3" role="alert">
+          <strong>Target organization:</strong>
+          manifests carry no <code>organization_id</code> — it is resolved from
+          your credential. An org-scoped login or API token applies into its own
+          org automatically. A <strong>platform admin</strong> has no org binding
+          and must pass <code>--org &lt;org-uuid&gt;</code> on
+          <code>apply</code>/<code>diff</code>/<code>delete</code> when a manifest
+          creates operators (use <code>00000000-0000-0000-0000-000000000001</code>
+          for the default org). <code>--org</code> takes a UUID, not a slug.
+        </div>
 
         <div class="alert alert-warning small mt-3 mb-3" role="alert">
           <strong>Reserved names:</strong>
@@ -212,10 +223,11 @@ nisctl user list ACCOUNT_NAME
 nisctl user creds USER_NAME --operator OP --account ACC > my.creds
 nisctl cluster sync CLUSTER_NAME`)
 
-const manifestCommands = `nisctl apply  -f file.yaml [--dry-run] [-y]   # create/update entities
-nisctl diff   -f file.yaml                      # dry-run (alias for apply --dry-run)
-nisctl delete -f file.yaml [-y]                 # tear down entities in reverse topo order
-nisctl dump operator NAME [-o file.yaml]        # snapshot current state as a manifest`
+const manifestCommands = `nisctl apply  -f file.yaml [--org UUID] [--dry-run] [-y]   # create/update entities
+nisctl diff   -f file.yaml [--org UUID]                   # dry-run (alias for apply --dry-run)
+nisctl delete -f file.yaml [--org UUID] [-y]              # tear down entities in reverse topo order
+nisctl dump operator NAME [-o file.yaml]                  # snapshot current state as a manifest
+# --org is required for platform admins, ignored for org-scoped tokens`
 
 const examples = [
   {

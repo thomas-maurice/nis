@@ -52,11 +52,12 @@ func (r *OperatorRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Ope
 	return model.ToEntity(), nil
 }
 
-// GetByName retrieves an operator by name
-func (r *OperatorRepo) GetByName(ctx context.Context, name string) (*entities.Operator, error) {
+// GetByName retrieves an operator by name within an organization.
+// Operator names are unique per (organization_id, name), not globally.
+func (r *OperatorRepo) GetByName(ctx context.Context, orgID uuid.UUID, name string) (*entities.Operator, error) {
 	var model OperatorModel
 
-	err := r.db.WithContext(ctx).First(&model, "name = ?", name).Error
+	err := r.db.WithContext(ctx).First(&model, "organization_id = ? AND name = ?", orgID.String(), name).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, repositories.ErrNotFound
@@ -65,6 +66,19 @@ func (r *OperatorRepo) GetByName(ctx context.Context, name string) (*entities.Op
 	}
 
 	return model.ToEntity(), nil
+}
+
+// FindByName returns every operator with the given name across all orgs.
+func (r *OperatorRepo) FindByName(ctx context.Context, name string) ([]*entities.Operator, error) {
+	var models []OperatorModel
+	if err := r.db.WithContext(ctx).Where("name = ?", name).Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("failed to find operators by name: %w", err)
+	}
+	out := make([]*entities.Operator, len(models))
+	for i, m := range models {
+		out[i] = m.ToEntity()
+	}
+	return out, nil
 }
 
 // GetByPublicKey retrieves an operator by its NATS public key

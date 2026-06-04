@@ -37,6 +37,8 @@ var (
 	diffFiles   []string
 	applyDryRun bool
 	applyYes    bool
+	applyOrg    string
+	diffOrg     string
 )
 
 func init() {
@@ -47,20 +49,22 @@ func init() {
 	_ = applyCmd.MarkFlagRequired("filename")
 	applyCmd.Flags().BoolVar(&applyDryRun, "dry-run", false, "print the plan without making changes")
 	applyCmd.Flags().BoolVarP(&applyYes, "yes", "y", false, "skip confirmation prompt")
+	applyCmd.Flags().StringVar(&applyOrg, "org", "", "target organization UUID (required for platform admins; ignored for org-scoped tokens)")
 
 	diffCmd.Flags().StringArrayVarP(&diffFiles, "filename", "f", nil, "file, directory, or - for stdin (repeatable)")
 	_ = diffCmd.MarkFlagRequired("filename")
+	diffCmd.Flags().StringVar(&diffOrg, "org", "", "target organization UUID (required for platform admins; ignored for org-scoped tokens)")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
-	return runApplyOrDiff(cmd, applyFiles, false)
+	return runApplyOrDiff(cmd, applyFiles, applyOrg, false)
 }
 
 func runDiff(cmd *cobra.Command, args []string) error {
-	return runApplyOrDiff(cmd, diffFiles, true)
+	return runApplyOrDiff(cmd, diffFiles, diffOrg, true)
 }
 
-func runApplyOrDiff(cmd *cobra.Command, files []string, dryRun bool) error {
+func runApplyOrDiff(cmd *cobra.Command, files []string, orgID string, dryRun bool) error {
 	dryRun = dryRun || applyDryRun
 
 	objs, err := manifest.Load(files)
@@ -72,7 +76,7 @@ func runApplyOrDiff(cmd *cobra.Command, files []string, dryRun bool) error {
 		return err
 	}
 
-	adapter := manifest.NewClientAdapter(nisClient)
+	adapter := manifest.NewClientAdapter(nisClient, orgID)
 	ctx := cmd.Context()
 
 	plan, err := manifest.Plan(ctx, adapter, objs)

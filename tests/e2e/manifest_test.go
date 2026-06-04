@@ -19,14 +19,16 @@ import (
 )
 
 // buildAdminPlannerClient returns a manifest.PlannerClient wrapping the
-// harness admin token.
+// harness admin token. The harness token is a platform admin (no org binding),
+// so apply that CREATES operators now requires an explicit target org — we pin
+// it to the default org, matching `nisctl apply --org <default-uuid>`.
 func buildAdminPlannerClient(t *testing.T, h *harness) manifest.PlannerClient {
 	t.Helper()
 	c, err := client.NewClient(h.serverURL, h.authToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return manifest.NewClientAdapter(c)
+	return manifest.NewClientAdapter(c, defaultOrgID)
 }
 
 // baseObjects returns a minimal batch: one Operator, one Account (with JS),

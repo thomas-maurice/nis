@@ -34,6 +34,7 @@ import (
 
 	nisv1 "github.com/thomas-maurice/nis/gen/nis/v1"
 	"github.com/thomas-maurice/nis/gen/nis/v1/nisv1connect"
+	"github.com/thomas-maurice/nis/internal/domain/entities"
 )
 
 const (
@@ -44,6 +45,10 @@ const (
 
 	httpReadyTimeout = 30 * time.Second
 	natsReadyTimeout = 30 * time.Second
+
+	// defaultOrgID is the seeded default organization; platform-admin operator
+	// creates must specify a target org, and e2e fixtures use the default one.
+	defaultOrgID = entities.DefaultOrganizationID
 )
 
 // harness owns one NIS process, optionally one NATS container, and the typed
@@ -404,8 +409,9 @@ func (h *harness) startNATSForOperator(t *testing.T, operatorID string) {
 func (h *harness) createOperator(t *testing.T, name string) string {
 	t.Helper()
 	resp, err := h.operatorCli.CreateOperator(context.Background(), connect.NewRequest(&nisv1.CreateOperatorRequest{
-		Name:        name,
-		Description: "created by the e2e suite",
+		Name:           name,
+		Description:    "created by the e2e suite",
+		OrganizationId: defaultOrgID,
 	}))
 	if err != nil {
 		t.Fatalf("CreateOperator(%s): %v", name, err)

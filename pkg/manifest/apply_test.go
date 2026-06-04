@@ -122,6 +122,27 @@ func TestApply_CreateOnlyPath(t *testing.T) {
 	}
 }
 
+// TestApply_CreateOperatorThreadsTargetOrg verifies that the client's
+// TargetOrgID() is forwarded as CreateOperatorRequest.organization_id, so an
+// admin running `nisctl apply --org <uuid>` lands the operator in that org.
+func TestApply_CreateOperatorThreadsTargetOrg(t *testing.T) {
+	const wantOrg = "00000000-0000-4000-8000-0000000000aa"
+	f := newFakePlannerClient()
+	f.orgID = wantOrg
+
+	batch := buildFullBatch("op1", "acc1", "writer", "alice")
+	plan, err := Plan(context.Background(), f, batch)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	res := mustApply(t, f, plan)
+	assertAllApplied(t, res)
+
+	if f.lastCreateOperatorOrgID != wantOrg {
+		t.Errorf("CreateOperator organization_id = %q, want %q", f.lastCreateOperatorOrgID, wantOrg)
+	}
+}
+
 // TestApply_CreateOperatorWithJWTPolicy verifies that CreateOperator is followed
 // by SetJWTPolicy when the manifest declares a jwtPolicy.
 func TestApply_CreateOperatorWithJWTPolicy(t *testing.T) {

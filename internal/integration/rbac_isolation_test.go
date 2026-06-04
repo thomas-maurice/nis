@@ -282,11 +282,11 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanOnlyAccessAccountsInTheirO
 
 func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanCreateAccountsInTheirOperator() {
 	// Operator1Admin CAN create accounts in operator1
-	err := s.permService.CanCreateAccount(s.operator1Admin, s.operator1.ID)
+	err := s.permService.CanCreateAccount(context.Background(), s.operator1Admin, s.operator1.ID)
 	s.NoError(err, "Operator1Admin should create accounts in their operator")
 
 	// Operator1Admin CANNOT create accounts in operator2
-	err = s.permService.CanCreateAccount(s.operator1Admin, s.operator2.ID)
+	err = s.permService.CanCreateAccount(context.Background(), s.operator1Admin, s.operator2.ID)
 	s.Error(err, "Operator1Admin should NOT create accounts in operator2")
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
 }
@@ -294,7 +294,7 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CanCreateAccountsInTheirOpera
 // Test account admin isolation
 func (s *RBACIsolationTestSuite) TestAccountAdmin_CannotCreateAccounts() {
 	// Account admin cannot create accounts
-	err := s.permService.CanCreateAccount(s.account1Admin, s.operator1.ID)
+	err := s.permService.CanCreateAccount(context.Background(), s.account1Admin, s.operator1.ID)
 	s.Error(err, "Account admin should NOT be able to create accounts")
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
 }
@@ -511,7 +511,7 @@ func (s *RBACIsolationTestSuite) TestPermissionConsistencyAcrossOperations() {
 	s.Error(err)
 
 	// Cannot create accounts in operator2
-	err = s.permService.CanCreateAccount(s.operator1Admin, s.operator2.ID)
+	err = s.permService.CanCreateAccount(ctx, s.operator1Admin, s.operator2.ID)
 	s.Error(err)
 
 	s.T().Log("✓ Perfect isolation verified: operator1Admin has NO access to operator2")

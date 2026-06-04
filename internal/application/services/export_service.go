@@ -566,7 +566,7 @@ func (s *ExportService) ImportOperator(ctx context.Context, exported *ExportedOp
 			// No row with this ID. If a different operator already owns the
 			// name, refuse — same-name/different-ID is two operators, not one,
 			// and overwrite can't disambiguate them.
-			byName, err := operatorRepo.GetByName(ctx, exported.Operator.Name)
+			byName, err := operatorRepo.GetByName(ctx, uuid.MustParse(entities.DefaultOrganizationID), exported.Operator.Name)
 			if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 				return fmt.Errorf("failed to check existing operator by name: %w", err)
 			}

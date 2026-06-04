@@ -336,7 +336,8 @@ func TestE2E_APIToken_AuditEventActorIsToken(t *testing.T) {
 
 	// Drive a mutation that emits an event we can find later.
 	opResp, err := tokenAuthed.operatorCli.CreateOperator(ctx, connect.NewRequest(&nisv1.CreateOperatorRequest{
-		Name: "audit-op",
+		Name:           "audit-op",
+		OrganizationId: defaultOrgID,
 	}))
 	if err != nil {
 		t.Fatalf("CreateOperator using token: %v", err)

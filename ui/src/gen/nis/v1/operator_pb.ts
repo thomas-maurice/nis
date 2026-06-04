@@ -303,6 +303,15 @@ export class GetOperatorByNameRequest extends Message<GetOperatorByNameRequest> 
    */
   name = "";
 
+  /**
+   * organization_id scopes the lookup. Operator names are unique per-org, not
+   * globally. Org-scoped callers (org-admin tokens) may leave this empty — the
+   * server forces it to the caller's org. Platform admins MUST set it.
+   *
+   * @generated from field: string organization_id = 2;
+   */
+  organizationId = "";
+
   constructor(data?: PartialMessage<GetOperatorByNameRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -312,6 +321,7 @@ export class GetOperatorByNameRequest extends Message<GetOperatorByNameRequest> 
   static readonly typeName = "nis.v1.GetOperatorByNameRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetOperatorByNameRequest {

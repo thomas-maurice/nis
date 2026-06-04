@@ -59,10 +59,20 @@ type PlannerClient interface {
 	ScopedSigningKeyClient() nisv1connect.ScopedSigningKeyServiceClient
 	ClusterClient() nisv1connect.ClusterServiceClient
 	TemplateClient() nisv1connect.TemplateServiceClient
+	// TargetOrgID is the organization the manifest operation targets, set on
+	// every operator name-lookup / create request. Operator names are unique
+	// per-org, so the server uses it to disambiguate. Empty string means
+	// "let the server derive it from the caller": valid for org-scoped tokens
+	// (the server pins their own org) but rejected for platform admins, who
+	// must pass --org. See OperatorHandler.resolveEffectiveOrg.
+	TargetOrgID() string
 }
 
 // clientAdapter wraps *client.Client to satisfy PlannerClient.
-type clientAdapter struct{ c *client.Client }
+type clientAdapter struct {
+	c     *client.Client
+	orgID string
+}
 
 func (a clientAdapter) OperatorClient() nisv1connect.OperatorServiceClient {
 	return a.c.Operator
@@ -82,9 +92,14 @@ func (a clientAdapter) ClusterClient() nisv1connect.ClusterServiceClient {
 func (a clientAdapter) TemplateClient() nisv1connect.TemplateServiceClient {
 	return a.c.Template
 }
+func (a clientAdapter) TargetOrgID() string { return a.orgID }
 
 // NewClientAdapter wraps a *client.Client so it satisfies PlannerClient.
-func NewClientAdapter(c *client.Client) PlannerClient { return clientAdapter{c} }
+// orgID is the target organization for operator lookups/creates (empty = let
+// the server derive it from the caller's token; required for platform admins).
+func NewClientAdapter(c *client.Client, orgID string) PlannerClient {
+	return clientAdapter{c: c, orgID: orgID}
+}
 
 // serverState holds all current-server entities fetched during Step 1.
 type serverState struct {
@@ -175,7 +190,8 @@ func fetchState(ctx context.Context, c PlannerClient, batch []Object) (*serverSt
 
 	for opName := range opNames {
 		resp, err := c.OperatorClient().GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-			Name: opName,
+			Name:           opName,
+			OrganizationId: c.TargetOrgID(),
 		}))
 		if err != nil {
 			if connect.CodeOf(err) == connect.CodeNotFound {

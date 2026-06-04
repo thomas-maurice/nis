@@ -94,7 +94,7 @@ func (s *RepositoryTestSuite) TestOperatorCRUD() {
 	assert.Equal(s.T(), operator.PublicKey, retrieved.PublicKey)
 
 	// GetByName
-	retrieved, err = s.operatorRepo.GetByName(ctx, operator.Name)
+	retrieved, err = s.operatorRepo.GetByName(ctx, operator.OrganizationID, operator.Name)
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), operator.ID, retrieved.ID)
 
@@ -124,6 +124,72 @@ func (s *RepositoryTestSuite) TestOperatorCRUD() {
 
 	_, err = s.operatorRepo.GetByID(ctx, operator.ID)
 	assert.ErrorIs(s.T(), err, repositories.ErrNotFound)
+}
+
+// TestOperatorNamePerOrg proves operator names are unique per (organization_id,
+// name), not globally: the same name in two different orgs coexists, GetByName
+// disambiguates by org, and FindByName returns both.
+func (s *RepositoryTestSuite) TestOperatorNamePerOrg() {
+	ctx := context.Background()
+
+	orgA := uuid.New()
+	orgB := uuid.New()
+
+	// Operators have an FK to organizations; seed both orgs first.
+	require.NoError(s.T(), s.db.Create(&OrganizationModel{ID: orgA.String(), Name: "org-a", Slug: "org-a"}).Error)
+	require.NoError(s.T(), s.db.Create(&OrganizationModel{ID: orgB.String(), Name: "org-b", Slug: "org-b"}).Error)
+
+	opA := &entities.Operator{
+		ID:             uuid.New(),
+		Name:           "shared-name",
+		EncryptedSeed:  "encrypted:key-1:aaa",
+		PublicKey:      "OAAA",
+		JWT:            "jwt.a",
+		OrganizationID: orgA,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	opB := &entities.Operator{
+		ID:             uuid.New(),
+		Name:           "shared-name",
+		EncryptedSeed:  "encrypted:key-1:bbb",
+		PublicKey:      "OBBB",
+		JWT:            "jwt.b",
+		OrganizationID: orgB,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	require.NoError(s.T(), s.operatorRepo.Create(ctx, opA))
+	// Same name, different org: must succeed (not a unique violation).
+	require.NoError(s.T(), s.operatorRepo.Create(ctx, opB))
+
+	// Same name, same org: must collide.
+	dup := &entities.Operator{
+		ID:             uuid.New(),
+		Name:           "shared-name",
+		EncryptedSeed:  "encrypted:key-1:ccc",
+		PublicKey:      "OCCC",
+		JWT:            "jwt.c",
+		OrganizationID: orgA,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	assert.Error(s.T(), s.operatorRepo.Create(ctx, dup), "duplicate name within the same org must violate the unique index")
+
+	// GetByName disambiguates by org.
+	gotA, err := s.operatorRepo.GetByName(ctx, orgA, "shared-name")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), opA.ID, gotA.ID)
+
+	gotB, err := s.operatorRepo.GetByName(ctx, orgB, "shared-name")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), opB.ID, gotB.ID)
+
+	// FindByName returns both regardless of org.
+	all, err := s.operatorRepo.FindByName(ctx, "shared-name")
+	require.NoError(s.T(), err)
+	assert.Len(s.T(), all, 2)
 }
 
 func (s *RepositoryTestSuite) TestAccountCRUD() {

@@ -364,10 +364,14 @@ func (x *GetOperatorResponse) GetOperator() *Operator {
 
 // GetOperatorByNameRequest is the request to get an operator by name
 type GetOperatorByNameRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// organization_id scopes the lookup. Operator names are unique per-org, not
+	// globally. Org-scoped callers (org-admin tokens) may leave this empty — the
+	// server forces it to the caller's org. Platform admins MUST set it.
+	OrganizationId string `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetOperatorByNameRequest) Reset() {
@@ -403,6 +407,13 @@ func (*GetOperatorByNameRequest) Descriptor() ([]byte, []int) {
 func (x *GetOperatorByNameRequest) GetName() string {
 	if x != nil {
 		return x.Name
+	}
+	return ""
+}
+
+func (x *GetOperatorByNameRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
 	}
 	return ""
 }
@@ -1211,9 +1222,10 @@ const file_nis_v1_operator_proto_rawDesc = "" +
 	"\x12GetOperatorRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"C\n" +
 	"\x13GetOperatorResponse\x12,\n" +
-	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\".\n" +
+	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"W\n" +
 	"\x18GetOperatorByNameRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"I\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\"I\n" +
 	"\x19GetOperatorByNameResponse\x12,\n" +
 	"\boperator\x18\x01 \x01(\v2\x10.nis.v1.OperatorR\boperator\"\x8b\x01\n" +
 	"\x14ListOperatorsRequest\x12-\n" +

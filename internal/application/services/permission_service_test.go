@@ -74,13 +74,23 @@ func (m *mockOperatorRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities
 	return op, nil
 }
 
-func (m *mockOperatorRepo) GetByName(ctx context.Context, name string) (*entities.Operator, error) {
+func (m *mockOperatorRepo) GetByName(ctx context.Context, orgID uuid.UUID, name string) (*entities.Operator, error) {
 	for _, op := range m.operators {
-		if op.Name == name {
+		if op.OrganizationID == orgID && op.Name == name {
 			return op, nil
 		}
 	}
 	return nil, repositories.ErrNotFound
+}
+
+func (m *mockOperatorRepo) FindByName(ctx context.Context, name string) ([]*entities.Operator, error) {
+	var out []*entities.Operator
+	for _, op := range m.operators {
+		if op.Name == name {
+			out = append(out, op)
+		}
+	}
+	return out, nil
 }
 
 func (m *mockOperatorRepo) List(ctx context.Context, opts repositories.ListOptions) ([]*entities.Operator, error) {
@@ -318,6 +328,8 @@ func setupPermissionTest() (*PermissionService, *mockOperatorRepo, *mockAccountR
 func TestCanCreateOperator(t *testing.T) {
 	permService, _, _, _, _, _, _, _ := setupPermissionTest()
 
+	orgID := uuid.New()
+
 	tests := []struct {
 		name        string
 		apiUser     *entities.APIUser
@@ -327,6 +339,16 @@ func TestCanCreateOperator(t *testing.T) {
 			name:        "Admin can create operator",
 			apiUser:     &entities.APIUser{Role: entities.RoleAdmin},
 			expectError: false,
+		},
+		{
+			name:        "Org admin with org binding can create operator",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &orgID},
+			expectError: false,
+		},
+		{
+			name:        "Org admin without org binding cannot create operator",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin},
+			expectError: true,
 		},
 		{
 			name:        "Operator admin cannot create operator",
@@ -477,7 +499,12 @@ func TestCanDeleteOperator(t *testing.T) {
 
 // Test CanCreateAccount
 func TestCanCreateAccount(t *testing.T) {
-	permService, _, _, _, operator1ID, operator2ID, _, _ := setupPermissionTest()
+	permService, operatorRepo, _, _, operator1ID, operator2ID, _, _ := setupPermissionTest()
+
+	// Bind operator1 to an org so the org-admin arm (ownsOperator) can match.
+	orgID := uuid.New()
+	operatorRepo.operators[operator1ID].OrganizationID = orgID
+	otherOrgID := uuid.New()
 
 	tests := []struct {
 		name        string
@@ -490,6 +517,18 @@ func TestCanCreateAccount(t *testing.T) {
 			apiUser:     &entities.APIUser{Role: entities.RoleAdmin},
 			operatorID:  operator1ID,
 			expectError: false,
+		},
+		{
+			name:        "Org admin can create account in operator within own org",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &orgID},
+			operatorID:  operator1ID,
+			expectError: false,
+		},
+		{
+			name:        "Org admin cannot create account in operator outside own org",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &otherOrgID},
+			operatorID:  operator1ID,
+			expectError: true,
 		},
 		{
 			name:        "Operator admin can create account in own operator",
@@ -513,7 +552,7 @@ func TestCanCreateAccount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := permService.CanCreateAccount(tt.apiUser, tt.operatorID)
+			err := permService.CanCreateAccount(context.Background(), tt.apiUser, tt.operatorID)
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, ErrPermissionDenied)

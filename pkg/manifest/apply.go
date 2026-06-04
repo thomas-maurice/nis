@@ -174,8 +174,9 @@ func applyOperator(ctx context.Context, c PlannerClient, item PlanItem, cache *a
 	switch item.Action {
 	case ActionCreate:
 		resp, err := c.OperatorClient().CreateOperator(ctx, connect.NewRequest(&nisv1.CreateOperatorRequest{
-			Name:        meta.Name,
-			Description: spec.Description,
+			Name:           meta.Name,
+			Description:    spec.Description,
+			OrganizationId: c.TargetOrgID(),
 		}))
 		if err != nil {
 			return failedItem(item), fmt.Errorf("manifest apply: Operator %s: CreateOperator: %w", meta.Name, err)
@@ -557,7 +558,8 @@ func resolveOperatorID(ctx context.Context, c PlannerClient, opName string, cach
 		return id, nil
 	}
 	resp, err := c.OperatorClient().GetOperatorByName(ctx, connect.NewRequest(&nisv1.GetOperatorByNameRequest{
-		Name: opName,
+		Name:           opName,
+		OrganizationId: c.TargetOrgID(),
 	}))
 	if err != nil {
 		return "", fmt.Errorf("GetOperatorByName(%q): %w", opName, err)

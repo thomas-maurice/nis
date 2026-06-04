@@ -198,9 +198,24 @@ func denyf(format string, args ...any) error {
 // Operators
 // ---------------------------------------------------------------------------
 
-// CanCreateOperator: admin only (operators are a system-level concept).
+// CanCreateOperator: platform admin, or an org-admin (who may only create
+// operators inside their own org). The handler pins the target org to the
+// org-admin's OrganizationID, so a role check is sufficient here — the org
+// binding is enforced where the org is resolved (resolveEffectiveOrg).
 func (s *PermissionService) CanCreateOperator(apiUser *entities.APIUser) error {
-	return s.requireRole(apiUser, entities.RoleAdmin)
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if apiUser.OrganizationID == nil {
+			return denyf("org-admin has no organization binding")
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can create operators")
 }
 
 // CanReadOperator: every authenticated role can read the operator they belong to.
@@ -239,13 +254,23 @@ func (s *PermissionService) CanListOperators(apiUser *entities.APIUser) error {
 // Accounts
 // ---------------------------------------------------------------------------
 
-// CanCreateAccount: admin or the operator-admin scoped to operatorID.
-func (s *PermissionService) CanCreateAccount(apiUser *entities.APIUser, operatorID uuid.UUID) error {
+// CanCreateAccount: admin, an org-admin whose org owns the operator, or the
+// operator-admin scoped to operatorID.
+func (s *PermissionService) CanCreateAccount(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
 	if apiUser == nil {
 		return ErrPermissionDenied
 	}
 	switch apiUser.Role {
 	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		ok, err := s.ownsOperator(ctx, apiUser, operatorID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return denyf("org admin can only create accounts in operators within their own organization")
+		}
 		return nil
 	case entities.RoleOperatorAdmin:
 		if apiUser.OperatorID == nil || *apiUser.OperatorID != operatorID {
@@ -253,7 +278,7 @@ func (s *PermissionService) CanCreateAccount(apiUser *entities.APIUser, operator
 		}
 		return nil
 	}
-	return denyf("only admin or operator-admin can create accounts")
+	return denyf("only admin, org-admin, or operator-admin can create accounts")
 }
 
 // CanReadAccount: anyone who owns the account.
