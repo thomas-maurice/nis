@@ -27,3 +27,5 @@ data/
 
 # Example directory (not needed in image)
 example/
+# ...except the manifest examples, which DocsView.vue embeds at UI build time.
+!example/manifests

@@ -4,6 +4,9 @@ WORKDIR /ui
 COPY ui/package*.json ./
 RUN npm ci
 COPY ui/ ./
+# DocsView.vue imports the canonical examples via ../../../example/manifests/*.yaml?raw,
+# which resolves to /example/manifests from /ui/src/views — make that path exist.
+COPY example/manifests /example/manifests
 RUN npm run build
 
 # Go Builder stage
@@ -40,8 +43,6 @@ WORKDIR /app
 COPY --from=builder /build/nis .
 COPY --from=builder /build/nisctl .
 COPY --from=builder /build/migrations ./migrations
-COPY --from=builder /build/internal/application/services/casbin_model.conf ./internal/application/services/
-COPY --from=builder /build/internal/application/services/casbin_policy.csv ./internal/application/services/
 
 # Create data directory
 RUN mkdir -p /data
