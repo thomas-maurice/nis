@@ -124,7 +124,7 @@ func TestAuthServiceOrgSuite(t *testing.T) {
 // a user in any org (including org A) with any role.
 func (s *AuthServiceOrgTestSuite) TestCreateAPIUser_AdminCanCreateAnywhere() {
 	ctx := context.Background()
-	user, err := s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
+	_, err := s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
 		Username:       "user-in-org-a",
 		Password:       "secret123",
 		Role:           entities.RoleOperatorAdmin,
@@ -139,7 +139,7 @@ func (s *AuthServiceOrgTestSuite) TestCreateAPIUser_AdminCanCreateAnywhere() {
 	s.Contains(err.Error(), "operator_id is required")
 
 	// Use org-admin role (below admin rank) — no operator/account scope needed.
-	user, err = s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
+	user, err := s.authService.CreateAPIUser(ctx, CreateAPIUserRequest{
 		Username:       "user-org-admin-in-b",
 		Password:       "secret123",
 		Role:           entities.RoleOrgAdmin,

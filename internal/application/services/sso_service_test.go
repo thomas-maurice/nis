@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -98,15 +99,6 @@ func seedOrg(t *testing.T, ctx context.Context, f *ssoTestFixture, slug string, 
 	}
 	require.NoError(t, f.factory.OrganizationSSOConfigRepository().Upsert(ctx, cfg))
 	return org, cfg
-}
-
-// seedMapping inserts a single SSO role mapping into the DB.
-func seedMapping(t *testing.T, ctx context.Context, f *ssoTestFixture, orgID uuid.UUID, m entities.SSORoleMapping) {
-	t.Helper()
-	m.ID = uuid.New()
-	m.OrganizationID = orgID
-	m.CreatedAt = clock.Now()
-	require.NoError(t, f.factory.SSORoleMappingRepository().Create(ctx, &m))
 }
 
 // ---------------------------------------------------------------------------
@@ -345,11 +337,11 @@ func (ts *testSSOServiceWithFakeProvider) completeLoginBypassProvider(
 		return "", txErr
 	}
 
-	return ts.SSOService.authService.IssueSessionForUser(user)
+	return ts.authService.IssueSessionForUser(user)
 }
 
 func isNotFound(err error) bool {
-	return err == repositories.ErrNotFound
+	return errors.Is(err, repositories.ErrNotFound)
 }
 
 // ---------------------------------------------------------------------------

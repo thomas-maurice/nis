@@ -218,7 +218,7 @@ func (s *SSOService) CompleteLogin(ctx context.Context, code, state string, veri
 	}
 	role, scopeOpID, scopeAccID, mapErr := mapGroupsToRole(mappings, claims.Groups, cfg.DefaultRole)
 	if mapErr != nil {
-		return "", nil, fmt.Errorf("%w: %v", ErrSSODenied, mapErr)
+		return "", nil, fmt.Errorf("%w: %w", ErrSSODenied, mapErr)
 	}
 
 	// JIT find-or-create inside a single tx.
