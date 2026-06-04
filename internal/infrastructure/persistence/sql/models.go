@@ -255,7 +255,7 @@ type OperatorModel struct {
 	// OrganizationID links the operator to its owning organization. Added in
 	// migration 00009_add_organizations. Stored as a nullable column at the DB
 	// level because the backfill runs in the migration before the NOT NULL
-	// constraint is applied (see §5.1 of ORGS_SSO.md and migration comments).
+	// constraint is applied (see §5.1 of DESIGN.md and migration comments).
 	// App-layer invariant: CreateOperator always sets this; rows in the DB
 	// after migration are guaranteed non-NULL.
 	OrganizationID   string             `gorm:"column:organization_id;type:text;not null;index:idx_operators_org_id;uniqueIndex:idx_operators_org_name,priority:1"`

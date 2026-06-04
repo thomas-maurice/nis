@@ -40,7 +40,7 @@ import (
 //   - KindPublic:     procedure is exempt from auth. Login and ValidateToken
 //                     are the only ones today.
 //
-// Pre-A17 (PROPOSALS.md A5/A17, 2026-05-23) the test held a local `want` map
+// Pre-A17 (DESIGN.md A5/A17, 2026-05-23) the test held a local `want` map
 // that paralleled the routing table in middleware/auth.go::extractAction and
 // the (role, resource, action) policy in casbin_policy.csv. A17 consolidated
 // all three into authz.Procedures — this test now reads directly from the

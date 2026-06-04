@@ -36,7 +36,7 @@ func NewOIDCHandler(ssoService *services.SSOService, publicURL string) *OIDCHand
 // On any error it adds a jittered delay (150–450 ms) before returning a
 // generic 400. The jitter normalizes the timing difference between a valid
 // slug (discovery round-trip) and an invalid one (fast DB miss) to blunt
-// timing-based org-slug enumeration (see ORGS_SSO §4.4/§5.5).
+// timing-based org-slug enumeration (see DESIGN.md §4.4/§5.5).
 func (h *OIDCHandler) ServeStart(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(r.URL.Query().Get("org"))
 	if slug == "" {
@@ -63,7 +63,7 @@ func (h *OIDCHandler) ServeStart(w http.ResponseWriter, r *http.Request) {
 // On success it issues a 302 to the SPA /login/callback route with the NIS
 // session JWT in the URL fragment (#token=...). The SPA must call
 // history.replaceState to strip the fragment immediately after reading it
-// (see ORGS_SSO §4.6 / security consideration S1).
+// (see DESIGN.md §4.6 / security consideration S1).
 // On any error it returns a generic 400 with no detail.
 func (h *OIDCHandler) ServeCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

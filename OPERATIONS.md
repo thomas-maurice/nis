@@ -6,11 +6,124 @@ Operational procedures for running NIS in production. This document covers encry
 
 ## Table of Contents
 
-1. [Encryption Key Rotation](#encryption-key-rotation)
-2. [Backup & Restore](#backup--restore)
-3. [Database Migrations](#database-migrations)
-4. [Monitoring](#monitoring)
-5. [Troubleshooting](#troubleshooting)
+1. [Running with Docker](#running-with-docker)
+2. [Encryption Key Rotation](#encryption-key-rotation)
+3. [Backup & Restore](#backup--restore)
+4. [Database Migrations](#database-migrations)
+5. [Monitoring](#monitoring)
+6. [Troubleshooting](#troubleshooting)
+
+---
+
+## Running with Docker
+
+The published image is `mauricethomas/nis`, tagged `latest` and `master` on every push to master (`sha-<sha>` is also tagged per commit), and `vX.Y.Z` on release tags. The image is built with a multi-stage Dockerfile: Node builds the UI, Go compiles the binary with `-ldflags="-s -w"`, and the final stage is a minimal `alpine` image running as a non-root `nis` user (uid/gid 1000).
+
+### Quick Start with Docker Compose
+
+`docker-compose.yml` at the repo root runs NIS + NATS (+ PostgreSQL). This is the recommended way to bring up a complete stack locally or for a simple single-host deployment.
+
+```bash
+# Start all services
+docker-compose up -d
+
+# Access the UI
+open http://localhost:8080
+# Login: admin / admin123 (created automatically by the nis-setup container)
+
+# View logs
+docker-compose logs -f nis
+
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (fresh start)
+docker-compose down -v
+```
+
+### Services
+
+| Service | Port(s) | Description |
+|---|---|---|
+| `nis` | 8080 | NIS server (UI + gRPC API) |
+| `nats` | 4222 (client), 8222 (monitoring) | NATS with JetStream enabled |
+| `postgres` | 5432 | PostgreSQL database |
+| `nis-setup` | — | One-shot container: runs migrations and creates `admin`/`admin123`; exits when done |
+
+The `nis-setup` container is idempotent — it is safe to run multiple times. If `admin` already exists it logs "user already exists" and exits normally; this is not an error.
+
+### Configuration
+
+Environment variables in `docker-compose.yml`:
+
+```yaml
+JWT_SECRET: change-this-to-a-secure-random-secret-at-least-32-bytes-long
+ENCRYPTION_KEY: 12345678901234567890123456789012
+DB_DRIVER: postgres
+DB_DSN: host=postgres user=nis password=nis_password dbname=nis port=5432 sslmode=disable
+```
+
+**Change these secrets before any non-local deployment.**
+
+For production, prefer an `.env` file referenced by Compose:
+
+```bash
+JWT_SECRET=your-generated-secret-here
+ENCRYPTION_KEY=your-32-byte-encryption-key-here
+POSTGRES_PASSWORD=your-postgres-password
+```
+
+Generate secrets with:
+
+```bash
+openssl rand -base64 32   # JWT_SECRET
+openssl rand -base64 24   # ENCRYPTION_KEY (trimmed to 32 bytes as needed)
+```
+
+### Volumes
+
+Persistent data lives in named Docker volumes:
+
+- `postgres_data` — PostgreSQL database
+- `nats_data` — NATS JetStream data
+
+Back up these volumes before upgrades or key rotation. See [Backup & Restore](#backup--restore) for the volume backup procedure.
+
+### Useful Docker Commands
+
+```bash
+# Check service status
+docker-compose ps
+
+# Rebuild the NIS image (after a code change)
+docker-compose build nis
+docker-compose up -d nis
+
+# Restart a single service
+docker-compose restart nis
+
+# Execute a command inside the running container
+docker-compose exec nis ./nis --help
+
+# View NATS monitoring
+curl http://localhost:8222/varz
+```
+
+### Port Conflicts
+
+```bash
+lsof -ti:8080 | xargs kill -9   # NIS
+lsof -ti:5432 | xargs kill -9   # PostgreSQL
+lsof -ti:4222 | xargs kill -9   # NATS
+```
+
+### Production Checklist
+
+1. Replace all secrets in `.env` / Compose environment.
+2. Use a reverse proxy (nginx, Traefik) with TLS termination in front of port 8080.
+3. Switch to an external PostgreSQL instance for HA; see [Multi-Instance (PostgreSQL)](#multi-instance-postgresql).
+4. Configure scheduled volume backups for `postgres_data` and `nats_data`.
+5. Wire `/livez` and `/readyz` into your load balancer or orchestrator health checks.
 
 ---
 

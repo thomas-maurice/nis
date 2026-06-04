@@ -222,7 +222,7 @@ func (s *AccountJetStreamUsageTestSuite) TestAccountNotFoundPromotedToNotActivat
 	// a future refactor) by checking ClusterJetStreamUsage.Status is
 	// produced post-probe, not directly from the probe. The cleanest way
 	// is a small standalone helper; for now we rely on the e2e harness +
-	// the manual run-demo verification recorded in PROPOSALS.md.
+	// the manual run-demo verification recorded in DESIGN.md.
 	//
 	// The dial-failure assertion below still adds value: it pins that
 	// JS-enabled DB state does NOT magically up-grade Unreachable to OK

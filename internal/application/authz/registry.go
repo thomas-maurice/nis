@@ -164,7 +164,7 @@ var Procedures = map[string]Procedure{
 	// ValidateToken was inadvertently NOT, so any caller would 403 on a
 	// procedure that takes a token in the request body and exists precisely
 	// to introspect it. A17 aligns the wire behaviour with the documented
-	// intent; this is a deliberate bundled fix, called out in PROPOSALS.md.
+	// intent; this is a deliberate bundled fix, called out in DESIGN.md.
 	nisv1connect.AuthServiceLoginProcedure:                    {Resource: ResourceAuth, Action: ActionRead, Kind: KindPublic},
 	nisv1connect.AuthServiceValidateTokenProcedure:            {Resource: ResourceAuth, Action: ActionRead, Kind: KindPublic},
 	nisv1connect.AuthServiceCreateAPIUserProcedure:            {Resource: ResourceAPIUser, Action: ActionCreate, Kind: KindPerRow},

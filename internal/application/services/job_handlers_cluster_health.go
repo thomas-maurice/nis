@@ -24,7 +24,7 @@ import (
 // enqueues per (sweep / cluster), and ClaimDue's FOR UPDATE SKIP LOCKED on
 // Postgres ensures only one worker claims each row. SQLite stays correct via
 // SetMaxOpenConns(1). A3 (process-level leader election) is therefore NOT a
-// blocker — PROPOSALS.md A15 originally claimed it was; that claim is wrong.
+// blocker — DESIGN.md A15 originally claimed it was; that claim is wrong.
 const (
 	// JobTypeClusterHealthSweep ticks on a recurring schedule, enumerates
 	// every cluster row, and enqueues one cluster.health_check per row with

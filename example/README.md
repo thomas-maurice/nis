@@ -125,4 +125,4 @@ For production deployments:
 4. **NATS clustering**: Run multiple NATS servers for high availability
 5. **Regular backups**: Backup `./data/nis/nis.db` and `./data/nats/`
 
-See the main [QUICKSTART.md](../QUICKSTART.md) for detailed documentation.
+See the main [README.md](../README.md#quick-start) for detailed documentation.

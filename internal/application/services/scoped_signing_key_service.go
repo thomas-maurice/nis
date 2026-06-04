@@ -23,7 +23,7 @@ import (
 // Every mutating method (Create / Update / Delete) re-signs the parent account's JWT
 // so the NATS resolver sees the up-to-date set of scoped signers. Without that, NATS
 // rejects users signed by newly-created or just-modified scoped keys as
-// "Authorization Violation" — the bug previously labelled E1 in PROPOSALS.md.
+// "Authorization Violation" — the bug previously labelled E1 in DESIGN.md.
 //
 // The key mutation and the account-JWT regen share a single tx via
 // factory.WithTx, so a JWT-regen failure rolls back the key mutation too. That

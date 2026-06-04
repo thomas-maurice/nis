@@ -24,7 +24,7 @@ type EventFilter struct {
 	ActorID   *uuid.UUID
 	// SearchQ is a case-insensitive substring match across `type` and
 	// `resource_id`. Empty = no constraint. Payload is intentionally NOT
-	// searched — see PROPOSALS.md P1.
+	// searched — see DESIGN.md P1.
 	SearchQ string
 	Limit   int    // <=0 → service-default
 	Cursor  string // opaque; pass NextCursor from previous response

@@ -54,7 +54,7 @@ type RepositoryFactory interface {
 	// returns nil, rolls back on a non-nil error or a panic.
 	//
 	// Side-effects that can't be rolled back (e.g. NATS pushes) MUST happen AFTER
-	// WithTx returns, never inside fn. See PROPOSALS.md A1.
+	// WithTx returns, never inside fn. See DESIGN.md A1.
 	WithTx(ctx context.Context, fn func(tx RepositoryFactory) error) error
 }
 

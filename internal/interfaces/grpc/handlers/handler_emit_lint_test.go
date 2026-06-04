@@ -24,7 +24,7 @@ import (
 // / Delete AND whose Kind is KindPerRow or KindRoleOnly. Reads/lists/public
 // are not mutations. KindScopedList list endpoints are reads.
 //
-// Implementation per the design-review pin (PROPOSALS.md P1): declarative
+// Implementation per the design-review pin (DESIGN.md P1): declarative
 // + naming-by-convention rather than a transitive call-graph walk.
 //
 //	- Conventional resolution: procedure on `XxxHandler.Foo` → service file

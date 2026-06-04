@@ -50,11 +50,30 @@ The NIS process started by `make run` has `BACKUPS_ENABLED=true` pointed at the 
 # Start all services (NIS + NATS, SQLite-backed)
 docker-compose up -d
 
-# Access UI at http://localhost:8080
-# Login: admin/admin123 (created by the nis-setup container)
+# Create the admin user (first run only)
+docker exec nis-server ./nis user create admin --password admin123 --role admin
+
+# Access UI at http://localhost:8080  (login: admin / admin123)
 
 # Stop all services
 docker-compose down
+```
+
+Once up, provision an operator, account, user, and credentials. The `admin` user
+is a platform admin (org-less), so it must target an organization with `--org`
+when creating an operator or referencing one by name. A default organization is
+seeded on first start:
+
+```bash
+ORG=00000000-0000-0000-0000-000000000001   # seeded default org
+
+./bin/nisctl operator create demo-operator --org $ORG
+./bin/nisctl account create app-account --operator demo-operator --org $ORG
+./bin/nisctl cluster create demo-cluster --operator demo-operator --org $ORG --urls nats://localhost:4222
+./bin/nisctl cluster sync demo-cluster
+./bin/nisctl user create app-user --operator demo-operator --account app-account --org $ORG
+./bin/nisctl user creds app-user --operator demo-operator --account app-account --org $ORG > app-user.creds
+nats --creds=app-user.creds --server=nats://localhost:4222 rtt
 ```
 
 For a Postgres-backed compose stack, use `example/docker-compose.yml`.
@@ -76,6 +95,31 @@ For a Postgres-backed compose stack, use `example/docker-compose.yml`.
 # Quick demo with example scripts
 cd example && ./setup.sh
 open http://localhost:8080  # Login: admin/admin123
+```
+
+### Common issues
+
+**Port already in use**:
+```bash
+lsof -ti:8080 | xargs kill -9
+lsof -ti:4222 | xargs kill -9
+```
+
+**SQLite database locked** (Docker Compose):
+```bash
+docker-compose down
+rm -f ./data/nis/nis.db-shm ./data/nis/nis.db-wal
+docker-compose up -d
+```
+
+**NATS authentication fails after cluster registration**:
+```bash
+# Verify the account JWT was pushed
+./bin/nisctl cluster sync demo-cluster
+# Check NATS loaded the operator JWT
+docker logs nis-nats | grep Operator
+# Confirm credentials file is valid
+head -5 app-user.creds
 ```
 
 ## How It Works
@@ -1269,7 +1313,7 @@ the two retention sweeps:
 | `cluster.health.sweep` / `cluster.health_check` | sweep `cluster.health_check_interval_seconds` (default 60s) | A15. Per-cluster health probe. Sweep enumerates clusters and EnsureScheduled-s one check per row; each check is one-shot (`MaxAttempts=1`) because failure state lives on the cluster row, not the job. |
 | `cluster.account.push` / `cluster.account.delete` | per-mutation, in-tx enqueue | A13-full. Pushes a single account JWT to one cluster (or deletes via `$SYS.REQ.CLAIMS.DELETE`). One row per `(account, cluster)`; the partial unique index collapses bursts. After the push, the handler re-reads `account.JWT`; if it changed during the push, a follow-up keyed on the new JWT hash is enqueued so the dedup index can't suppress staleness fixes. `MaxAttempts=3`, `AuditFailuresOnly` (the handler emits `cluster.account.synced` on success; substrate audit would duplicate). |
 
-Future scheduled work — see [PROPOSALS.md](PROPOSALS.md) for the
+Future scheduled work — see [DESIGN.md](DESIGN.md) for the
 follow-up roadmap.
 
 ### Admin surface
@@ -1628,7 +1672,7 @@ Prometheus exporter, so no collector is required for metrics.
 
 ## Links
 
-- **Quickstart**: [QUICKSTART.md](QUICKSTART.md)
+- **Quick start**: [README.md#quick-start](#quick-start)
 - **Dev Guide**: [CLAUDE.md](CLAUDE.md)
 - **Docker Hub**: https://hub.docker.com/r/mauricethomas/nis
 - **NATS JWT Docs**: https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro/jwt

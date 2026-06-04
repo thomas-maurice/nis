@@ -299,7 +299,7 @@ func (h *UserHandler) GetUserCredentials(
 }
 
 // RevokeUser revokes a user's NATS credential via the parent account JWT's
-// Revocations map. See P2 in PROPOSALS.md.
+// Revocations map. See P2 in DESIGN.md.
 func (h *UserHandler) RevokeUser(
 	ctx context.Context,
 	req *connect.Request[pb.RevokeUserRequest],
