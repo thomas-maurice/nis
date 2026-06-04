@@ -129,7 +129,7 @@ func TestE2E_ClusterDrift_ReconcileClearsDrift(t *testing.T) {
 	h := startStack(t)
 	st := h.bootStandardStack(t, "drift-fix")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	time.Sleep(1100 * time.Millisecond)
@@ -162,11 +162,23 @@ func TestE2E_ClusterDrift_ReconcileClearsDrift(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	if _, err := h.clusterCli.ReconcileAccountOnCluster(ctx, connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
-		ClusterId: st.clusterID,
-		AccountId: st.accountID,
-	})); err != nil {
-		t.Fatalf("ReconcileAccountOnCluster: %v", err)
+	// GetClusterDriftStatus answering once doesn't guarantee NATS is stably
+	// accepting fresh connections — right after `docker start` the server can
+	// still close a new connection mid-handshake (EOF). ReconcileAccountOnCluster
+	// opens its own connection, so retry it through that transient window.
+	reconcileDeadline := time.Now().Add(15 * time.Second)
+	for {
+		_, err := h.clusterCli.ReconcileAccountOnCluster(ctx, connect.NewRequest(&nisv1.ReconcileAccountOnClusterRequest{
+			ClusterId: st.clusterID,
+			AccountId: st.accountID,
+		}))
+		if err == nil {
+			break
+		}
+		if time.Now().After(reconcileDeadline) {
+			t.Fatalf("ReconcileAccountOnCluster: %v", err)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	resp, err := h.clusterCli.GetClusterDriftStatus(ctx, connect.NewRequest(&nisv1.GetClusterDriftStatusRequest{
