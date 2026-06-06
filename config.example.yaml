@@ -111,6 +111,14 @@ oidc:
   state_ttl_seconds: 600          # how long an OIDC login state row lives before expiry (10 min)
   state_sweep_interval_seconds: 900 # how often the oidc.state_sweep job removes expired rows (15 min)
 
+# Single-org SSO convenience. When set to an org slug (e.g. "default"), the
+# login page's slug-less "Continue with SSO" button (/auth/oidc/start with no
+# ?org=) resolves to this org server-side, so users never type a slug. Leave
+# empty on multi-org deployments — the slug-less endpoint then errors like an
+# unknown slug.
+sso:
+  default_org: ""
+
 # --- Scheduled backups (P12) ---
 #
 # Off by default at the NIS-wide level. When enabled, an S3-compatible

@@ -53,16 +53,19 @@
 
         <div>
           <p class="text-muted text-center small mb-3">Or sign in with your organization</p>
+          <button class="btn btn-outline-primary w-100 mb-2" type="button" @click="startSSODefault">
+            Continue with SSO
+          </button>
           <div class="input-group">
             <input
               v-model="orgSlug"
               type="text"
               class="form-control"
-              placeholder="Organization slug"
+              placeholder="Organization slug (optional)"
               @keydown.enter.prevent="startSSO"
             />
             <button class="btn btn-outline-secondary" type="button" :disabled="!orgSlug" @click="startSSO">
-              Continue with SSO
+              Go
             </button>
           </div>
         </div>
@@ -93,6 +96,18 @@ const startSSO = () => {
   let url = '/auth/oidc/start?org=' + encodeURIComponent(slug)
   if (route.query.redirect) {
     url += '&redirect=' + encodeURIComponent(route.query.redirect)
+  }
+  window.location.href = url
+}
+
+// startSSODefault hits /auth/oidc/start with no org param. The server resolves
+// the org from sso.default_org (single-org deployments). On deployments where
+// that is unset the endpoint returns an error page — same degradation as
+// entering an unknown slug.
+const startSSODefault = () => {
+  let url = '/auth/oidc/start'
+  if (route.query.redirect) {
+    url += '?redirect=' + encodeURIComponent(route.query.redirect)
   }
   window.location.href = url
 }

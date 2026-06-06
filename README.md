@@ -762,10 +762,17 @@ Mappings are evaluated by ascending priority (lowest first); first match wins.
 
 Once an org has SSO enabled, users sign in from the NIS login page:
 
-- The login page has a **"Continue with SSO"** field — enter the org **slug** and
-  it navigates to `/auth/oidc/start?org=<slug>`, which 302-redirects to the IdP.
+- The login page has a **"Continue with SSO"** button plus an org **slug** field —
+  the button navigates to `/auth/oidc/start` (slug-less, see `sso.default_org`
+  below) and the field navigates to `/auth/oidc/start?org=<slug>`; both
+  302-redirect to the IdP.
 - Deep link: `/login?org=<slug>` auto-triggers the redirect (handy for bookmarks
   and IdP-initiated "launch" tiles).
+- **Single-org deployments:** set `sso.default_org` to an org slug (e.g.
+  `default`) and the slug-less **"Continue with SSO"** button resolves the org
+  server-side — users never type or see a slug. With `sso.default_org` empty, the
+  slug-less endpoint errors the same way an unknown slug does, so only enable it
+  when exactly one org is meant to back SSO logins.
 - After the IdP authenticates the user, NIS handles `/auth/oidc/callback`,
   JIT-provisions or finds the matching `api_user` (role resolved from the group
   mappings), and redirects to the SPA `/login/callback#token=<jwt>`. The SPA

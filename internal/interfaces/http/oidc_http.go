@@ -18,14 +18,21 @@ import (
 type OIDCHandler struct {
 	ssoService *services.SSOService
 	publicURL  string
+	defaultOrg string
 	verifierFn services.VerifierFactory
 }
 
 // NewOIDCHandler creates an OIDCHandler using the production VerifierFactory.
-func NewOIDCHandler(ssoService *services.SSOService, publicURL string) *OIDCHandler {
+//
+// defaultOrg is the org slug used when GET /auth/oidc/start is hit without an
+// explicit ?org= parameter. Empty disables the slug-less path (every start
+// must name an org). Set it (via config sso.default_org) for single-org
+// deployments so the login page can offer one slug-less "Continue with SSO".
+func NewOIDCHandler(ssoService *services.SSOService, publicURL, defaultOrg string) *OIDCHandler {
 	return &OIDCHandler{
 		ssoService: ssoService,
 		publicURL:  publicURL,
+		defaultOrg: defaultOrg,
 		verifierFn: services.RealVerifierFactory,
 	}
 }
@@ -39,6 +46,9 @@ func NewOIDCHandler(ssoService *services.SSOService, publicURL string) *OIDCHand
 // timing-based org-slug enumeration (see DESIGN.md §4.4/§5.5).
 func (h *OIDCHandler) ServeStart(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(r.URL.Query().Get("org"))
+	if slug == "" {
+		slug = h.defaultOrg
+	}
 	if slug == "" {
 		h.errorWithJitter(w)
 		return

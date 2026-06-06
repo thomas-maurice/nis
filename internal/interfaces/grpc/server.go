@@ -73,6 +73,7 @@ func NewServer(
 	organizationService *services.OrganizationService,
 	ssoService *services.SSOService,
 	publicURL string,
+	ssoDefaultOrg string,
 	authInterceptor *middleware.AuthInterceptor,
 ) *Server {
 	mux := http.NewServeMux()
@@ -148,7 +149,7 @@ func NewServer(
 
 	// OIDC SSO HTTP handlers (plain HTTP, not Connect-RPC). Registered
 	// unconditionally so they work with --enable-ui=false.
-	oidcHandler := httpInterface.NewOIDCHandler(ssoService, publicURL)
+	oidcHandler := httpInterface.NewOIDCHandler(ssoService, publicURL, ssoDefaultOrg)
 	mux.HandleFunc("/auth/oidc/start", oidcHandler.ServeStart)
 	mux.HandleFunc("/auth/oidc/callback", oidcHandler.ServeCallback)
 

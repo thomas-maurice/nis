@@ -101,6 +101,10 @@ func registerConfigDefaults() {
 	viper.SetDefault("server.public_url", "")
 	viper.SetDefault("oidc.state_ttl_seconds", 600)
 	viper.SetDefault("oidc.state_sweep_interval_seconds", 900)
+	// sso.default_org: org slug used when /auth/oidc/start is hit with no ?org=.
+	// Set it for single-org deployments so the login page can offer a slug-less
+	// "Continue with SSO" button. Empty = every start must name an org.
+	viper.SetDefault("sso.default_org", "")
 
 	// Backups (P12). Default disabled at the NIS-wide level. When enabled,
 	// an S3-compatible endpoint + bucket must be configured; per-operator

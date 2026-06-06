@@ -342,6 +342,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// to match the IdP's registered callback; stateTTL governs how long the
 	// persisted login-state rows live before expiry.
 	publicURL := viper.GetString("server.public_url")
+	ssoDefaultOrg := viper.GetString("sso.default_org")
 	stateTTL := time.Duration(viper.GetInt("oidc.state_ttl_seconds")) * time.Second
 	providerCache := oidcinfra.NewProviderCache()
 	ssoService := services.NewSSOService(repoFactory, encryptor, authService, providerCache, publicURL, stateTTL)
@@ -429,6 +430,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		organizationService,
 		ssoService,
 		publicURL,
+		ssoDefaultOrg,
 		authMiddleware,
 	)
 	if metricsHandler != nil {
