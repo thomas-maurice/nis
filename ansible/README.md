@@ -35,7 +35,7 @@ Ansible role to deploy NATS Identity Service (NIS) with PostgreSQL backend using
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `nis_nats_enabled` | `true` | Deploy NATS server |
+| `nis_nats_enabled` | `false` | Deploy a NATS server container alongside NIS |
 | `nis_nats_image` | `nats` | NATS image |
 | `nis_nats_image_tag` | `2.10-alpine` | NATS image tag |
 | `nis_nats_container_name` | `nis-nats` | NATS container name |
@@ -97,23 +97,29 @@ python3 -c "import secrets; print(secrets.token_urlsafe(24)[:32])"
 
 ## Post-Installation
 
-After deployment, configure NIS with an operator:
+After deployment, configure NIS with an operator. The bootstrap `admin` user is a
+**platform admin** and is not bound to any organization, so operator and cluster
+commands must name the target organization with `--org`. Use the built-in default
+organization (seeded on first migration) unless you have created another:
 
 ```bash
+# Default organization ID (seeded on first migration)
+ORG=00000000-0000-0000-0000-000000000001
+
 # Login to NIS
 docker exec nis-server ./nisctl login http://localhost:8080 --username admin --password admin123
 
 # Create operator
-docker exec nis-server ./nisctl operator create my-operator --description "My NATS operator"
+docker exec nis-server ./nisctl operator create my-operator --org "$ORG" --description "My NATS operator"
 
 # Generate NATS config with JWT auth
-docker exec nis-server ./nisctl operator generate-include my-operator > /opt/nis/nats/nats-server.conf
+docker exec nis-server ./nisctl operator generate-include my-operator --org "$ORG" > /opt/nis/nats/nats-server.conf
 
 # Restart NATS to load JWT auth
 docker restart nis-nats
 
 # Register cluster
-docker exec nis-server ./nisctl cluster create my-cluster --operator my-operator --urls nats://nis-nats:4222
+docker exec nis-server ./nisctl cluster create my-cluster --operator my-operator --org "$ORG" --urls nats://nis-nats:4222
 ```
 
 ## License
