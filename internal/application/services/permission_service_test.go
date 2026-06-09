@@ -365,6 +365,57 @@ func TestCanCreateOperator(t *testing.T) {
 	}
 }
 
+func TestCanImportOperator(t *testing.T) {
+	permService, _, _, _, _, _, _, _ := setupPermissionTest()
+
+	defaultOrg := uuid.MustParse(entities.DefaultOrganizationID)
+	otherOrg := uuid.New()
+
+	tests := []struct {
+		name        string
+		apiUser     *entities.APIUser
+		expectError bool
+	}{
+		{
+			name:        "Admin can import",
+			apiUser:     &entities.APIUser{Role: entities.RoleAdmin},
+			expectError: false,
+		},
+		{
+			name:        "Org admin of the default org can import",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &defaultOrg},
+			expectError: false,
+		},
+		{
+			name:        "Org admin of a non-default org cannot import (would land in default org)",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &otherOrg},
+			expectError: true,
+		},
+		{
+			name:        "Org admin without org binding cannot import",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin},
+			expectError: true,
+		},
+		{
+			name:        "Operator admin cannot import",
+			apiUser:     &entities.APIUser{Role: entities.RoleOperatorAdmin},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := permService.CanImportOperator(tt.apiUser)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrPermissionDenied)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 // Test CanReadOperator
 func TestCanReadOperator(t *testing.T) {
 	permService, _, _, _, operator1ID, operator2ID, _, _ := setupPermissionTest()

@@ -219,13 +219,13 @@ var Procedures = map[string]Procedure{
 	nisv1connect.EventServiceListEventsProcedure: {Resource: ResourceEvent, Action: ActionRead, Kind: KindRoleOnly},
 	nisv1connect.EventServiceGetEventProcedure:   {Resource: ResourceEvent, Action: ActionRead, Kind: KindRoleOnly},
 
-	// ExportService. ImportOperator + ImportFromNSC route to (export, read)
-	// because the pre-A17 extractAction had no "import*" prefix — they fell
-	// through to "read". requireAdmin() in the handler is what actually denies
-	// non-admins. Preserved verbatim to avoid changing wire semantics.
+	// ExportService. Import* route to (export, read); org-admin already holds
+	// export:read in RolePolicy, so the coarse interceptor admits them and the
+	// handler's permService.CanImportOperator makes the fine-grained call
+	// (admin, or an org-admin importing into the default org). Hence KindPerRow.
 	nisv1connect.ExportServiceExportOperatorProcedure: {Resource: ResourceExport, Action: ActionRead, Kind: KindPerRow},
-	nisv1connect.ExportServiceImportOperatorProcedure: {Resource: ResourceExport, Action: ActionRead, Kind: KindRoleOnly},
-	nisv1connect.ExportServiceImportFromNSCProcedure:  {Resource: ResourceExport, Action: ActionRead, Kind: KindRoleOnly},
+	nisv1connect.ExportServiceImportOperatorProcedure: {Resource: ResourceExport, Action: ActionRead, Kind: KindPerRow},
+	nisv1connect.ExportServiceImportFromNSCProcedure:  {Resource: ResourceExport, Action: ActionRead, Kind: KindPerRow},
 
 	// JobService. retry → update, cancel → delete (pre-A17 verb-prefix rules).
 	nisv1connect.JobServiceListJobsProcedure:  {Resource: ResourceJob, Action: ActionRead, Kind: KindRoleOnly},

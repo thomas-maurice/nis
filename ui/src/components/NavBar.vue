@@ -42,7 +42,7 @@
               Identity
             </a>
             <ul class="dropdown-menu" aria-labelledby="identityDropdown">
-              <li v-if="authStore.isAdmin || authStore.isOperatorAdmin">
+              <li v-if="authStore.isAdmin || authStore.isOperatorAdmin || authStore.isOrgAdmin">
                 <router-link class="dropdown-item" to="/operators">
                   <font-awesome-icon :icon="['fas', 'server']" class="me-2" />
                   Operators
@@ -93,7 +93,7 @@
 
           <!-- Operations: cluster + observability surfaces. Hidden entirely for
                account-admin, since none of these items are visible to that role. -->
-          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin" class="nav-item dropdown">
+          <li v-if="authStore.isAdmin || authStore.isOperatorAdmin || authStore.isOrgAdmin" class="nav-item dropdown">
             <a
               class="nav-link dropdown-toggle"
               href="#"

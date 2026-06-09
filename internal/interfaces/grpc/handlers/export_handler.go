@@ -78,8 +78,12 @@ func (h *ExportHandler) ImportOperator(
 	ctx context.Context,
 	req *connect.Request[pb.ImportOperatorRequest],
 ) (*connect.Response[pb.ImportOperatorResponse], error) {
-	if err := requireAdmin(ctx); err != nil {
+	user, err := authedUser(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if err := h.permService.CanImportOperator(user); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	// Parse first (auto-detects JSON or YAML) so we can echo the operator ID
@@ -109,8 +113,12 @@ func (h *ExportHandler) ImportFromNSC(
 	ctx context.Context,
 	req *connect.Request[pb.ImportFromNSCRequest],
 ) (*connect.Response[pb.ImportFromNSCResponse], error) {
-	if err := requireAdmin(ctx); err != nil {
+	user, err := authedUser(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if err := h.permService.CanImportOperator(user); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
 	operatorID, err := h.service.ImportFromNSC(ctx, req.Msg.Data, req.Msg.OperatorName)

@@ -218,6 +218,28 @@ func (s *PermissionService) CanCreateOperator(apiUser *entities.APIUser) error {
 	return denyf("only admin or org-admin can create operators")
 }
 
+// CanImportOperator gates operator import (ExportService.ImportOperator and
+// ImportFromNSC). Imported operators currently always land in the default
+// organization (see the import path in ExportService; multi-org import routing
+// is deferred), so a platform admin may always import, and an org-admin may
+// import only when their own organization IS the default org — otherwise the
+// imported operator would be created outside the org they administer.
+func (s *PermissionService) CanImportOperator(apiUser *entities.APIUser) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if apiUser.OrganizationID != nil && apiUser.OrganizationID.String() == entities.DefaultOrganizationID {
+			return nil
+		}
+		return denyf("org-admin can only import into the default organization")
+	}
+	return denyf("only admin or org-admin can import operators")
+}
+
 // CanReadOperator: every authenticated role can read the operator they belong to.
 func (s *PermissionService) CanReadOperator(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
 	ok, err := s.ownsOperator(ctx, apiUser, operatorID)
