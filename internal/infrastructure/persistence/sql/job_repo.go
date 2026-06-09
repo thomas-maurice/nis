@@ -14,6 +14,7 @@ import (
 	"github.com/thomas-maurice/nis/internal/domain/entities"
 	"github.com/thomas-maurice/nis/internal/domain/repositories"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // JobRepo implements repositories.JobRepository using GORM.
@@ -80,13 +81,19 @@ func (r *JobRepo) Enqueue(ctx context.Context, job *entities.Job) error {
 }
 
 func (r *JobRepo) EnqueueIfAbsent(ctx context.Context, job *entities.Job) (bool, error) {
-	if err := r.Enqueue(ctx, job); err != nil {
-		if errors.Is(err, repositories.ErrJobAlreadyEnqueued) {
-			return false, nil
-		}
-		return false, err
+	model := JobModelFromEntity(job)
+	normalizeJobTimes(model)
+	// INSERT ... ON CONFLICT DO NOTHING: a pre-existing active job with the same
+	// (type, dedup_key) is a silent no-op. Unlike a plain Create that lets the
+	// partial-unique-index rejection bubble up, this raises no driver error — so
+	// GORM's logger doesn't spam an ERROR on every recurring re-enqueue (the
+	// scheduler re-attempts each sweep job every tick). RowsAffected distinguishes
+	// an insert (1) from a skipped duplicate (0).
+	res := r.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(model)
+	if res.Error != nil {
+		return false, fmt.Errorf("failed to enqueue job: %w", res.Error)
 	}
-	return true, nil
+	return res.RowsAffected > 0, nil
 }
 
 // ClaimDue atomically claims up to `limit` due rows for execution.
