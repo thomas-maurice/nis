@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -185,8 +186,13 @@ func (h *OrganizationHandler) GetSSOConfig(ctx context.Context, req *connect.Req
 	if err := h.permSvc.CanReadSSO(ctx, apiUser, orgID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
+	// A missing SSO config is not an error here: the operator needs the
+	// callback_url (derived purely from server.public_url) *before* they can
+	// save an SSO config, so they can register that redirect URI with their
+	// IdP first. Return an empty Config with the callback_url in that case;
+	// only genuine errors propagate.
 	cfg, err := h.svc.GetSSOConfig(ctx, orgID)
-	if err != nil {
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return nil, repoErrToConnect(err)
 	}
 	callbackURL := ""
