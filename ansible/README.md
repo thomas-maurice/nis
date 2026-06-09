@@ -1,84 +1,109 @@
 # NIS Ansible Role
 
-Ansible role to deploy NATS Identity Service (NIS) with PostgreSQL backend using Docker containers.
+Ansible role to deploy a complete NATS Identity Service (NIS) instance with Docker
+containers (NIS + optional PostgreSQL + optional NATS).
+
+## How configuration works
+
+The role renders the **entire** NIS configuration to a file from
+[`templates/config.yaml.j2`](templates/config.yaml.j2), writes it to
+`{{ nis_config_dir }}/config.yaml` on the host (mode `0600`, owned by uid/gid
+`1000` — the in-container `nis` user), mounts it read-only at `/app/config.yaml`,
+and starts the server with `serve --config /app/config.yaml`.
+
+Every NIS config key is exposed as a `nis_*` variable. The authoritative,
+fully-commented list of variables and their defaults lives in
+[`defaults/main.yml`](defaults/main.yml) — read it; this README only highlights
+the ones you must set and the non-obvious ones. Override variables via group/host
+vars (use `ansible-vault` for the secrets).
+
+Changing any `nis_*` config variable re-renders the file and triggers the
+`Restart NIS` handler, which is flushed before the health-wait/admin steps so the
+server comes back up on the new config within the same play.
 
 ## Requirements
 
 - Docker installed on target host
 - `community.docker` Ansible collection
 
-## Role Variables
+## Variables you MUST set (secrets)
 
-### NIS Server
+Put these in an `ansible-vault`'d file — never commit real values.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `nis_image` | `mauricethomas/nis` | NIS Docker image |
-| `nis_image_tag` | `latest` | NIS image tag |
-| `nis_container_name` | `nis-server` | NIS container name |
-| `nis_port` | `8080` | Host port for NIS API/UI |
-| `nis_data_dir` | `/opt/nis/data` | Data directory on host |
+| Variable | Description |
+|----------|-------------|
+| `nis_jwt_secret` | JWT signing secret, min 32 bytes. `openssl rand -base64 32` |
+| `nis_encryption_key` | At-rest encryption key, **exactly 32 raw bytes** (see below) |
+| `nis_db_password` | PostgreSQL password (postgres driver only) |
+| `nis_admin_password` | Bootstrap admin password |
 
-### PostgreSQL
+### Encryption key (read carefully)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `nis_postgres_image` | `postgres` | PostgreSQL image |
-| `nis_postgres_image_tag` | `16-alpine` | PostgreSQL image tag |
-| `nis_postgres_container_name` | `nis-postgres` | PostgreSQL container name |
-| `nis_postgres_data_dir` | `/opt/nis/postgres` | PostgreSQL data directory |
-| `nis_db_name` | `nis` | Database name |
-| `nis_db_user` | `nis` | Database user |
-| `nis_db_password` | `changeme` | Database password |
+`nis_encryption_key` encrypts private NKey seeds at rest (ChaCha20-Poly1305). The
+single-key form requires a value that is **exactly 32 bytes long** — NIS
+base64-encodes it internally, so do **not** pre-base64 it. A `openssl rand -base64 32`
+string is 44 chars and will fail startup with "encryption key must be exactly 32
+bytes".
 
-### NATS Server
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `nis_nats_enabled` | `false` | Deploy a NATS server container alongside NIS |
-| `nis_nats_image` | `nats` | NATS image |
-| `nis_nats_image_tag` | `2.10-alpine` | NATS image tag |
-| `nis_nats_container_name` | `nis-nats` | NATS container name |
-| `nis_nats_client_port` | `4222` | NATS client port |
-| `nis_nats_monitoring_port` | `8222` | NATS monitoring port |
-| `nis_nats_data_dir` | `/opt/nis/nats` | NATS data directory |
-
-### Security
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `nis_jwt_secret` | `change-this-...` | JWT signing secret (min 32 bytes) |
-| `nis_encryption_key` | `123456...` | Encryption key (exactly 32 bytes) - see below |
-| `nis_admin_user` | `admin` | Admin username |
-| `nis_admin_password` | `admin123` | Admin password |
-| `nis_create_admin_user` | `true` | Create admin user on deploy |
-
-#### Encryption Key
-
-The `nis_encryption_key` is used to encrypt private keys stored in the database using ChaCha20-Poly1305.
-
-**Requirements:**
-- Must be **exactly 32 bytes** (256 bits)
-- Use only printable ASCII characters
-
-**Generate a secure key:**
 ```bash
-# Option 1: Using openssl
-openssl rand -hex 16 | tr -d '\n'
-
-# Option 2: Using /dev/urandom
-head -c 32 /dev/urandom | base64 | head -c 32
-
-# Option 3: Using python
-python3 -c "import secrets; print(secrets.token_urlsafe(24)[:32])"
+openssl rand -base64 24    # 24 random bytes -> 32 chars
+openssl rand -hex 16       # 16 random bytes -> 32 chars
 ```
 
-### Docker
+#### Key rotation (multi-key form)
+
+To support rotation, define `nis_encryption_keys` as a non-empty list instead.
+Each `key` here **is** base64 of 32 random bytes (`openssl rand -base64 32`). When
+the list is non-empty NIS uses it and ignores `nis_encryption_key`:
+
+```yaml
+nis_encryption_current_key_id: "key-2025-01"
+nis_encryption_keys:
+  - id: "key-2025-01"
+    key: "{{ vault_nis_key_2025_01 }}"   # base64 of 32 bytes
+  - id: "key-2024-12"                      # old key, kept so old data decrypts
+    key: "{{ vault_nis_key_2024_12 }}"
+```
+
+## Common variables
+
+### Server / database
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `nis_docker_network` | `""` (default bridge) | Docker network name - empty uses default bridge with container links |
-| `nis_restart_policy` | `unless-stopped` | Container restart policy |
+| `nis_image` / `nis_image_tag` | `mauricethomas/nis` / `latest` | NIS image |
+| `nis_port` | `8080` | Host port for the NIS API/UI |
+| `nis_data_dir` | `/opt/nis/data` | Persisted data dir (mounted at `/data`) |
+| `nis_config_dir` | `/opt/nis/config` | Where the rendered `config.yaml` is written |
+| `nis_public_url` | `""` | External base URL — **required for OIDC SSO** |
+| `nis_enable_ui` | `true` | Serve the embedded web UI |
+| `nis_db_driver` | `postgres` | `postgres` or `sqlite` |
+| `nis_db_*` | — | Postgres host/port/name/user/password/sslmode |
+| `nis_sqlite_path` | `/data/nis.db` | SQLite DB path (sqlite driver only) |
+| `nis_auto_migrate` | `false` | Apply migrations on startup (dev only) |
+
+With `nis_db_driver: sqlite` the PostgreSQL sidecar container is not started.
+
+### Optional NATS sidecar
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `nis_nats_enabled` | `false` | Deploy a NATS container alongside NIS |
+| `nis_nats_image_tag` | `2.10-alpine` | NATS image tag |
+| `nis_nats_client_port` / `nis_nats_monitoring_port` | `4222` / `8222` | Ports |
+
+### SSO / backups / tuning
+
+These are all `nis_*`-prefixed and documented inline in
+[`defaults/main.yml`](defaults/main.yml). Highlights:
+
+- **OIDC SSO:** set `nis_public_url`; optionally `nis_sso_default_org` for a
+  single-org slug-less login button.
+- **Scheduled backups:** `nis_backups_enabled: true` plus the `nis_backups_s3_*`
+  S3/MinIO endpoint, bucket and credentials.
+- **Retention / sweeps / leases:** `nis_jobs_*`, `nis_events_*`,
+  `nis_revocations_*`, `nis_webhooks_*`, `nis_jwt_policy_*`.
+- **Observability:** `nis_metrics_*`, `nis_tracing_*`, `nis_log_level`.
 
 ## Example Playbook
 
@@ -89,10 +114,17 @@ python3 -c "import secrets; print(secrets.token_urlsafe(24)[:32])"
   roles:
     - role: nis
       vars:
+        nis_public_url: "https://nis.example.com"
         nis_db_password: "{{ vault_nis_db_password }}"
         nis_jwt_secret: "{{ vault_nis_jwt_secret }}"
         nis_encryption_key: "{{ vault_nis_encryption_key }}"
         nis_admin_password: "{{ vault_nis_admin_password }}"
+        # Enable scheduled backups to MinIO
+        nis_backups_enabled: true
+        nis_backups_s3_endpoint: "http://minio:9000"
+        nis_backups_s3_bucket: "nis-backups"
+        nis_backups_s3_access_key_id: "{{ vault_minio_access_key }}"
+        nis_backups_s3_secret_access_key: "{{ vault_minio_secret_key }}"
 ```
 
 ## Post-Installation

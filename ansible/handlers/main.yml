@@ -1,6 +1,12 @@
 ---
 - name: Restart NIS
   community.docker.docker_container:
+    name: "{{ nis_container_name }}"
+    state: started
+    restart: true
+
+- name: Restart NATS
+  community.docker.docker_container:
     name: "{{ nis_nats_container_name }}"
     state: started
     restart: true

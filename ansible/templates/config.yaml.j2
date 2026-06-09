@@ -1,0 +1,116 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# NIS configuration, rendered by the Ansible role from group/host vars.
+# Every key the NIS binary reads is represented here. Edit the nis_* variables
+# (see defaults/main.yml) rather than this file — it is overwritten on each run.
+#
+# Precedence (high -> low): explicit flag > env var > this file > built-in default.
+
+server:
+  address: ":{{ nis_server_address_port }}"
+  enable_ui: {{ nis_enable_ui | string | lower }}
+  # public_url is the externally-reachable base URL used to build the OIDC
+  # redirect_uri and the post-login SPA redirect. Required for OIDC SSO.
+  public_url: "{{ nis_public_url }}"
+
+database:
+  driver: "{{ nis_db_driver }}"
+{% if nis_db_driver == 'postgres' %}
+  dsn: "host={{ nis_db_host }} user={{ nis_db_user }} password='{{ nis_db_password }}' dbname={{ nis_db_name }} port={{ nis_db_port }} sslmode={{ nis_db_sslmode }}"
+{% else %}
+  dsn: "{{ nis_sqlite_path }}"
+{% endif %}
+  auto_migrate: {{ nis_auto_migrate | string | lower }}
+
+encryption:
+{% if nis_encryption_keys | default([]) | length > 0 %}
+  # Multi-key form (supports rotation). Each key is base64(32 random bytes):
+  #   openssl rand -base64 32
+  current_key_id: "{{ nis_encryption_current_key_id }}"
+  keys:
+{% for k in nis_encryption_keys %}
+    - id: "{{ k.id }}"
+      key: "{{ k.key }}"
+{% endfor %}
+{% else %}
+  # Single-key form. The value must be EXACTLY 32 raw bytes (NOT base64).
+  # Generate 32 random bytes:  openssl rand -base64 24   (yields 32 chars)
+  #                       or:  openssl rand -hex 16      (yields 32 chars)
+  key: "{{ nis_encryption_key }}"
+  key_id: "{{ nis_encryption_key_id }}"
+{% endif %}
+
+auth:
+  jwt_secret: "{{ nis_jwt_secret }}"
+  jwt_ttl: "{{ nis_jwt_ttl }}"
+
+metrics:
+  enabled: {{ nis_metrics_enabled | string | lower }}
+  domain_gauge_refresh_seconds: {{ nis_metrics_domain_gauge_refresh_seconds }}
+
+tracing:
+  enabled: {{ nis_tracing_enabled | string | lower }}
+  endpoint: "{{ nis_tracing_endpoint }}"
+  insecure: {{ nis_tracing_insecure | string | lower }}
+  sample_ratio: {{ nis_tracing_sample_ratio }}
+  service_name: "{{ nis_tracing_service_name }}"
+
+log_level: "{{ nis_log_level }}"
+
+jobs:
+  poll_interval_seconds: {{ nis_jobs_poll_interval_seconds }}
+  claim_batch: {{ nis_jobs_claim_batch }}
+  lease_duration_seconds: {{ nis_jobs_lease_duration_seconds }}
+  shutdown_timeout_seconds: {{ nis_jobs_shutdown_timeout_seconds }}
+  retention_days: {{ nis_jobs_retention_days }}
+  retention_sweep_interval_seconds: {{ nis_jobs_retention_sweep_interval_seconds }}
+
+events:
+  retention_days: {{ nis_events_retention_days }}
+  retention_sweep_interval_seconds: {{ nis_events_retention_sweep_interval_seconds }}
+
+revocations:
+  retention_days: {{ nis_revocations_retention_days }}
+  retention_sweep_interval_seconds: {{ nis_revocations_retention_sweep_interval_seconds }}
+
+webhooks:
+  succeeded_retention_days: {{ nis_webhooks_succeeded_retention_days }}
+  delivery_timeout_seconds: {{ nis_webhooks_delivery_timeout_seconds }}
+  max_attempts: {{ nis_webhooks_max_attempts }}
+  backoff_base_seconds: {{ nis_webhooks_backoff_base_seconds }}
+  backoff_cap_seconds: {{ nis_webhooks_backoff_cap_seconds }}
+
+jwt_policy:
+  sweep_interval_seconds: {{ nis_jwt_policy_sweep_interval_seconds }}
+  sweep_batch_limit: {{ nis_jwt_policy_sweep_batch_limit }}
+  expiry_lease_seconds: {{ nis_jwt_policy_expiry_lease_seconds }}
+
+api_tokens:
+  last_used_flush_interval_seconds: {{ nis_api_tokens_last_used_flush_interval_seconds }}
+
+cluster:
+  health_check_interval_seconds: {{ nis_cluster_health_check_interval_seconds }}
+  health_check_initial_delay_seconds: {{ nis_cluster_health_check_initial_delay_seconds }}
+
+oidc:
+  state_ttl_seconds: {{ nis_oidc_state_ttl_seconds }}
+  state_sweep_interval_seconds: {{ nis_oidc_state_sweep_interval_seconds }}
+
+# Single-org SSO convenience. Set to an org slug so the login page's slug-less
+# "Continue with SSO" button resolves server-side. Leave empty on multi-org.
+sso:
+  default_org: "{{ nis_sso_default_org }}"
+
+backups:
+  enabled: {{ nis_backups_enabled | string | lower }}
+  sweep_interval_seconds: {{ nis_backups_sweep_interval_seconds }}
+  execute_lease_seconds: {{ nis_backups_execute_lease_seconds }}
+  s3:
+    endpoint: "{{ nis_backups_s3_endpoint }}"
+    region: "{{ nis_backups_s3_region }}"
+    bucket: "{{ nis_backups_s3_bucket }}"
+    access_key_id: "{{ nis_backups_s3_access_key_id }}"
+    secret_access_key: "{{ nis_backups_s3_secret_access_key }}"
+    use_path_style: {{ nis_backups_s3_use_path_style | string | lower }}
+    use_ssl: {{ nis_backups_s3_use_ssl | string | lower }}
+    object_prefix: "{{ nis_backups_s3_object_prefix }}"

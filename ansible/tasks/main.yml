@@ -6,10 +6,22 @@
     mode: "0755"
   loop:
     - "{{ nis_data_dir }}"
+    - "{{ nis_config_dir }}"
     - "{{ nis_postgres_data_dir }}"
     - "{{ nis_nats_data_dir }}"
     - "{{ nis_nats_data_dir }}/resolver"
     - "{{ nis_nats_data_dir }}/jetstream"
+
+- name: Render NIS config file
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ nis_config_dir }}/config.yaml"
+    # Owned by the in-container nis user (uid/gid 1000) and locked down: the
+    # file carries the JWT secret, encryption key, DB password and S3 creds.
+    owner: "1000"
+    group: "1000"
+    mode: "0600"
+  notify: Restart NIS
 
 - name: Create Docker network
   community.docker.docker_network:
@@ -43,6 +55,7 @@
       interval: 10s
       timeout: 5s
       retries: 5
+  when: nis_db_driver == "postgres"
 
 - name: Wait for PostgreSQL to be healthy
   community.docker.docker_container_info:
@@ -51,6 +64,7 @@
   until: postgres_info.container.State.Health.Status == "healthy"
   retries: 30
   delay: 2
+  when: nis_db_driver == "postgres"
 
 - name: Start NIS server container
   community.docker.docker_container:
@@ -59,24 +73,22 @@
     state: started
     restart_policy: "{{ nis_restart_policy }}"
     networks: "{{ [{'name': nis_docker_network}] if nis_docker_network | length > 0 and nis_docker_network != 'bridge' else omit }}"
-    links: "{{ [nis_postgres_container_name + ':' + nis_db_host] if nis_docker_network | length == 0 or nis_docker_network == 'bridge' else omit }}"
+    links: "{{ [nis_postgres_container_name + ':' + nis_db_host] if nis_db_driver == 'postgres' and (nis_docker_network | length == 0 or nis_docker_network == 'bridge') else omit }}"
     ports:
       - "{{ nis_port }}:8080"
-    env:
-      DATABASE_DRIVER: "{{ nis_db_driver }}"
-      DATABASE_DSN: "host={{ nis_db_host }} user={{ nis_db_user }} password={{ nis_db_password }} dbname={{ nis_db_name }} port={{ nis_db_port }} sslmode={{ nis_db_sslmode }}"
-      AUTH_JWT_SECRET: "{{ nis_jwt_secret }}"
-      ENCRYPTION_KEY: "{{ nis_encryption_key }}"
-      DATABASE_AUTO_MIGRATE: "{{ nis_auto_migrate | string | lower }}"
     volumes:
       - "{{ nis_data_dir }}:/data"
-    command: ["./nis", "serve", "--address", ":8080"]
+      - "{{ nis_config_dir }}/config.yaml:/app/config.yaml:ro"
+    command: ["./nis", "serve", "--config", "/app/config.yaml"]
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+- name: Apply pending restarts (config change) before health wait
+  ansible.builtin.meta: flush_handlers
 
 - name: Wait for NIS server to be healthy
   community.docker.docker_container_info:

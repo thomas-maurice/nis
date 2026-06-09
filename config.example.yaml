@@ -80,6 +80,10 @@ events:
   retention_days: 30                  # delete events older than this many days; 0 disables cleanup
   retention_sweep_interval_seconds: 86400   # how often the events.retention_sweep handler runs
 
+revocations:
+  retention_days: 90                  # hard-delete pruned user_jwt_revocations rows after N days; 0 disables the handler
+  retention_sweep_interval_seconds: 86400   # how often the revocations.retention_sweep handler runs
+
 webhooks:
   succeeded_retention_days: 7         # delete succeeded webhook_deliveries after this many days; dead-letter survives forever
   delivery_timeout_seconds: 10        # per-POST HTTP timeout

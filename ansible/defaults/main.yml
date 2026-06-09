@@ -1,27 +1,184 @@
 ---
+# =============================================================================
 # NIS Server Configuration
+# =============================================================================
 nis_image: "mauricethomas/nis"
 nis_image_tag: "latest"
 nis_container_name: "nis-server"
+# Published host port. The container always listens on :8080 internally
+# (see nis_server_address_port); this maps that to a host port.
 nis_port: 8080
 nis_data_dir: "/opt/nis/data"
+# Directory on the host that holds the rendered config.yaml. Mounted read-only
+# into the container at /app/config.yaml (the binary's WORKDIR auto-search path).
+nis_config_dir: "/opt/nis/config"
+nis_restart_policy: "unless-stopped"
 
-# Database Configuration
-nis_db_driver: "postgres"
+# -----------------------------------------------------------------------------
+# server.*
+# -----------------------------------------------------------------------------
+# In-container listen port. Keep this 8080 to match the published port mapping
+# and the container healthcheck; change the host side via nis_port instead.
+nis_server_address_port: 8080
+nis_enable_ui: true
+# Externally-reachable base URL (e.g. "https://nis.example.com"). REQUIRED for
+# OIDC SSO so the redirect_uri matches the IdP's registered callback.
+nis_public_url: ""
+
+# =============================================================================
+# database.*
+# =============================================================================
+nis_db_driver: "postgres"          # "postgres" or "sqlite"
 nis_db_host: "nis-postgres"
 nis_db_port: 5432
 nis_db_name: "nis"
 nis_db_user: "nis"
 nis_db_password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
 nis_db_sslmode: "disable"
+# Only used when nis_db_driver == "sqlite". Path inside the container; keep it
+# under /data so it lands on the persisted volume.
+nis_sqlite_path: "/data/nis.db"
+# Apply embedded migrations on startup. Leave false in production and run
+# migrations explicitly; flip to true only for first-boot / dev convenience.
+nis_auto_migrate: false
 
-# PostgreSQL Container
+# PostgreSQL sidecar container (only started when nis_db_driver == "postgres")
 nis_postgres_image: "postgres"
 nis_postgres_image_tag: "16-alpine"
 nis_postgres_container_name: "nis-postgres"
 nis_postgres_data_dir: "/opt/nis/postgres"
 
-# NATS Server Configuration
+# =============================================================================
+# encryption.*
+# =============================================================================
+# Two mutually-exclusive forms:
+#
+# (1) Single-key (default below). nis_encryption_key MUST be EXACTLY 32 raw
+#     bytes (it is base64-encoded internally by NIS, so do NOT pre-base64 it).
+#       openssl rand -base64 24    # yields 32 chars
+#       openssl rand -hex 16       # yields 32 chars
+#     Store the real value in an ansible-vault'd var, not here.
+nis_encryption_key: "CHANGE_ME_32_BYTE_RAW_KEY_openssl_rand_base64_24"
+nis_encryption_key_id: "default"
+#
+# (2) Multi-key (key rotation). Define nis_encryption_keys as a non-empty list
+#     and NIS uses the multi-key form instead, ignoring nis_encryption_key.
+#     Each key is base64(32 random bytes):  openssl rand -base64 32
+#       nis_encryption_current_key_id: "key-2025-01"
+#       nis_encryption_keys:
+#         - id: "key-2025-01"
+#           key: "BASE64_OF_32_RANDOM_BYTES"
+#         - id: "key-2024-12"            # old key, kept so old data decrypts
+#           key: "OLD_BASE64_KEY"
+nis_encryption_keys: []
+nis_encryption_current_key_id: ""
+
+# =============================================================================
+# auth.*
+# =============================================================================
+# JWT secret for API authentication. Minimum 32 bytes; any length above is fine.
+#   openssl rand -base64 32
+# Store the real value in an ansible-vault'd var, not here.
+nis_jwt_secret: "CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
+nis_jwt_ttl: "24h"
+
+# =============================================================================
+# metrics.*
+# =============================================================================
+nis_metrics_enabled: true
+nis_metrics_domain_gauge_refresh_seconds: 60
+
+# =============================================================================
+# tracing.*  (OTLP/gRPC exporter; off until a collector is reachable)
+# =============================================================================
+nis_tracing_enabled: false
+nis_tracing_endpoint: "localhost:4317"
+nis_tracing_insecure: true
+nis_tracing_sample_ratio: 1.0
+nis_tracing_service_name: "nis"
+
+# =============================================================================
+# log_level: debug | info | warn | error
+# =============================================================================
+nis_log_level: "info"
+
+# =============================================================================
+# jobs.*  (background-task substrate; all cadences in SECONDS)
+# =============================================================================
+nis_jobs_poll_interval_seconds: 0          # 0 = auto (2s Postgres, 10s SQLite)
+nis_jobs_claim_batch: 10
+nis_jobs_lease_duration_seconds: 300
+nis_jobs_shutdown_timeout_seconds: 30
+nis_jobs_retention_days: 30
+nis_jobs_retention_sweep_interval_seconds: 86400
+
+# =============================================================================
+# events.*  (append-only audit log retention)
+# =============================================================================
+nis_events_retention_days: 30
+nis_events_retention_sweep_interval_seconds: 86400
+
+# =============================================================================
+# revocations.*  (user_jwt_revocations hard-delete; wider window than events)
+# =============================================================================
+nis_revocations_retention_days: 90
+nis_revocations_retention_sweep_interval_seconds: 86400
+
+# =============================================================================
+# webhooks.*
+# =============================================================================
+nis_webhooks_succeeded_retention_days: 7
+nis_webhooks_delivery_timeout_seconds: 10
+nis_webhooks_max_attempts: 5
+nis_webhooks_backoff_base_seconds: 10
+nis_webhooks_backoff_cap_seconds: 600
+
+# =============================================================================
+# jwt_policy.*  (JWT lifecycle sweeper)
+# =============================================================================
+nis_jwt_policy_sweep_interval_seconds: 3600
+nis_jwt_policy_sweep_batch_limit: 500
+nis_jwt_policy_expiry_lease_seconds: 900
+
+# =============================================================================
+# api_tokens.*
+# =============================================================================
+nis_api_tokens_last_used_flush_interval_seconds: 30
+
+# =============================================================================
+# cluster.*  (health-check goroutine cadence)
+# =============================================================================
+nis_cluster_health_check_interval_seconds: 60
+nis_cluster_health_check_initial_delay_seconds: 5
+
+# =============================================================================
+# oidc.*  (OIDC SSO login-state housekeeping; requires nis_public_url)
+# =============================================================================
+nis_oidc_state_ttl_seconds: 600
+nis_oidc_state_sweep_interval_seconds: 900
+
+# Single-org SSO: org slug used when /auth/oidc/start is hit with no ?org=.
+# Empty = every SSO start must name an org (multi-org deployments).
+nis_sso_default_org: ""
+
+# =============================================================================
+# backups.*  (scheduled operator backups to S3-compatible storage)
+# =============================================================================
+nis_backups_enabled: false
+nis_backups_sweep_interval_seconds: 3600
+nis_backups_execute_lease_seconds: 900
+nis_backups_s3_endpoint: ""                # empty for AWS; e.g. http://minio:9000
+nis_backups_s3_region: "us-east-1"
+nis_backups_s3_bucket: ""                  # must exist before NIS starts
+nis_backups_s3_access_key_id: ""
+nis_backups_s3_secret_access_key: ""
+nis_backups_s3_use_path_style: true        # required for MinIO
+nis_backups_s3_use_ssl: false
+nis_backups_s3_object_prefix: ""
+
+# =============================================================================
+# NATS Server (optional sidecar; NIS does not require it to run)
+# =============================================================================
 nis_nats_enabled: false
 nis_nats_image: "nats"
 nis_nats_image_tag: "2.10-alpine"
@@ -30,29 +187,16 @@ nis_nats_client_port: 4222
 nis_nats_monitoring_port: 8222
 nis_nats_data_dir: "/opt/nis/nats"
 
-# Security Configuration
-# JWT secret for API authentication - minimum 32 bytes, any length above that is fine
-# Generate with: make generate-jwt-secret
-nis_jwt_secret: "CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
-
-# Encryption key for encrypting private keys in the database (ChaCha20-Poly1305)
-# MUST be exactly 32 bytes (256 bits). Generate with: make generate-encryption-key
-nis_encryption_key: "CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
-
-# Admin User Configuration
+# =============================================================================
+# Admin User (bootstrapped via `nis user create` after the server is healthy)
+# =============================================================================
 nis_admin_user: "admin"
 nis_admin_password: "CHANGE_ME_USE_A_STRONG_PASSWORD"
 nis_create_admin_user: true
 
+# =============================================================================
 # Docker Network
-# Set to empty string "" or "bridge" to use Docker's default bridge network
-# Note: Using default bridge requires linking containers or using IP addresses
-# A custom network (e.g., "nis-network") enables DNS resolution between containers
+# Empty "" or "bridge" = Docker default bridge (containers linked by name).
+# A custom network name enables DNS resolution between containers.
+# =============================================================================
 nis_docker_network: ""
-
-# Auto-migrate database on startup
-# Set to true only for development. Use explicit migrations in production.
-nis_auto_migrate: false
-
-# Restart policy
-nis_restart_policy: "unless-stopped"
