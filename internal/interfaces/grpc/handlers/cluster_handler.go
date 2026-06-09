@@ -199,7 +199,7 @@ func (h *ClusterHandler) UpdateCluster(
 	}
 
 	// Check permission to update the operator that owns this cluster
-	if err := h.permService.CanUpdateOperator(requestingUser, existingCluster.OperatorID); err != nil {
+	if err := h.permService.CanUpdateOperator(ctx, requestingUser, existingCluster.OperatorID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
@@ -245,7 +245,7 @@ func (h *ClusterHandler) UpdateClusterCredentials(
 	}
 
 	// Check permission to update the operator that owns this cluster
-	if err := h.permService.CanUpdateOperator(requestingUser, existingCluster.OperatorID); err != nil {
+	if err := h.permService.CanUpdateOperator(ctx, requestingUser, existingCluster.OperatorID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
@@ -289,7 +289,7 @@ func (h *ClusterHandler) DeleteCluster(
 	}
 
 	// Check permission to delete the operator that owns this cluster
-	if err := h.permService.CanDeleteOperator(requestingUser, existingCluster.OperatorID); err != nil {
+	if err := h.permService.CanDeleteOperator(ctx, requestingUser, existingCluster.OperatorID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
@@ -593,7 +593,7 @@ func (h *ClusterHandler) DeleteResolverAccount(
 	}
 
 	// Check permission to update the operator that owns this cluster (delete requires update permission)
-	if err := h.permService.CanUpdateOperator(requestingUser, cluster.OperatorID); err != nil {
+	if err := h.permService.CanUpdateOperator(ctx, requestingUser, cluster.OperatorID); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 

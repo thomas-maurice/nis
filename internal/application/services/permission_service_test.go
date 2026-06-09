@@ -462,7 +462,10 @@ func TestCanReadOperator(t *testing.T) {
 
 // Test CanUpdateOperator
 func TestCanUpdateOperator(t *testing.T) {
-	permService, _, _, _, operator1ID, _, _, _ := setupPermissionTest()
+	permService, operatorRepo, _, _, operator1ID, _, _, _ := setupPermissionTest()
+	orgID := uuid.New()
+	otherOrg := uuid.New()
+	operatorRepo.operators[operator1ID].OrganizationID = orgID
 
 	tests := []struct {
 		name        string
@@ -473,6 +476,16 @@ func TestCanUpdateOperator(t *testing.T) {
 			name:        "Admin can update operator",
 			apiUser:     &entities.APIUser{Role: entities.RoleAdmin},
 			expectError: false,
+		},
+		{
+			name:        "Org admin of the operator's org can update operator",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &orgID},
+			expectError: false,
+		},
+		{
+			name:        "Org admin of another org cannot update operator",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &otherOrg},
+			expectError: true,
 		},
 		{
 			name:        "Operator admin cannot update operator",
@@ -488,7 +501,7 @@ func TestCanUpdateOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := permService.CanUpdateOperator(tt.apiUser, operator1ID)
+			err := permService.CanUpdateOperator(context.Background(), tt.apiUser, operator1ID)
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, ErrPermissionDenied)
@@ -501,7 +514,10 @@ func TestCanUpdateOperator(t *testing.T) {
 
 // Test CanDeleteOperator
 func TestCanDeleteOperator(t *testing.T) {
-	permService, _, _, _, operator1ID, _, _, _ := setupPermissionTest()
+	permService, operatorRepo, _, _, operator1ID, _, _, _ := setupPermissionTest()
+	orgID := uuid.New()
+	otherOrg := uuid.New()
+	operatorRepo.operators[operator1ID].OrganizationID = orgID
 
 	tests := []struct {
 		name        string
@@ -512,6 +528,16 @@ func TestCanDeleteOperator(t *testing.T) {
 			name:        "Admin can delete operator",
 			apiUser:     &entities.APIUser{Role: entities.RoleAdmin},
 			expectError: false,
+		},
+		{
+			name:        "Org admin of the operator's org can delete operator",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &orgID},
+			expectError: false,
+		},
+		{
+			name:        "Org admin of another org cannot delete operator",
+			apiUser:     &entities.APIUser{Role: entities.RoleOrgAdmin, OrganizationID: &otherOrg},
+			expectError: true,
 		},
 		{
 			name:        "Operator admin cannot delete operator",
@@ -527,7 +553,7 @@ func TestCanDeleteOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := permService.CanDeleteOperator(tt.apiUser, operator1ID)
+			err := permService.CanDeleteOperator(context.Background(), tt.apiUser, operator1ID)
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, ErrPermissionDenied)

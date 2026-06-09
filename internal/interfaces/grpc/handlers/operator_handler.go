@@ -181,7 +181,7 @@ func (h *OperatorHandler) UpdateOperator(
 	}
 
 	// Check permission to update this operator
-	if err := h.permService.CanUpdateOperator(requestingUser, id); err != nil {
+	if err := h.permService.CanUpdateOperator(ctx, requestingUser, id); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
@@ -215,7 +215,7 @@ func (h *OperatorHandler) SetSystemAccount(
 	}
 
 	// Check permission to update this operator
-	if err := h.permService.CanUpdateOperator(requestingUser, id); err != nil {
+	if err := h.permService.CanUpdateOperator(ctx, requestingUser, id); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 
@@ -246,7 +246,7 @@ func (h *OperatorHandler) DeleteOperator(
 	}
 
 	// Check permission to delete this operator
-	if err := h.permService.CanDeleteOperator(requestingUser, id); err != nil {
+	if err := h.permService.CanDeleteOperator(ctx, requestingUser, id); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 

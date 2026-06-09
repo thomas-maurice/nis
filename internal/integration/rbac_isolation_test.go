@@ -253,12 +253,12 @@ func (s *RBACIsolationTestSuite) TestOperatorAdmin_CannotCreateOperators() {
 
 func (s *RBACIsolationTestSuite) TestOperatorAdmin_CannotUpdateOrDeleteOperators() {
 	// Operator admin cannot update even their own operator
-	err := s.permService.CanUpdateOperator(s.operator1Admin, s.operator1.ID)
+	err := s.permService.CanUpdateOperator(context.Background(), s.operator1Admin, s.operator1.ID)
 	s.Error(err, "Operator admin should NOT be able to update operators")
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
 
 	// Operator admin cannot delete operators
-	err = s.permService.CanDeleteOperator(s.operator1Admin, s.operator1.ID)
+	err = s.permService.CanDeleteOperator(context.Background(), s.operator1Admin, s.operator1.ID)
 	s.Error(err, "Operator admin should NOT be able to delete operators")
 	s.True(errors.Is(err, services.ErrPermissionDenied), "Error should be ErrPermissionDenied")
 }
@@ -499,11 +499,11 @@ func (s *RBACIsolationTestSuite) TestPermissionConsistencyAcrossOperations() {
 	s.Error(err)
 
 	// Cannot update operator2
-	err = s.permService.CanUpdateOperator(s.operator1Admin, s.operator2.ID)
+	err = s.permService.CanUpdateOperator(ctx, s.operator1Admin, s.operator2.ID)
 	s.Error(err)
 
 	// Cannot delete operator2
-	err = s.permService.CanDeleteOperator(s.operator1Admin, s.operator2.ID)
+	err = s.permService.CanDeleteOperator(ctx, s.operator1Admin, s.operator2.ID)
 	s.Error(err)
 
 	// Cannot read accounts in operator2

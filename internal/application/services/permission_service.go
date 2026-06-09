@@ -253,15 +253,40 @@ func (s *PermissionService) CanReadOperator(ctx context.Context, apiUser *entiti
 }
 
 // CanUpdateOperator: admin only.
-func (s *PermissionService) CanUpdateOperator(apiUser *entities.APIUser, operatorID uuid.UUID) error {
-	_ = operatorID // reserved for future operator-admin self-update; admin-only today
-	return s.requireRole(apiUser, entities.RoleAdmin)
+func (s *PermissionService) CanUpdateOperator(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	return s.canModifyOperator(ctx, apiUser, operatorID)
 }
 
-// CanDeleteOperator: admin only.
-func (s *PermissionService) CanDeleteOperator(apiUser *entities.APIUser, operatorID uuid.UUID) error {
-	_ = operatorID // signature kept for symmetry with the other Can*Operator calls
-	return s.requireRole(apiUser, entities.RoleAdmin)
+// CanDeleteOperator: admin, or an org-admin whose org owns the operator.
+func (s *PermissionService) CanDeleteOperator(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	return s.canModifyOperator(ctx, apiUser, operatorID)
+}
+
+// canModifyOperator authorizes mutating the operator entity itself
+// (update/delete): platform admins always, and an org-admin only for operators
+// that belong to their own organization. Operator- and account-admins manage
+// resources scoped beneath an operator but cannot edit or delete the operator.
+func (s *PermissionService) canModifyOperator(ctx context.Context, apiUser *entities.APIUser, operatorID uuid.UUID) error {
+	if apiUser == nil {
+		return ErrPermissionDenied
+	}
+	switch apiUser.Role {
+	case entities.RoleAdmin:
+		return nil
+	case entities.RoleOrgAdmin:
+		if apiUser.OrganizationID == nil {
+			return denyf("org-admin has no organization binding")
+		}
+		op, err := s.operatorRepo.GetByID(ctx, operatorID)
+		if err != nil {
+			return fmt.Errorf("load operator %s: %w", operatorID, err)
+		}
+		if op.OrganizationID != *apiUser.OrganizationID {
+			return denyf("operator %s is not in your organization", operatorID)
+		}
+		return nil
+	}
+	return denyf("only admin or org-admin can modify operators")
 }
 
 // CanListOperators: every authenticated user can ask; SQL-level scope in ListPage narrows the result.
